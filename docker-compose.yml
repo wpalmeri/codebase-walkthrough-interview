@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ehr
+      POSTGRES_PASSWORD: ehr
+      POSTGRES_DB: ehr
+    ports:
+      - "54329:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ehr -d ehr"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - ehr-postgres:/var/lib/postgresql/data
+
+  app:
+    build: .
+    profiles: ["full"]
+    environment:
+      DATABASE_URL: postgresql://ehr:ehr@postgres:5432/ehr?schema=public
+      PORT: 3000
+      LOG_LEVEL: info
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "-c", "npm run setup && npm start"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+
+volumes:
+  ehr-postgres:

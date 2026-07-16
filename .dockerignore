@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.env
+coverage
+candidate-package
+tmp
+*.log
+INTERNAL_INTERVIEW_GUIDE.md
+IMPLEMENTATION_PLAN.md
