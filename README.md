@@ -6,19 +6,20 @@ one command and is backed by a realistic (synthetic) dataset.
 
 ## What this exercise is
 
-**You are reviewing this codebase and writing a development plan — you are not
-fixing anything.** No code changes are expected or graded. Spend your time
-reading the code, tracing behavior, and forming a point of view.
+**You are reviewing this codebase and writing a concise priority recommendation
+— you are not fixing anything.** No code changes are expected or graded. Spend
+your time reading the code, tracing behavior, and forming a point of view.
 
 - **Time:** target two hours or less. It is deliberately larger than you can read
   end to end; part of the exercise is deciding where to look.
 - **AI is encouraged.** This was designed expecting you to use AI tools to
   navigate the repo, trace call paths, compare options, and organize findings.
   There is nothing to disclose and no penalty for using them.
-- **No length limit** on your write-up. Be as detailed as the point requires.
+- **No length limit**, but the expected output is a focused memo covering a few
+  core issues and a first/next/later sequence—not a detailed roadmap.
 
 **[`EXTERNAL_INTERVIEW.md`](./EXTERNAL_INTERVIEW.md) is the brief.** It has the
-company context, the business commitments driving the roadmap, and the exact
+company context, the business commitments driving the priorities, and the exact
 deliverable. Read it first; this README just gets you running and oriented.
 
 ## Setup
