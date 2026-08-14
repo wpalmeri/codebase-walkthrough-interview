@@ -3,1101 +3,168 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
-enum UserRole {
-  ADMIN
-  CLINICIAN
-  BILLER
-  VIEWER
+model Customer {
+  id              String   @id @default(cuid())
+  name            String
+  email           String
+  billingAddress  String?
+  portalAccount   String? // account id at the customer's AP portal
+  clearinghouseId String? // trading partner id for API submission
+  createdAt       DateTime @default(now())
+
+  rates          Rate[]
+  comboDiscounts ComboDiscount[]
+  orders         Order[]
+  invoices       Invoice[]
+  payments       Payment[]
 }
 
-enum VisitStatus {
-  PLACEHOLDER
-  SCHEDULED
-  IN_PROGRESS
-  COMPLETED
-  CANCELLED
-  NO_SHOW
+model Product {
+  id        String @id @default(cuid())
+  sku       String @unique
+  name      String
+  unit      String // "seat", "GB", "1k calls", ...
+  listPrice Float
+
+  rates      Rate[]
+  orderItems OrderItem[]
+  combos     ComboDiscount[]
 }
 
-enum ClaimStatus {
-  DRAFT
-  READY
-  SUBMITTED
-  ACCEPTED
-  REJECTED
-  VOIDED
-  PAID
+// One rate per customer+product. Edits update this row with the new price.
+model Rate {
+  id            String   @id @default(cuid())
+  customerId    String
+  productId     String
+  unitPrice     Float
+  // Volume tiers, e.g. [{"minQty": 100, "unitPrice": 4.5}, {"minQty": 500, "unitPrice": 3.75}]
+  tiers         Json?
+  effectiveDate DateTime @default(now())
+
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  product    Product     @relation(fields: [productId], references: [id])
+  orderItems OrderItem[]
+
+  @@unique([customerId, productId])
 }
 
-enum PeriodStatus {
-  OPEN
-  CLOSING
-  CLOSED
-  REOPENED
-}
-
-enum TaskStatus {
-  OPEN
-  IN_PROGRESS
-  BLOCKED
-  COMPLETED
-  CANCELLED
-}
-
-enum JobStatus {
-  PENDING
-  RUNNING
-  SUCCEEDED
-  FAILED
-  DEAD
-}
-
-model Organization {
-  id          String   @id @default(cuid())
-  slug        String   @unique
-  name        String
-  enterprise  Boolean  @default(false)
-  settings    Json     @default("{}")
-  createdAt   DateTime @default(now())
-  regions     Region[]
-  branches    Branch[]
-  users       User[]
-  patients    Patient[]
-  visitSets   VisitSet[]
-  periods     AccountingPeriod[]
-  workflows   WorkflowDefinition[]
-  locations   Location[]
-  referralSources ReferralSource[]
-  webhookEndpoints WebhookEndpoint[]
-  reportDefinitions ReportDefinition[]
-}
-
-model Region {
-  id             String @id @default(cuid())
-  organizationId String
-  name           String
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  branches       Branch[]
-  @@unique([organizationId, name])
-}
-
-model Branch {
-  id             String @id @default(cuid())
-  organizationId String
-  regionId       String?
-  name           String
-  locationCode   String?
-  city           String?
-  state          String?
-  timezone       String @default("America/Los_Angeles")
-  active         Boolean @default(true)
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  region         Region? @relation(fields: [regionId], references: [id])
-  teams          Team[]
-  visitGroups    VisitGroup[]
-  locations      Location[]
-  @@index([organizationId])
-}
-
-model Team {
-  id             String @id @default(cuid())
-  branchId       String
-  organizationId String?
-  name           String
-  branch         Branch @relation(fields: [branchId], references: [id])
-  memberships    TeamMembership[]
-}
-
-model TeamMembership {
-  teamId   String
-  userId   String
-  role     String @default("MEMBER")
-  team     Team @relation(fields: [teamId], references: [id])
-  user     User @relation(fields: [userId], references: [id])
-  @@id([teamId, userId])
-}
-
-model Location {
-  id             String  @id @default(cuid())
-  organizationId String
-  branchId       String?
-  name           String
-  kind           String  @default("FACILITY")
-  addressLine    String?
-  city           String?
-  state          String?
-  postalCode     String?
-  active         Boolean @default(true)
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  branch         Branch? @relation(fields: [branchId], references: [id])
-  @@index([organizationId])
-}
-
-model User {
-  id             String   @id @default(cuid())
-  organizationId String
-  email          String   @unique
-  displayName    String
-  role           UserRole
-  title          String?
-  credential     String?
-  npi            String?
-  isServiceAccount Boolean @default(false)
-  active         Boolean  @default(true)
-  lastLoginAt    DateTime?
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  branchAccess   UserBranch[]
-  clinicianProfile ClinicianProfile?
-  teamMemberships TeamMembership[]
-  patientAssignments PatientAssignment[]
-  createdAt      DateTime @default(now())
-  @@index([organizationId, role])
-}
-
-model UserBranch {
-  userId    String
-  branchId  String
-  expiresAt DateTime?
-  grantedBy String?
-  user      User @relation(fields: [userId], references: [id])
-  @@id([userId, branchId])
-}
-
-model ClinicianProfile {
+// If an order contains every product in the combo, those lines are discounted
+// by percentOff. Scoped to one customer, or global when customerId is null.
+model ComboDiscount {
   id         String  @id @default(cuid())
-  userId     String  @unique
-  credential String
-  discipline String
-  npi        String?
-  hourlyCostCents Int?
-  active     Boolean @default(true)
-  user       User @relation(fields: [userId], references: [id])
-}
-
-model DelegatedAccess {
-  id             String   @id @default(cuid())
-  organizationId String
-  fromUserId     String
-  toUserId       String
-  scope          Json
-  startsAt       DateTime
-  endsAt         DateTime
-  createdBy      String
-  createdAt      DateTime @default(now())
-  @@index([toUserId, endsAt])
-}
-
-model Patient {
-  id             String   @id @default(cuid())
-  organizationId String
-  externalId     String?
-  mrn            String?
-  firstName      String
-  lastName       String
-  dateOfBirth    DateTime
-  phone          String?
-  primaryClinicianId String?
-  currentCoverageId String?
-  customData     Json?
-  notesText      String?
-  active         Boolean  @default(true)
-  deletedAt      DateTime?
-  createdAt      DateTime @default(now())
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  profile        PatientProfile?
-  demographics   PatientDemographics?
-  coverages      InsuranceCoverage[]
-  episodes       CareEpisode[]
-  visitSets      VisitSet[]
-  visits         Visit[]
-  assignments    PatientAssignment[]
-  referrals      Referral[]
-  claims         Claim[]
-  @@index([organizationId, lastName, firstName])
-}
-
-model PatientProfile {
-  id        String @id @default(cuid())
-  patientId String @unique
-  legalName String
-  preferredName String?
-  phone     String?
-  email     String?
-  addressLine String?
-  city      String?
-  state     String?
-  postalCode String?
-  emergencyContactName String?
-  emergencyContactPhone String?
-  patient   Patient @relation(fields: [patientId], references: [id])
-}
-
-model PatientDemographics {
-  id        String @id @default(cuid())
-  patientId String @unique
-  givenName String
-  familyName String
-  birthDate DateTime
-  gender    String?
-  language  String?
-  maritalStatus String?
-  race      String?
-  patient   Patient @relation(fields: [patientId], references: [id])
-}
-
-model PatientAssignment {
-  id        String @id @default(cuid())
-  patientId String
-  userId    String
-  role      String @default("PRIMARY")
-  startedAt DateTime @default(now())
-  endedAt   DateTime?
-  patient   Patient @relation(fields: [patientId], references: [id])
-  user      User @relation(fields: [userId], references: [id])
-  @@index([userId, endedAt])
-  @@index([patientId])
-}
-
-model PatientMerge {
-  id             String   @id @default(cuid())
-  organizationId String
-  survivorId     String
-  mergedId       String
-  mergedBy       String
-  mergedAt       DateTime @default(now())
-  details        Json?
-}
-
-model PossiblePatientMatch {
-  id          String @id @default(cuid())
-  patientId   String
-  candidateId String
-  score       Float
-  status      String @default("PENDING")
-  reviewedBy  String?
-  reviewedAt  DateTime?
-  createdAt   DateTime @default(now())
-  @@index([patientId, status])
-}
-
-model ReferralSource {
-  id             String @id @default(cuid())
-  organizationId String
-  name           String
-  kind           String @default("PHYSICIAN")
-  externalId     String?
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  referrals      Referral[]
-}
-
-model Referral {
-  id             String   @id @default(cuid())
-  organizationId String
-  patientId      String?
-  sourceId       String?
-  receivedAt     DateTime @default(now())
-  status         String   @default("NEW")
-  serviceType    String?
-  notes          String?
-  assignedToId   String?
-  convertedAt    DateTime?
-  patient        Patient? @relation(fields: [patientId], references: [id])
-  source         ReferralSource? @relation(fields: [sourceId], references: [id])
-  @@index([organizationId, status])
-}
-
-model InsuranceCoverage {
-  id          String @id @default(cuid())
-  patientId   String
-  payerId     String
-  memberId    String
-  groupNumber String?
-  planName    String
-  effectiveFrom DateTime
-  effectiveTo DateTime?
-  priority    Int @default(1)
-  copayAmount Decimal? @db.Decimal(8, 2)
-  coinsurancePercent Int?
-  deductibleCents Int?
-  verifiedAt  DateTime?
-  patient     Patient @relation(fields: [patientId], references: [id])
-  payer       Payer @relation(fields: [payerId], references: [id])
-  eligibilityChecks EligibilityCheck[]
-  @@index([patientId, effectiveFrom])
-}
-
-model EligibilityCheck {
-  id         String @id @default(cuid())
-  coverageId String
-  checkedAt  DateTime @default(now())
-  requestedBy String?
-  eligible   Boolean
-  source     String @default("MANUAL")
-  response   Json
-  coverage   InsuranceCoverage @relation(fields: [coverageId], references: [id])
-  @@index([coverageId, checkedAt])
-}
-
-model CareEpisode {
-  id         String @id @default(cuid())
-  patientId  String
+  customerId String?
   name       String
-  status     String @default("ACTIVE")
-  startedAt  DateTime
-  endedAt    DateTime?
-  patient    Patient @relation(fields: [patientId], references: [id])
-  orders     ServiceOrder[]
+  percentOff Float
+
+  customer Customer? @relation(fields: [customerId], references: [id])
+  products Product[]
 }
 
-model ServiceOrder {
-  id          String @id @default(cuid())
-  episodeId   String
-  serviceType String
-  orderedBy   String
-  orderedAt   DateTime
-  status      String @default("ACTIVE")
-  referralId  String?
-  episode     CareEpisode @relation(fields: [episodeId], references: [id])
-  details     OrderDetails?
-  requests    ServiceRequest[]
-  visitSets   VisitSet[]
+model Order {
+  id         String   @id @default(cuid())
+  reference  String? // sales order number, e.g. SO-0042
+  customerId String
+  orderDate  DateTime @default(now())
+  status     String   @default("OPEN") // OPEN | INVOICED | CLOSED
+  shipTo     String? // receiving party / delivery address
+  notes      String?
+
+  customer Customer       @relation(fields: [customerId], references: [id])
+  items    OrderItem[]
+  invoice  Invoice?
+  comments OrderComment[]
 }
 
-model OrderDetails {
-  id         String @id @default(cuid())
-  orderId    String @unique
-  diagnosis  String?
-  diagnosisCodes Json?
-  frequency  String?
-  durationWeeks Int?
-  instructions String?
-  order      ServiceOrder @relation(fields: [orderId], references: [id])
+model OrderComment {
+  id        String   @id @default(cuid())
+  orderId   String
+  author    String
+  body      String
+  createdAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
-model ServiceRequest {
+model OrderItem {
   id        String @id @default(cuid())
   orderId   String
-  requestedUnits Int
-  requestedStart DateTime
-  requestedEnd DateTime?
-  order     ServiceOrder @relation(fields: [orderId], references: [id])
+  productId String
+  rateId    String // points at the customer's current Rate for this product
+  quantity  Float
+  unitPrice Float // computed price, kept in sync with the rate
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+  rate    Rate    @relation(fields: [rateId], references: [id])
 }
 
-model Authorization {
+model Invoice {
+  id         String    @id @default(cuid())
+  number     String    @unique
+  customerId String
+  orderId    String    @unique
+  status     String    @default("DRAFT") // DRAFT | POSTED | SENT | PAID
+  issueDate  DateTime  @default(now())
+  dueDate    DateTime
+  total      Float     @default(0)
+  amountPaid Float     @default(0)
+  postedAt   DateTime?
+
+  customer      Customer             @relation(fields: [customerId], references: [id])
+  order         Order                @relation(fields: [orderId], references: [id])
+  lines         InvoiceLine[]
+  applications  PaymentApplication[]
+  transmissions Transmission[]
+}
+
+model InvoiceLine {
   id          String @id @default(cuid())
-  coverageId  String
-  authorizationNumber String
-  serviceType String
-  maxVisits   Int
-  effectiveFrom DateTime
-  effectiveTo DateTime
-  status      String @default("ACTIVE")
-  requestedBy String?
-  payerReference String?
-  visitSets   VisitSet[]
-}
-
-model VisitSet {
-  id             String @id @default(cuid())
-  organizationId String
-  patientId      String
-  orderId        String
-  coverageId     String?
-  authorizationId String?
-  serviceType    String
-  expectedVisitCount Int?
-  startDate      DateTime
-  endDate        DateTime?
-  status         String @default("ACTIVE")
-  billingStatus  String @default("NOT_READY")
-  customData     Json?
-  deletedAt      DateTime?
-  createdAt      DateTime @default(now())
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  patient        Patient @relation(fields: [patientId], references: [id])
-  order          ServiceOrder @relation(fields: [orderId], references: [id])
-  authorization  Authorization? @relation(fields: [authorizationId], references: [id])
-  groups         VisitGroup[]
-  @@index([organizationId, patientId])
-  @@index([orderId])
-}
-
-model VisitGroup {
-  id             String @id @default(cuid())
-  visitSetId     String
-  branchId       String
-  primaryClinicianId String?
-  scheduledDate  DateTime
-  serviceType    String?
-  status         String @default("SCHEDULED")
-  documentationStatus String @default("MISSING")
-  billingStatus  String @default("NOT_READY")
-  sequenceNumber Int @default(1)
-  deletedAt      DateTime?
-  createdAt      DateTime @default(now())
-  visitSet       VisitSet @relation(fields: [visitSetId], references: [id])
-  branch         Branch @relation(fields: [branchId], references: [id])
-  visits         Visit[]
-  @@index([visitSetId, scheduledDate])
-  @@index([branchId])
-}
-
-model Visit {
-  id             String @id @default(cuid())
-  visitGroupId   String
-  patientId      String
-  clinicianId    String?
-  locationId     String?
-  coverageId     String?
-  serviceType    String?
-  scheduledStart DateTime
-  scheduledEnd   DateTime
-  actualStart    DateTime?
-  actualEnd      DateTime?
-  status         VisitStatus @default(SCHEDULED)
-  completedAt    DateTime?
-  cancelledAt    DateTime?
-  cancellationReason String?
-  customData     Json?
-  deletedAt      DateTime?
-  createdAt      DateTime @default(now())
-  visitGroup     VisitGroup @relation(fields: [visitGroupId], references: [id])
-  patient        Patient @relation(fields: [patientId], references: [id])
-  notes          ClinicalNote[]
-  charges        Charge[]
-  statusHistory  VisitStatusHistory[]
-  @@index([visitGroupId, status])
-  @@index([patientId, scheduledStart])
-  @@index([clinicianId, scheduledStart])
-}
-
-model VisitStatusHistory {
-  id        String @id @default(cuid())
-  visitId   String
-  fromStatus String?
-  toStatus  String
-  changedBy String
-  changedAt DateTime @default(now())
-  visit     Visit @relation(fields: [visitId], references: [id])
-}
-
-model NoteTemplate {
-  id             String @id @default(cuid())
-  organizationId String
-  name           String
-  serviceType    String?
-  schema         Json
-  version        Int @default(1)
-  active         Boolean @default(true)
-  updatedAt      DateTime @updatedAt
-  createdAt      DateTime @default(now())
-}
-
-model ClinicalNote {
-  id          String @id @default(cuid())
-  visitId     String
-  authorId    String
-  templateId  String?
-  noteType    String @default("VISIT_NOTE")
-  content     Json
-  status      String @default("DRAFT")
-  version     Int @default(1)
-  signedAt    DateTime?
-  signedBy    String?
-  updatedAt   DateTime @updatedAt
-  createdAt   DateTime @default(now())
-  visit       Visit @relation(fields: [visitId], references: [id])
-  signatures  NoteSignature[]
-  amendments  NoteAmendment[]
-}
-
-model NoteSignature {
-  id        String @id @default(cuid())
-  noteId    String
-  userId    String
-  signedAt  DateTime @default(now())
-  contentHash String
-  note      ClinicalNote @relation(fields: [noteId], references: [id])
-}
-
-model NoteAmendment {
-  id        String @id @default(cuid())
-  noteId    String
-  reason    String
-  priorContent Json?
-  newContent Json
-  amendedBy String
-  amendedAt DateTime @default(now())
-  note      ClinicalNote @relation(fields: [noteId], references: [id])
-}
-
-model Payer {
-  id        String @id @default(cuid())
-  name      String
-  code      String @unique
-  payerType String @default("COMMERCIAL")
-  coverages InsuranceCoverage[]
-  contracts PayerContract[]
-}
-
-model PayerContract {
-  id             String @id @default(cuid())
-  payerId        String
-  organizationId String
-  name           String
-  kind           String @default("STANDARD")
-  precedence     Int @default(0)
-  effectiveFrom  DateTime
-  effectiveTo    DateTime?
-  active         Boolean @default(true)
-  version        Int @default(1)
-  payer          Payer @relation(fields: [payerId], references: [id])
-  rates          PayerRate[]
-  @@index([payerId, organizationId, effectiveFrom])
-}
-
-model PayerRate {
-  id          String @id @default(cuid())
-  contractId  String
-  serviceType String
-  locationId  String?
-  credential  String?
-  modifierCode String?
-  amount      Decimal @db.Decimal(12, 2)
-  unit        String @default("VISIT")
-  effectiveFrom DateTime
-  effectiveTo DateTime?
-  priority    Int @default(0)
-  contract    PayerContract @relation(fields: [contractId], references: [id])
-  @@index([contractId, serviceType])
-}
-
-model StandardRate {
-  id          String @id @default(cuid())
-  serviceType String
-  amount      Decimal @db.Decimal(12, 2)
-  unit        String @default("VISIT")
-  effectiveFrom DateTime
-  @@index([serviceType])
-}
-
-model Charge {
-  id          String @id @default(cuid())
-  visitId     String
-  coverageId  String?
-  status      String @default("DRAFT")
-  totalAmount Decimal? @db.Decimal(12, 2)
-  pricingSnapshot Json?
-  postedAt    DateTime?
-  createdAt   DateTime @default(now())
-  visit       Visit @relation(fields: [visitId], references: [id])
-  lines       ChargeLine[]
-  @@index([visitId])
-}
-
-model ChargeLine {
-  id          String @id @default(cuid())
-  chargeId    String
-  serviceCode String
-  modifier    String?
-  units       Decimal @db.Decimal(10, 2)
-  unitPrice   Decimal @db.Decimal(12, 2)
-  amount      Decimal @db.Decimal(12, 2)
-  charge      Charge @relation(fields: [chargeId], references: [id])
-  claimLines  ClaimLine[]
-}
-
-model Claim {
-  id             String @id @default(cuid())
-  organizationId String
-  patientId      String
-  payerId        String
-  branchId       String?
-  status         ClaimStatus @default(DRAFT)
-  externalId     String?
-  claimNumber    String?
-  totalAmount    Decimal @db.Decimal(12, 2)
-  balanceAmount  Decimal @db.Decimal(12, 2)
-  serviceStart   DateTime?
-  serviceEnd     DateTime?
-  submittedAt    DateTime?
-  correctedFromId String?
-  createdAt      DateTime @default(now())
-  patient        Patient @relation(fields: [patientId], references: [id])
-  lines          ClaimLine[]
-  attempts       ClaimSubmissionAttempt[]
-  applications   CashApplication[]
-  rejections     ClaimRejection[]
-  statusHistory  ClaimStatusHistory[]
-  @@index([organizationId, status])
-  @@index([patientId])
-}
-
-model ClaimLine {
-  id           String @id @default(cuid())
-  claimId      String
-  chargeLineId String
-  serviceCode  String?
-  units        Decimal? @db.Decimal(10, 2)
-  amount       Decimal @db.Decimal(12, 2)
-  claim        Claim @relation(fields: [claimId], references: [id])
-  chargeLine   ChargeLine @relation(fields: [chargeLineId], references: [id])
-}
-
-model ClaimSubmissionAttempt {
-  id          String @id @default(cuid())
-  claimId     String
-  requestId   String?
-  status      String
-  response    Json?
-  attemptedAt DateTime @default(now())
-  claim       Claim @relation(fields: [claimId], references: [id])
-  @@index([claimId, attemptedAt])
-}
-
-model ClaimRejection {
-  id         String @id @default(cuid())
-  claimId    String
-  code       String
-  message    String
-  category   String?
-  receivedAt DateTime @default(now())
-  resolvedAt DateTime?
-  resolution String?
-  claim      Claim @relation(fields: [claimId], references: [id])
-  @@index([claimId])
-}
-
-model ClaimStatusHistory {
-  id        String @id @default(cuid())
-  claimId   String
-  fromStatus String?
-  toStatus  String
-  changedBy String?
-  note      String?
-  changedAt DateTime @default(now())
-  claim     Claim @relation(fields: [claimId], references: [id])
-}
-
-model PatientStatement {
-  id          String @id @default(cuid())
-  patientId   String
-  batchId     String?
-  periodStart DateTime
-  periodEnd   DateTime
-  amount      Decimal @db.Decimal(12, 2)
-  status      String @default("GENERATED")
-  generatedAt DateTime @default(now())
-  payload     Json
-}
-
-model StatementBatch {
-  id             String @id @default(cuid())
-  organizationId String
-  periodStart    DateTime
-  periodEnd      DateTime
-  status         String @default("PENDING")
-  statementCount Int @default(0)
-  totalAmount    Decimal? @db.Decimal(14, 2)
-  requestedBy    String?
-  generatedAt    DateTime?
-  createdAt      DateTime @default(now())
-}
-
-model AccountingPeriod {
-  id             String @id @default(cuid())
-  organizationId String
-  year           Int
-  month          Int
-  status         PeriodStatus @default(OPEN)
-  closedAt       DateTime?
-  closedBy       String?
-  reopenedAt     DateTime?
-  reopenedBy     String?
-  notes          String?
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  adjustments    PeriodAdjustment[]
-  @@unique([organizationId, year, month])
-}
-
-model PeriodAdjustment {
-  id          String @id @default(cuid())
-  periodId    String
+  invoiceId   String
   description String
-  amount      Decimal @db.Decimal(14, 2)
-  account     String?
-  postingId   String?
-  createdBy   String
-  createdAt   DateTime @default(now())
-  period      AccountingPeriod @relation(fields: [periodId], references: [id])
+  quantity    Float
+  unitPrice   Float
+  amount      Float
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 }
 
-model FinancialPosting {
-  id             String @id @default(cuid())
-  organizationId String
-  sourceType     String
-  sourceId       String
-  postingDate    DateTime
-  amount         Decimal @db.Decimal(14, 2)
-  account        String
-  metadata       Json
-  reversedById   String?
-  createdAt      DateTime @default(now())
-  @@index([organizationId, postingDate])
-  @@index([sourceType, sourceId])
-}
-
+// A payment received from a customer. Recording it is separate from applying it;
+// one payment can be applied across many invoices.
 model Payment {
-  id             String @id @default(cuid())
-  organizationId String
-  externalId     String
-  payerId        String?
-  remittanceFileId String?
-  method         String @default("ERA")
-  amount         Decimal @db.Decimal(14, 2)
-  receivedAt     DateTime
-  unappliedAmount Decimal @db.Decimal(14, 2)
-  status         String @default("RECEIVED")
-  metadata       Json?
-  applications   CashApplication[]
-  @@unique([organizationId, externalId])
+  id         String   @id @default(cuid())
+  customerId String
+  amount     Float
+  receivedAt DateTime @default(now())
+  reference  String?
+
+  customer     Customer             @relation(fields: [customerId], references: [id])
+  applications PaymentApplication[]
 }
 
-model CashApplication {
-  id         String @id @default(cuid())
-  paymentId  String
-  claimId    String
-  amount     Decimal @db.Decimal(14, 2)
-  source     String @default("MANUAL")
-  enteredBy  String?
-  appliedAt  DateTime @default(now())
-  reversedAt DateTime?
-  payment    Payment @relation(fields: [paymentId], references: [id])
-  claim      Claim @relation(fields: [claimId], references: [id])
-  @@index([paymentId])
-  @@index([claimId])
+model PaymentApplication {
+  id        String   @id @default(cuid())
+  paymentId String
+  invoiceId String
+  amount    Float
+  appliedAt DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
 }
 
-model RemittanceFile {
-  id             String @id @default(cuid())
-  organizationId String
-  externalId     String
-  payerId        String?
-  receivedAt     DateTime @default(now())
-  totalAmount    Decimal @db.Decimal(14, 2)
-  status         String @default("RECEIVED")
-  raw            Json
-  lines          RemittanceLine[]
-  @@unique([organizationId, externalId])
-}
+model Transmission {
+  id            String   @id @default(cuid())
+  invoiceId     String
+  method        String // EMAIL | PORTAL | API
+  status        String // EMAIL: SENT; PORTAL: QUEUED|UPLOADING|DELIVERED; API: ACCEPTED
+  externalJobId String?
+  detail        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-model RemittanceLine {
-  id               String @id @default(cuid())
-  fileId           String
-  claimExternalId  String?
-  patientLastName  String?
-  serviceDate      DateTime?
-  billedAmount     Decimal @db.Decimal(12, 2)
-  paidAmount       Decimal @db.Decimal(12, 2)
-  adjustmentAmount Decimal @db.Decimal(12, 2) @default(0)
-  adjustmentCode   String?
-  status           String @default("UNMATCHED")
-  matchedClaimId   String?
-  file             RemittanceFile @relation(fields: [fileId], references: [id])
-  @@index([fileId, status])
-}
-
-model AuditEvent {
-  id             String @id @default(cuid())
-  organizationId String
-  actorId        String?
-  action         String
-  resourceType   String
-  resourceId     String
-  requestId      String?
-  payload        Json?
-  createdAt      DateTime @default(now())
-  @@index([organizationId, createdAt])
-}
-
-model AnalyticsEvent {
-  id             String @id @default(cuid())
-  name           String
-  organizationId String?
-  userId         String?
-  properties     Json
-  sentAt         DateTime @default(now())
-  @@index([name, sentAt])
-}
-
-model DomainEvent {
-  id             String @id @default(cuid())
-  organizationId String
-  eventName      String
-  aggregateType  String
-  aggregateId    String
-  payload        Json
-  emittedBy      String?
-  occurredAt     DateTime @default(now())
-  processedAt    DateTime?
-  attempts       Int @default(0)
-  @@index([processedAt, occurredAt])
-}
-
-model WorkflowDefinition {
-  id             String @id @default(cuid())
-  organizationId String
-  name           String
-  description    String?
-  eventName      String
-  condition      Json
-  actions        Json
-  enabled        Boolean @default(false)
-  version        Int @default(1)
-  createdBy      String?
-  updatedBy      String?
-  updatedAt      DateTime @default(now())
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  executions     WorkflowExecution[]
-}
-
-model WorkflowExecution {
-  id           String @id @default(cuid())
-  workflowId   String
-  eventId      String?
-  dedupeKey    String?
-  status       String
-  input        Json
-  output       Json?
-  error        String?
-  attempt      Int @default(1)
-  startedAt    DateTime @default(now())
-  completedAt  DateTime?
-  workflow     WorkflowDefinition @relation(fields: [workflowId], references: [id])
-}
-
-model WebhookEndpoint {
-  id             String @id @default(cuid())
-  organizationId String
-  url            String
-  secret         String
-  eventNames     Json
-  active         Boolean @default(true)
-  createdBy      String?
-  createdAt      DateTime @default(now())
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  deliveries     WebhookDelivery[]
-}
-
-model WebhookDelivery {
-  id             String @id @default(cuid())
-  endpointId     String
-  eventName      String
-  payload        Json
-  status         String @default("PENDING")
-  attempts       Int @default(0)
-  responseStatus Int?
-  lastAttemptAt  DateTime?
-  nextRetryAt    DateTime?
-  createdAt      DateTime @default(now())
-  endpoint       WebhookEndpoint @relation(fields: [endpointId], references: [id])
-  @@index([status, nextRetryAt])
-}
-
-model TaskRecord {
-  id             String @id @default(cuid())
-  organizationId String
-  title          String
-  description    String?
-  status         TaskStatus @default(OPEN)
-  priority       String @default("NORMAL")
-  assigneeId     String?
-  patientId      String?
-  visitId        String?
-  claimId        String?
-  dueAt          DateTime?
-  source         String @default("MANUAL")
-  createdBy      String?
-  createdAt      DateTime @default(now())
-  completedAt    DateTime?
-  @@index([organizationId, status])
-  @@index([assigneeId, status])
-}
-
-model JobRecord {
-  id          String @id @default(cuid())
-  type        String
-  payload     Json
-  status      JobStatus @default(PENDING)
-  attempts    Int @default(0)
-  maxAttempts Int @default(5)
-  runAt       DateTime @default(now())
-  lockedAt    DateTime?
-  lockedBy    String?
-  lastError   String?
-  createdAt   DateTime @default(now())
-  completedAt DateTime?
-  @@index([status, runAt])
-}
-
-model FeatureFlag {
-  id              String @id @default(cuid())
-  key             String @unique
-  description     String?
-  enabledGlobally Boolean @default(false)
-  organizationIds Json @default("[]")
-  updatedAt       DateTime @default(now())
-}
-
-model IntegrationSyncState {
-  id             String @id @default(cuid())
-  organizationId String
-  integration    String
-  cursor         String?
-  lastSyncAt     DateTime?
-  state          Json @default("{}")
-  @@unique([organizationId, integration])
-}
-
-model ReportDefinition {
-  id             String @id @default(cuid())
-  organizationId String
-  key            String?
-  name           String
-  description    String?
-  baseView       String
-  columns        Json
-  filters        Json @default("[]")
-  groupings      Json @default("[]")
-  calculations   Json @default("[]")
-  shared         Boolean @default(false)
-  createdBy      String?
-  updatedAt      DateTime @default(now())
-  createdAt      DateTime @default(now())
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  runs           ReportRun[]
-}
-
-model ReportRun {
-  id             String @id @default(cuid())
-  organizationId String?
-  definitionId   String?
-  reportKey      String?
-  requestedBy    String?
-  parameters     Json @default("{}")
-  status         String @default("RUNNING")
-  startedAt      DateTime @default(now())
-  completedAt    DateTime?
-  durationMs     Int?
-  rowCount       Int?
-  resultSample   Json?
-  error          String?
-  definition     ReportDefinition? @relation(fields: [definitionId], references: [id])
-  @@index([organizationId, startedAt])
-}
-
-model ScheduledExport {
-  id             String @id @default(cuid())
-  organizationId String
-  name           String
-  definitionId   String?
-  reportKey      String?
-  cron           String
-  format         String @default("CSV")
-  destinationUrl String?
-  recipients     Json @default("[]")
-  enabled        Boolean @default(true)
-  lastRunAt      DateTime?
-  nextRunAt      DateTime?
-  createdBy      String?
-  createdAt      DateTime @default(now())
-}
-
-model CustomFieldDefinition {
-  id             String @id @default(cuid())
-  organizationId String
-  entityType     String
-  key            String
-  label          String
-  dataType       String
-  configuration  Json
-  version        Int @default(1)
-  active         Boolean @default(true)
-  archivedAt     DateTime?
-  values         CustomFieldValue[]
-  @@unique([organizationId, entityType, key])
-}
-
-model CustomFieldValue {
-  id           String @id @default(cuid())
-  definitionId String
-  entityType   String
-  entityId     String
-  stringValue  String?
-  numberValue  Decimal? @db.Decimal(18, 4)
-  dateValue    DateTime?
-  booleanValue Boolean?
-  jsonValue    Json?
-  updatedAt    DateTime @default(now())
-  createdAt    DateTime @default(now())
-  definition   CustomFieldDefinition @relation(fields: [definitionId], references: [id])
-  @@index([entityType, entityId])
-  @@index([definitionId, stringValue])
-}
-
-model AiConversation {
-  id             String @id @default(cuid())
-  organizationId String
-  userId         String
-  title          String?
-  createdAt      DateTime @default(now())
-  runs           AiRun[]
-}
-
-model AiRun {
-  id             String @id @default(cuid())
-  organizationId String
-  conversationId String?
-  requestedBy    String
-  purpose        String
-  prompt         String
-  response       String?
-  model          String @default("fake-operations-1")
-  inputTokens    Int?
-  outputTokens   Int?
-  status         String @default("RUNNING")
-  createdAt      DateTime @default(now())
-  completedAt    DateTime?
-  conversation   AiConversation? @relation(fields: [conversationId], references: [id])
-  proposedActions AiProposedAction[]
-  toolInvocations AiToolInvocation[]
-}
-
-model AiToolInvocation {
-  id        String @id @default(cuid())
-  runId     String
-  toolName  String
-  arguments Json
-  result    Json?
-  error     String?
-  startedAt DateTime @default(now())
-  completedAt DateTime?
-  run       AiRun @relation(fields: [runId], references: [id])
-}
-
-model AiProposedAction {
-  id          String @id @default(cuid())
-  runId       String
-  actionType  String
-  arguments   Json
-  summary     String?
-  status      String @default("PROPOSED")
-  approvedBy  String?
-  executedAt  DateTime?
-  executionResult Json?
-  run         AiRun @relation(fields: [runId], references: [id])
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
 }
