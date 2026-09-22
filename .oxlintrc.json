@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "plugins": ["eslint", "typescript", "unicorn", "import", "react", "jsx-a11y"],
+  "options": {
+    "typeAware": true
+  },
+  "rules": {
+    "import/no-unassigned-import": "off",
+    "eslint/no-shadow": "off",
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "react/set-state-in-effect": "off",
+    "react/react-in-jsx-scope": "off"
+  },
+  "ignorePatterns": ["dist/**", "node_modules/**"]
+}

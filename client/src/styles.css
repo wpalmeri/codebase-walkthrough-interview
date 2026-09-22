@@ -690,7 +690,16 @@ textarea {
   z-index: 50;
 }
 
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
 .modal {
+  position: relative;
   background: var(--surface);
   border-radius: 12px;
   box-shadow: 0 20px 48px rgba(16, 24, 40, 0.22);
@@ -699,6 +708,18 @@ textarea {
   max-height: 84vh;
   display: flex;
   flex-direction: column;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .modal-head {

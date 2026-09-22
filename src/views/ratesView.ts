@@ -1,14 +1,14 @@
 import { Router } from "express";
 import * as rates from "../controllers/rateController";
-import { h } from "./helpers";
+import { h, optionalQueryString } from "./helpers";
 
 export const ratesView = Router();
 
-ratesView.get("/", h(async (req) => rates.listRates(req.query.customerId as string | undefined)));
+ratesView.get("/", h(async (req) => rates.listRates(optionalQueryString(req.query.customerId))));
 
 ratesView.get(
   "/combos",
-  h(async (req) => rates.listComboDiscounts(req.query.customerId as string | undefined))
+  h(async (req) => rates.listComboDiscounts(optionalQueryString(req.query.customerId)))
 );
 
 ratesView.post(

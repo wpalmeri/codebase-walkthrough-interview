@@ -1,19 +1,13 @@
 import type { ComboDiscount, Product, Rate } from "@prisma/client";
+import { parseRateTiers } from "../domain/rateTier";
+import type { RateTier } from "../domain/rateTier";
+
+export type { RateTier } from "../domain/rateTier";
 
 export interface ComboProductModel {
   id: string;
   sku: string;
   name: string;
-}
-
-// A quantity interval of the rate schedule. Units falling inside the interval
-// are billed at its unit price; the interval's charge is clamped between the
-// optional floor and ceiling. The item's price is the blended result.
-export interface RateTier {
-  upTo: number | null; // upper bound of the interval; null = unbounded
-  unitPrice: number;
-  floor?: number | null; // minimum charge for the interval
-  ceiling?: number | null; // maximum charge for the interval
 }
 
 export interface RateModel {
@@ -43,7 +37,7 @@ export function toRateModel(row: Rate & { product?: Product }): RateModel {
     productSku: row.product?.sku,
     productName: row.product?.name,
     unitPrice: row.unitPrice,
-    tiers: (row.tiers as unknown as RateTier[]) ?? [],
+    tiers: parseRateTiers(row.tiers),
     effectiveDate: row.effectiveDate.toISOString(),
   };
 }
