@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 export type ArchitectureDiagnostic = {
-  readonly ruleId: "ARCH001" | "ARCH002" | "ARCH003" | "ARCH004";
+  readonly ruleId: "ARCH001" | "ARCH002" | "ARCH003" | "ARCH004" | "ARCH005";
   readonly path: string;
   readonly line: number;
   readonly message: string;
@@ -22,6 +22,15 @@ const LEGACY_FLOAT_COLUMNS = new Set([
   "InvoiceLine.amount",
   "Payment.amount",
   "PaymentApplication.amount",
+]);
+
+const ENUM_BACKED_LIFECYCLE_FIELDS = new Map([
+  ["Order.status", "OrderStatus"],
+  ["Invoice.status", "InvoiceStatus"],
+  ["Transmission.method", "TransmissionMethod"],
+  ["Transmission.status", "TransmissionStatus"],
+  ["IdempotencyRecord.method", "IdempotencyHttpMethod"],
+  ["IdempotencyRecord.state", "IdempotencyRecordState"],
 ]);
 
 const CENTRALIZED_LEGACY_CONVERSION_BOUNDARIES = new Set([
@@ -154,6 +163,36 @@ async function checkFloatColumns(root: string): Promise<ArchitectureDiagnostic[]
   });
 }
 
+async function checkLifecycleEnumColumns(root: string): Promise<ArchitectureDiagnostic[]> {
+  const relativePath = "prisma/schema.prisma";
+  let content: string;
+  try {
+    content = await readFile(path.join(root, relativePath), "utf8");
+  } catch (error: unknown) {
+    if (hasNotFoundCode(error)) return [];
+    throw error;
+  }
+
+  let model: string | undefined;
+  return content.split("\n").flatMap((line, index) => {
+    const modelMatch = /^\s*model\s+(\w+)\s*\{/.exec(line);
+    if (modelMatch) model = modelMatch[1];
+    if (/^\s*}/.test(line)) model = undefined;
+    const fieldMatch = /^\s*(\w+)\s+(\w+)\b/.exec(line);
+    if (!model || !fieldMatch) return [];
+    const expectedType = ENUM_BACKED_LIFECYCLE_FIELDS.get(`${model}.${fieldMatch[1]}`);
+    if (expectedType === undefined || fieldMatch[2] === expectedType) return [];
+    return [
+      diagnostic(
+        "ARCH005",
+        relativePath,
+        index + 1,
+        `lifecycle field ${model}.${fieldMatch[1]} must use Prisma enum ${expectedType}, not ${fieldMatch[2]}`,
+      ),
+    ];
+  });
+}
+
 function financialConversionOnLine(line: string): boolean {
   return (
     /\bparseFloat\s*\(/.test(line) ||
@@ -235,6 +274,7 @@ export async function runArchitectureIntegrity(root = process.cwd()): Promise<Ar
   const diagnostics = (
     await Promise.all([
       checkFloatColumns(root),
+      checkLifecycleEnumColumns(root),
       checkFinancialConversions(root),
       checkPaymentApplicationMutations(root),
       checkZodModelTypes(root),

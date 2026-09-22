@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { InvoiceStatus, TransmissionMethod, TransmissionStatus } from "@meridian/contracts";
 import { prisma } from "../db";
 import {
   assertAccountingDateOpen,
@@ -67,7 +68,7 @@ export interface InvoiceLedgerSnapshot {
   readonly id: string;
   readonly customerId: string;
   readonly currencyCode: string | null;
-  readonly status: string;
+  readonly status: InvoiceStatus;
   readonly total: number;
   readonly totalDecimal: DecimalInput | null;
   readonly amountPaid: number;
@@ -222,7 +223,7 @@ export interface PaymentReversalSnapshot {
     readonly id: string;
     readonly customerId: string;
     readonly currencyCode: string | null;
-    readonly status: string;
+    readonly status: InvoiceStatus;
     readonly total: number;
     readonly totalDecimal: DecimalInput | null;
     readonly amountPaid: number;
@@ -230,7 +231,10 @@ export interface PaymentReversalSnapshot {
     readonly applications: readonly (LedgerAmount & {
       readonly reversals: readonly ExactReversalAmount[];
     })[];
-    readonly transmissions: readonly { readonly method: string; readonly status: string }[];
+    readonly transmissions: readonly {
+      readonly method: TransmissionMethod;
+      readonly status: TransmissionStatus;
+    }[];
   };
   readonly closedThroughDate: string | null;
 }
@@ -249,7 +253,7 @@ export interface PaymentReversalInvoiceWrite {
   readonly invoiceId: string;
   readonly expectedAmountPaid: number;
   readonly expectedAmountPaidDecimal: CanonicalDecimal;
-  readonly expectedStatus: string;
+  readonly expectedStatus: InvoiceStatus;
   readonly amountPaid: number;
   readonly amountPaidDecimal: CanonicalDecimal;
   readonly status: "POSTED" | "SENT" | "PAID";

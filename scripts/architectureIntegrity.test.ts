@@ -65,4 +65,52 @@ describe("architecture integrity guard", () => {
       "ARCH003 src/services/ledgerBypass.ts:3",
     ]);
   });
+
+  test("requires lifecycle fields to retain their generated Prisma enum types", async () => {
+    const root = await fixture({
+      "prisma/schema.prisma": [
+        "model Order {",
+        "  status String",
+        "}",
+        "model Invoice {",
+        "  status InvoiceStatus",
+        "}",
+        "model Transmission {",
+        "  method String",
+        "  status String",
+        "}",
+        "model IdempotencyRecord {",
+        "  method IdempotencyHttpMethod",
+        "  state String",
+        "}",
+      ].join("\n"),
+    });
+
+    expect(await runArchitectureIntegrity(root)).toEqual([
+      {
+        ruleId: "ARCH005",
+        path: "prisma/schema.prisma",
+        line: 2,
+        message: "lifecycle field Order.status must use Prisma enum OrderStatus, not String",
+      },
+      {
+        ruleId: "ARCH005",
+        path: "prisma/schema.prisma",
+        line: 8,
+        message: "lifecycle field Transmission.method must use Prisma enum TransmissionMethod, not String",
+      },
+      {
+        ruleId: "ARCH005",
+        path: "prisma/schema.prisma",
+        line: 9,
+        message: "lifecycle field Transmission.status must use Prisma enum TransmissionStatus, not String",
+      },
+      {
+        ruleId: "ARCH005",
+        path: "prisma/schema.prisma",
+        line: 13,
+        message: "lifecycle field IdempotencyRecord.state must use Prisma enum IdempotencyRecordState, not String",
+      },
+    ]);
+  });
 });

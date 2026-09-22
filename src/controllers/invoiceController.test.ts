@@ -4,6 +4,7 @@ import {
   sendInvoiceWithDependencies,
   type InvoiceDeliveryDependencies,
 } from "./invoiceController";
+import type { InvoiceStatus } from "@meridian/contracts";
 import { ConflictError, PreconditionError } from "../errors";
 import type { InvoiceModel } from "../models/invoice";
 
@@ -33,7 +34,7 @@ const resultInvoice: InvoiceModel = {
   lastTransmission: null,
 };
 
-function invoice(status = "POSTED") {
+function invoice(status: InvoiceStatus = "POSTED") {
   return {
     id: "invoice-1",
     number: "INV-00001",

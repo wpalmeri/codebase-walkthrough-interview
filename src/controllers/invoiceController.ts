@@ -2,6 +2,7 @@ import {
   EmailAddressSchema,
   TransmissionMethodSchema,
   type TransmissionMethod,
+  type TransmissionStatus,
 } from "@meridian/contracts";
 import { randomUUID } from "node:crypto";
 import { Prisma, type OrderItem, type Product } from "@prisma/client";
@@ -105,7 +106,7 @@ interface DeliverableInvoice {
 }
 
 interface TransmissionResult {
-  status: string;
+  status: TransmissionStatus;
   detail: string;
   externalJobId?: string;
 }
@@ -128,7 +129,7 @@ export interface InvoiceDeliveryDependencies {
   sendEmail(to: string, invoiceNumber: string, pdf: Buffer): TransmissionResult;
   createPortalJob(portalAccount: string, invoiceNumber: string): TransmissionResult;
   submitToClearinghouse(clearinghouseId: string, invoiceNumber: string): TransmissionResult;
-  attachDocument(method: string, reference: string, pdf: Buffer): void;
+  attachDocument(method: TransmissionMethod, reference: string, pdf: Buffer): void;
   recordSuccessfulTransmission(input: TransmissionRecordInput): Promise<void>;
   recordFailedTransmission(input: FailedTransmissionInput): Promise<void>;
   getInvoice(invoiceId: string): Promise<InvoiceModel>;

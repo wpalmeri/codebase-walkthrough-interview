@@ -14,6 +14,7 @@ import {
   type PaymentReversalSnapshot,
   type PaymentReversalTransaction,
 } from "./paymentController";
+import type { InvoiceStatus } from "@meridian/contracts";
 import {
   DomainInvariantError,
   NotFoundError,
@@ -44,7 +45,7 @@ function reversalSnapshot(input: {
   reversedAmounts?: readonly string[];
   amountPaidDecimal?: string;
   amountPaid?: number;
-  status?: string;
+  status?: InvoiceStatus;
   closedThroughDate?: string | null;
   successfulDelivery?: boolean;
 } = {}): PaymentReversalSnapshot {
