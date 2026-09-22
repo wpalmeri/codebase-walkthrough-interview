@@ -11,7 +11,9 @@ export const api = Router();
 
 api.use("/customers", customersView);
 api.use("/products", productsView);
-api.use("/rates", ratesView);
+// Rate operation descriptors own their complete version-relative paths so the
+// mounted route and generated OpenAPI path cannot disagree about a prefix.
+api.use(ratesView);
 api.use("/orders", ordersView);
 api.use("/invoices", invoicesView);
 api.use("/payments", paymentsView);
