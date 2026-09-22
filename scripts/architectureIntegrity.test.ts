@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, test } from "bun:test";
 import { runArchitectureIntegrity } from "./architectureIntegrity";
 
@@ -24,6 +25,11 @@ afterEach(async () => {
 });
 
 describe("architecture integrity guard", () => {
+  test("accepts the current migration tree", async () => {
+    const repositoryRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
+    expect(await runArchitectureIntegrity(repositoryRoot)).toEqual([]);
+  });
+
   test("accepts legacy compatibility boundaries and Zod-inferred shared models", async () => {
     const root = await fixture({
       "prisma/schema.prisma": "model Product {\n  listPrice Float\n}\n",
@@ -134,6 +140,60 @@ describe("architecture integrity guard", () => {
         line: 18,
         message: "lifecycle field AuditEvent.resourceKind must use Prisma enum AuditResourceKind, not String",
       },
+    ]);
+  });
+
+  test("permits additive DDL and row-level trigger DML while ignoring comments, strings, and casing", async () => {
+    const root = await fixture({
+      "prisma/migrations/20260923000000_safe/migration.sql": [
+        "-- DROP TABLE and UPDATE in comments are not executable SQL.",
+        "CrEaTe TABLE \"NewAudit\" (\"id\" TEXT NOT NULL PRIMARY KEY);",
+        "ALTER TABLE \"NewAudit\" ADD COLUMN \"note\" TEXT DEFAULT 'DELETE FROM Customer';",
+        "CREATE TRIGGER \"NewAudit_row_guard\"",
+        "AFTER INSERT ON \"NewAudit\"",
+        "BEGIN",
+        "  uPdAtE \"NewAudit\" SET \"note\" = 'update is data' WHERE \"id\" = NEW.\"id\";",
+        "  DELETE FROM \"NewAudit\" WHERE \"id\" = 'never-matches';",
+        "END;",
+      ].join("\n"),
+    });
+
+    expect(await runArchitectureIntegrity(root)).toEqual([]);
+  });
+
+  test("rejects destructive, rebuild, top-level data, and ambiguous migration SQL with stable locations", async () => {
+    const root = await fixture({
+      "prisma/migrations/20260923000000_drop_table/migration.sql": "-- never deploy this\nDROP TABLE \"Invoice\";\n",
+      "prisma/migrations/20260923000001_drop_column/migration.sql": "ALTER TABLE \"Invoice\" DROP COLUMN \"total\";\n",
+      "prisma/migrations/20260923000001a_drop_index/migration.sql": "DROP INDEX \"Invoice_number_key\";\n",
+      "prisma/migrations/20260923000002_rename/migration.sql": "ALTER TABLE \"Invoice\" RENAME TO \"Invoice_old\";\n",
+      "prisma/migrations/20260923000003_backfill/migration.sql": "-- a comment cannot conceal a top-level backfill\nuPdAtE \"Invoice\"\nSET \"status\" = 'POSTED';\n",
+      "prisma/migrations/20260923000004_table_as_select/migration.sql": "CREATE TABLE \"Invoice_copy\" AS\nSELECT * FROM \"Invoice\";\n",
+      "prisma/migrations/20260923000005_cte_bypass/migration.sql": "WITH rows AS (SELECT * FROM \"Invoice\") DELETE FROM \"Invoice\";\n",
+      "prisma/migrations/20260923000006_unterminated/migration.sql": "CREATE TABLE \"unterminated (id TEXT);\n",
+      "prisma/migrations/20260923000007_trigger_bypass/migration.sql": [
+        "CREATE TRIGGER \"row_guard\" AFTER INSERT ON \"Invoice\" BEGIN",
+        "  UPDATE \"Invoice\" SET \"status\" = 'POSTED' WHERE \"id\" = NEW.\"id\";",
+        "  -- A comment with END; must not close the trigger.",
+      ].join("\n"),
+      "prisma/migrations/20260923000008_trigger_header_bypass/migration.sql": [
+        "CREATE TRIGGER \"not_a_body\" AFTER INSERT ON \"Invoice\";",
+        "DROP TABLE \"Invoice\";",
+      ].join("\n"),
+    });
+
+    expect((await runArchitectureIntegrity(root)).map((item) => `${item.ruleId} ${item.path}:${item.line}`)).toEqual([
+      "MIG001 prisma/migrations/20260923000000_drop_table/migration.sql:2",
+      "MIG001 prisma/migrations/20260923000001_drop_column/migration.sql:1",
+      "MIG001 prisma/migrations/20260923000001a_drop_index/migration.sql:1",
+      "MIG002 prisma/migrations/20260923000002_rename/migration.sql:1",
+      "MIG003 prisma/migrations/20260923000003_backfill/migration.sql:2",
+      "MIG003 prisma/migrations/20260923000004_table_as_select/migration.sql:1",
+      "MIG004 prisma/migrations/20260923000005_cte_bypass/migration.sql:1",
+      "MIG005 prisma/migrations/20260923000006_unterminated/migration.sql:1",
+      "MIG005 prisma/migrations/20260923000007_trigger_bypass/migration.sql:2",
+      "MIG005 prisma/migrations/20260923000008_trigger_header_bypass/migration.sql:1",
+      "MIG001 prisma/migrations/20260923000008_trigger_header_bypass/migration.sql:2",
     ]);
   });
 });

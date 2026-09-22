@@ -3,7 +3,17 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 export type ArchitectureDiagnostic = {
-  readonly ruleId: "ARCH001" | "ARCH002" | "ARCH003" | "ARCH004" | "ARCH005";
+  readonly ruleId:
+    | "ARCH001"
+    | "ARCH002"
+    | "ARCH003"
+    | "ARCH004"
+    | "ARCH005"
+    | "MIG001"
+    | "MIG002"
+    | "MIG003"
+    | "MIG004"
+    | "MIG005";
   readonly path: string;
   readonly line: number;
   readonly message: string;
@@ -60,6 +70,18 @@ const FINANCIAL_SOURCE_ROOTS = ["src/domain", "src/controllers", "src/models"];
 const BILLING_CLIENT_ROOTS = ["client/src/api.ts", "client/src/pages"];
 const SHARED_MODEL_ROOTS = ["packages/contracts/src", "src", "client/src"];
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx"]);
+const MIGRATIONS_ROOT = "prisma/migrations";
+
+type SqlToken = {
+  readonly kind: "word" | "quoted" | "string" | "symbol";
+  readonly value: string;
+  readonly line: number;
+};
+
+type SqlTokenization = {
+  readonly tokens: readonly SqlToken[];
+  readonly error?: { readonly line: number; readonly message: string };
+};
 
 function hasNotFoundCode(error: unknown): boolean {
   return (
@@ -108,6 +130,19 @@ async function sourceFiles(root: string, sourceRoots: readonly string[]): Promis
     .toSorted();
 }
 
+async function migrationFiles(root: string): Promise<string[]> {
+  try {
+    const directories = await readdir(path.join(root, MIGRATIONS_ROOT), { withFileTypes: true });
+    return directories
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.posix.join(MIGRATIONS_ROOT, entry.name, "migration.sql"))
+      .toSorted();
+  } catch (error: unknown) {
+    if (hasNotFoundCode(error)) return [];
+    throw error;
+  }
+}
+
 function diagnostic(
   ruleId: ArchitectureDiagnostic["ruleId"],
   file: string,
@@ -115,6 +150,239 @@ function diagnostic(
   message: string,
 ): ArchitectureDiagnostic {
   return { ruleId, path: file, line, message };
+}
+
+function tokenizeSql(content: string): SqlTokenization {
+  const tokens: SqlToken[] = [];
+  let index = 0;
+  let line = 1;
+
+  const advance = (): string => {
+    const character = content[index++];
+    if (character === "\n") line += 1;
+    return character;
+  };
+  const consumeQuoted = (quote: string, kind: SqlToken["kind"]): SqlTokenization["error"] | undefined => {
+    const startLine = line;
+    let value = "";
+    advance();
+    while (index < content.length) {
+      const character = advance();
+      if (character === quote) {
+        if (content[index] === quote) {
+          value += quote;
+          advance();
+          continue;
+        }
+        tokens.push({ kind, value, line: startLine });
+        return undefined;
+      }
+      value += character;
+    }
+    return { line: startLine, message: `unterminated ${kind === "string" ? "string literal" : "quoted identifier"}` };
+  };
+
+  while (index < content.length) {
+    const character = content[index];
+    if (/\s/u.test(character)) {
+      advance();
+    } else if (character === "-" && content[index + 1] === "-") {
+      while (index < content.length && advance() !== "\n") {
+        // Ignore line comments so SQL-looking text cannot affect the guard.
+      }
+    } else if (character === "/" && content[index + 1] === "*") {
+      const startLine = line;
+      advance();
+      advance();
+      let closed = false;
+      while (index < content.length) {
+        if (content[index] === "*" && content[index + 1] === "/") {
+          advance();
+          advance();
+          closed = true;
+          break;
+        }
+        advance();
+      }
+      if (!closed) return { tokens, error: { line: startLine, message: "unterminated block comment" } };
+    } else if (character === "'") {
+      const error = consumeQuoted("'", "string");
+      if (error) return { tokens, error };
+    } else if (character === '"' || character === "`") {
+      const error = consumeQuoted(character, "quoted");
+      if (error) return { tokens, error };
+    } else if (character === "[") {
+      const startLine = line;
+      let value = "";
+      advance();
+      while (index < content.length && content[index] !== "]") value += advance();
+      if (index === content.length) return { tokens, error: { line: startLine, message: "unterminated quoted identifier" } };
+      advance();
+      tokens.push({ kind: "quoted", value, line: startLine });
+    } else if (/[A-Za-z_]/u.test(character)) {
+      const startLine = line;
+      let value = "";
+      while (index < content.length && /[A-Za-z0-9_$]/u.test(content[index])) value += advance();
+      tokens.push({ kind: "word", value: value.toUpperCase(), line: startLine });
+    } else {
+      tokens.push({ kind: "symbol", value: advance(), line });
+    }
+  }
+  return { tokens };
+}
+
+function words(tokens: readonly SqlToken[]): string[] {
+  return tokens.filter((token) => token.kind === "word").map((token) => token.value);
+}
+
+function firstWord(tokens: readonly SqlToken[]): SqlToken | undefined {
+  return tokens.find((token) => token.kind === "word");
+}
+
+function startsCreateTrigger(statementWords: readonly string[]): boolean {
+  return (
+    statementWords[0] === "CREATE" &&
+    (statementWords[1] === "TRIGGER" ||
+      ((statementWords[1] === "TEMP" || statementWords[1] === "TEMPORARY") && statementWords[2] === "TRIGGER"))
+  );
+}
+
+function startsCreateIndex(statementWords: readonly string[]): boolean {
+  return (
+    statementWords[0] === "CREATE" &&
+    (statementWords[1] === "INDEX" || (statementWords[1] === "UNIQUE" && statementWords[2] === "INDEX"))
+  );
+}
+
+function allowedTopLevelStatement(tokens: readonly SqlToken[]): boolean {
+  const statementWords = words(tokens);
+  if (statementWords.length === 0) return true;
+  if (["BEGIN", "COMMIT", "ROLLBACK"].includes(statementWords[0])) return true;
+  // Trigger replacement is required by existing SQLite migrations. Index
+  // removal is not treated as harmless: it may remove uniqueness enforcement
+  // or a production-critical access path.
+  if (statementWords[0] === "DROP" && statementWords[1] === "TRIGGER") return true;
+  if (startsCreateIndex(statementWords)) return true;
+  if (statementWords[0] === "CREATE" && statementWords[1] === "TABLE") {
+    return !statementWords.some((word, index) => word === "AS" && statementWords[index + 1] === "SELECT");
+  }
+  if (statementWords[0] !== "ALTER" || statementWords[1] !== "TABLE") return false;
+
+  // Expand-only DDL is intentionally narrow. It accepts SQLite's ADD [COLUMN]
+  // shape but does not try to prove arbitrary ALTER TABLE syntax harmless.
+  const actionIndex = statementWords.findIndex((word, index) => index >= 2 && ["ADD", "DROP", "RENAME"].includes(word));
+  return actionIndex >= 0 && statementWords[actionIndex] === "ADD";
+}
+
+function migrationStatementDiagnostic(file: string, tokens: readonly SqlToken[]): ArchitectureDiagnostic | undefined {
+  const first = firstWord(tokens);
+  if (!first) return undefined;
+  const statementWords = words(tokens);
+  const hasDropTableOrColumn =
+    (statementWords[0] === "DROP" &&
+      (statementWords[1] === "TABLE" || (statementWords[1] === "TEMPORARY" && statementWords[2] === "TABLE"))) ||
+    (statementWords[0] === "ALTER" && statementWords[1] === "TABLE" && statementWords.includes("DROP")) ||
+    (statementWords[0] === "DROP" && statementWords[1] === "INDEX");
+  if (hasDropTableOrColumn) {
+    return diagnostic(
+      "MIG001",
+      file,
+      first.line,
+      "destructive table, column, or index removal is forbidden in deploy migrations; use an explicitly reviewed contract-retirement process",
+    );
+  }
+  if (
+    (statementWords[0] === "ALTER" && statementWords[1] === "TABLE" && statementWords.includes("RENAME")) ||
+    (statementWords[0] === "RENAME" && statementWords[1] === "TABLE")
+  ) {
+    return diagnostic(
+      "MIG002",
+      file,
+      first.line,
+      "table or column rename/rebuild patterns are forbidden in deploy migrations because they can rewrite live data",
+    );
+  }
+  if (["INSERT", "UPDATE", "DELETE", "SELECT", "REPLACE"].includes(first.value)) {
+    return diagnostic(
+      "MIG003",
+      file,
+      first.line,
+      "top-level DML or data scan is forbidden in deploy migrations; run backfills as bounded application jobs instead",
+    );
+  }
+  if (statementWords[0] === "CREATE" && statementWords[1] === "TABLE" && statementWords.some((word, index) => word === "AS" && statementWords[index + 1] === "SELECT")) {
+    return diagnostic(
+      "MIG003",
+      file,
+      first.line,
+      "CREATE TABLE AS SELECT performs a top-level data scan and is forbidden in deploy migrations",
+    );
+  }
+  if (!allowedTopLevelStatement(tokens)) {
+    return diagnostic(
+      "MIG004",
+      file,
+      first.line,
+      "unsupported or ambiguous top-level SQL; this conservative lexical guard permits only expand-only CREATE TABLE/INDEX, ALTER TABLE ADD, transaction control, and trigger bodies",
+    );
+  }
+  return undefined;
+}
+
+async function checkMigrationSafety(root: string): Promise<ArchitectureDiagnostic[]> {
+  // This is deliberately a conservative lexical ratchet, not a database
+  // simulator. It does not prove lock duration, index-build cost, or trigger
+  // semantics; deployment planning owns those concerns. It rejects unknown
+  // top-level SQL rather than treating a partial parse as proof of safety, and
+  // permits DML only inside SQLite's row-level CREATE TRIGGER ... BEGIN ... END.
+  const diagnostics: ArchitectureDiagnostic[] = [];
+  for (const file of await migrationFiles(root)) {
+    const tokenization = tokenizeSql(await readFile(path.join(root, file), "utf8"));
+    if (tokenization.error) {
+      diagnostics.push(diagnostic("MIG005", file, tokenization.error.line, `unsafe SQL ambiguity: ${tokenization.error.message}`));
+      continue;
+    }
+
+    let statement: SqlToken[] = [];
+    let inTriggerBody = false;
+    for (const token of tokenization.tokens) {
+      if (token.value !== ";") {
+        statement.push(token);
+        continue;
+      }
+      const statementWords = words(statement);
+      if (inTriggerBody) {
+        // SQLite trigger bodies may legitimately contain row-scoped UPDATE,
+        // DELETE, INSERT, and SELECT statements. Only a standalone END closes it.
+        if (statementWords.length === 1 && statementWords[0] === "END") inTriggerBody = false;
+      } else if (startsCreateTrigger(statementWords)) {
+        if (!statementWords.includes("BEGIN")) {
+          diagnostics.push(
+            diagnostic(
+              "MIG005",
+              file,
+              firstWord(statement)?.line ?? 1,
+              "unsafe SQL ambiguity: CREATE TRIGGER must contain BEGIN before its first statement terminator",
+            ),
+          );
+        } else {
+          inTriggerBody = true;
+        }
+      } else {
+        const issue = migrationStatementDiagnostic(file, statement);
+        if (issue) diagnostics.push(issue);
+      }
+      statement = [];
+    }
+    if (inTriggerBody) {
+      const line = statement[0]?.line ?? tokenization.tokens.at(-1)?.line ?? 1;
+      diagnostics.push(diagnostic("MIG005", file, line, "unsafe SQL ambiguity: CREATE TRIGGER body is missing a standalone END;"));
+    } else if (statement.length > 0) {
+      const issue = migrationStatementDiagnostic(file, statement);
+      if (issue) diagnostics.push(issue);
+    }
+  }
+  return diagnostics;
 }
 
 async function checkFloatColumns(root: string): Promise<ArchitectureDiagnostic[]> {
@@ -260,6 +528,7 @@ export async function runArchitectureIntegrity(root = process.cwd()): Promise<Ar
       checkFinancialConversions(root),
       checkPaymentApplicationMutations(root),
       checkZodModelTypes(root),
+      checkMigrationSafety(root),
     ])
   ).flat();
   return diagnostics.toSorted((left, right) =>
