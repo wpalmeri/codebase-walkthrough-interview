@@ -2,6 +2,7 @@ import express from "express";
 import { timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { AuthenticationError, problemFromError, type ProblemDetails } from "./errors";
+import { createIdempotencyMiddleware, createPrismaIdempotencyStore, type IdempotencyStore } from "./idempotency";
 import { api } from "./views";
 
 type AppOptions = {
@@ -16,6 +17,8 @@ type AppOptions = {
   /** Overrides environment configuration for embedding and tests. */
   apiKey?: string | null;
   environment?: string;
+  /** Replaces durable idempotency persistence for isolated HTTP-boundary tests. */
+  idempotencyStore?: IdempotencyStore;
 };
 
 function sendProblem(res: Response, problem: ProblemDetails): void {
@@ -52,6 +55,7 @@ export function createApp(options: AppOptions = {}): express.Express {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json());
+  const idempotency = createIdempotencyMiddleware(options.idempotencyStore ?? createPrismaIdempotencyStore());
 
   const authenticate = (request: Request, response: Response, next: NextFunction) => {
     if (configuredApiKey.length === 0 || tokensMatch(bearerToken(request), configuredApiKey)) {
@@ -62,7 +66,7 @@ export function createApp(options: AppOptions = {}): express.Express {
     sendProblem(response, new AuthenticationError().problem);
   };
 
-  app.use("/api/v1", authenticate, api);
+  app.use("/api/v1", authenticate, idempotency, api);
   app.use(
     "/api",
     (_req: Request, res: Response, next: NextFunction) => {
@@ -70,6 +74,7 @@ export function createApp(options: AppOptions = {}): express.Express {
       next();
     },
     authenticate,
+    idempotency,
     api
   );
   options.configure?.(app);

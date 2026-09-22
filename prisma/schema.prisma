@@ -164,6 +164,26 @@ model BackfillCheckpoint {
   updatedAt   DateTime  @updatedAt
 }
 
+// Durable request-replay state. State is constrained by the additive migration;
+// the runtime schema below is intentionally the source of its typed boundary.
+model IdempotencyRecord {
+  id                 String    @id @default(cuid())
+  clientScope        String
+  method             String
+  route              String
+  idempotencyKey     String
+  requestFingerprint String
+  state              String    @default("IN_PROGRESS") // IN_PROGRESS | COMPLETED
+  responseStatus     Int?
+  responseContentType String?
+  responseBodyBase64 String?
+  createdAt          DateTime  @default(now())
+  completedAt        DateTime?
+
+  @@unique([clientScope, method, route, idempotencyKey])
+  @@index([createdAt])
+}
+
 model InvoiceLine {
   id          String @id @default(cuid())
   invoiceId   String

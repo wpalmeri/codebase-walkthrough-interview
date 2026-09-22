@@ -89,3 +89,12 @@ invoices remain null. This preserves online migration behavior and avoids a long
 touching financial rows. Every concrete backfill writes its last successfully committed primary
 key in the same transaction as that batch; dry runs never advance it. Keep checkpoint rows until
 the reconciliation evidence and later contract migration are complete.
+
+## Durable idempotency reservations
+
+`20260922050000_idempotency_records` creates a new empty table and index; it does not scan or
+rewrite business data. Deploy it before enabling keyed retries. Reservations deliberately fail
+closed when a process dies after mutating data but before recording the response, so operators
+must investigate stale `IN_PROGRESS` rows rather than deleting or replaying them automatically.
+Retain completed rows for at least the published client retry window, then archive or purge them
+in bounded primary-key batches under an explicit retention policy.
