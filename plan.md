@@ -35,6 +35,7 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - [x] Define exact payment-allocation invariants and apply payments with serializable retry/CAS semantics (`9e8f74b`, `ce9cb99`).
 - [x] Freeze captured commercial provenance and make payment receipts/applications immutable and non-deletable (`444f1a8`).
 - [x] Add accounting dates, closed-through control, and closed-period write guards (`d193b11`).
+- [x] Add immutable partial/full payment-application reversals and make reconciliation reversal-aware (`ec77995`, `2c73eaf`).
 
 ### API and observable behavior
 
@@ -55,38 +56,38 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - [x] Seed a fresh migrated database with fully reconciled exact financial scenarios (`f88bcc7`).
 - [x] Make production migrations the only supported setup/reset path (`20a23f9`).
 - [x] Add pinned PostgreSQL contract coverage for native NUMERIC, constraints, locking, and serializable failure (`07f4318`).
+- [x] Backfill order pricing and invoice identity snapshots only from immutable persisted evidence (`4620816`, `57dd259`).
+- [x] Add a bounded, read-only financial reconciliation gate with deterministic issue contracts (`c59ed50`).
+
+### Continuous enforcement and supply chain
+
+- [x] Ratchet architectural integrity against new float-backed finance fields, raw financial coercion, direct ledger mutations, and hand-written API model types (`478ddca`).
+- [x] Upgrade and pin vulnerable runtime/tooling dependencies and verify a zero-finding live audit (`0fce620`).
 
 ## Ranked remaining implementation sequence
 
-1. **P0 — Finish historical cutover without fabricating facts**
-   - Backfill order exact/captured fields only when an already-persisted, valid pricing snapshot is sufficient evidence; never consult current catalog/rate/discount rows.
-   - Backfill invoice bill-to/line identity snapshots only from immutable contemporaneous evidence, and stop for manual reconciliation when evidence is absent or contradictory.
-   - Add a bounded read-only reconciliation command for missing fields, arithmetic, ledger ownership/currency, lifecycle, and accounting invariants; require a zero-issue gate before contract migrations.
-   - After production reconciliation, add separate online contract migrations that make authoritative fields required and retire float reads/writes. Do not put data scans in deploy migrations.
-
-2. **P0 — Complete payment correction semantics**
-   - Model corrections as immutable application reversals with exact amounts, reason, accounting date, server-derived actor, and append-only database guards.
-   - Apply partial/full reversals atomically, recalculate invoice balance/status from net applications, enforce closed periods, and prevent concurrent over-reversal.
-   - Test rollback, retry/CAS, partial/full correction, closed-period rejection, and stale interleavings against migrated temporary databases.
-
-3. **P0 — Add real authorization and tenant isolation**
+1. **P0 — Add real authorization and tenant isolation**
    - Introduce tenant/user principals, derive ownership scope from authentication, and apply it to every lookup, mutation, idempotency scope, report, and delivery action.
    - Make the browser authenticate without exposing a long-lived server API key; add cross-tenant negative tests and database defense-in-depth where practical.
 
-4. **P1 — Strengthen API evolution and database scale**
+2. **P0 — Contract historical financial fields after deployment evidence is clean**
+   - Run the implemented dry-run backfills and bounded reconciliation against each live deployment, route irreducible rows to manual reconciliation, and retain signed operational evidence of a zero-issue full scan.
+   - Only after that gate, ship separate online contract migrations that make authoritative fields required and retire float reads/writes. Never scan or rewrite production rows in deploy migrations.
+
+3. **P1 — Strengthen API evolution and database scale**
    - Add resource versions and conditional writes with ETags/`If-Match` while retaining current endpoints.
    - Add cursor pagination, stable ordering, supporting indexes, and SQL-side report aggregation through online PostgreSQL migrations.
    - Generate OpenAPI from the Zod contracts, generate/validate the client, and add consumer-contract tests so `/api/v1` can evolve independently.
    - Replace remaining raw lifecycle strings with schema-derived enums at boundaries and explicit database constraints/types where the target database supports them.
 
-5. **P1 — Add auditability and continuous controls**
+4. **P1 — Add auditability and continuous controls**
    - Record append-only audit events for financial and lifecycle mutations using authenticated actors and correlation/idempotency identifiers.
    - Schedule reconciliation in read-only bounded batches, export metrics, and alert on drift without automatically rewriting financial history.
    - Add recipient-correction semantics and systematic PII redaction for delivery/audit logs.
 
-6. **P2 — Operational and architecture hardening**
-   - Ratchet Oxlint plus repository checks that prohibit new float-backed financial writes, raw status literals, unvalidated boundary data, and direct ledger mutations.
-   - Pin and audit dependencies, produce an SBOM, add structured logs/metrics/readiness/graceful shutdown, and document secret rotation and recovery drills.
+5. **P2 — Operational and architecture hardening**
+   - Extend the existing architecture ratchet to raw lifecycle literals and unvalidated boundary data as the remaining exceptions are removed.
+   - Produce an SBOM, add structured logs/metrics/readiness/graceful shutdown, and document secret rotation and recovery drills.
 
 ## Deferred by agreement
 
