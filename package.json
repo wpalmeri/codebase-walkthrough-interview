@@ -49,9 +49,6 @@
     "tsx": "4.23.15",
     "typescript": "^7.0.2"
   },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
-  },
   "overrides": {
     "deepmerge-ts": "8.0.2",
     "qs": "6.16.0"
