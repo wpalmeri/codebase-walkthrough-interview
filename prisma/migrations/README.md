@@ -176,6 +176,26 @@ batches, reconcile every cross-table ownership edge, and only then make `tenantI
 include it in idempotency uniqueness. Do not use this additive migration as permission to accept a
 client-supplied tenant ID: runtime principals must be authenticated and derive the scope server-side.
 
+### Legacy ownership backfill
+
+`bun run db:backfill:tenant-ownership` is preview-only by default. It reports stable ownership-conflict
+codes without creating a tenant, modifying business rows, or advancing checkpoints. After an operator
+reviews a clean preview, run `BACKFILL_DRY_RUN=false BACKFILL_BATCH_SIZE=100 BACKFILL_THROTTLE_MS=50
+bun run db:backfill:tenant-ownership`; choose a batch size that fits the production write budget.
+
+The write run creates or reuses exactly one `legacy-default` tenant, then processes still-null ownership
+rows in separate Customer, Product, ComboDiscount, Order, Invoice, Payment, and IdempotencyRecord
+primary-key stages. Each batch validates every reachable commercial ownership edge before modifying any
+row, assigns only `tenantId IS NULL` rows, and persists the corresponding `BackfillCheckpoint` in the
+same transaction. It can therefore be stopped and rerun without skips; do not delete checkpoints to
+force a replay. It also copies the legacy singleton accounting close date to that tenant's separate
+control record only if it agrees with any existing copy.
+
+Stop and manually reconcile on any nonzero result, especially a `CONFLICTING_*_OWNERSHIP`,
+`MULTIPLE_RELATED_TENANTS`, `RELATED_TO_NON_LEGACY_TENANT`, or `CONFLICTING_ACCOUNTING_CONTROL` code.
+Those indicate legacy edges that cannot safely be assigned to the default tenant. Keep runtime reads
+dual-compatible until the final reconciliation is clean and every new write is tenant-derived.
+
 ## Captured pricing and payment ledger immutability
 
 `20260922070000_ledger_immutability_guards` installs row-level triggers only; it adds no
