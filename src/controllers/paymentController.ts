@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import {
   PaymentPageSchema,
   fingerprintPaginationFilters,
@@ -47,6 +48,12 @@ import {
   toPaymentModel,
   type PaymentApplicationReversalModel,
 } from "../models/payment";
+import {
+  appendRequestAuditEvent,
+  type RequestAuditAppender,
+  type RequestAuditMetadata,
+} from "../audit/requestAudit";
+import type { AuditEventRepository } from "../audit/auditEvent";
 
 const paymentInclude = {
   customer: true,
@@ -89,6 +96,7 @@ export interface InvoiceLedgerSnapshot {
 }
 
 export interface PaymentApplicationWrite {
+  readonly id: string;
   readonly paymentId: string;
   readonly invoiceId: string;
   readonly amount: number;
@@ -112,6 +120,8 @@ export interface PaymentAllocationTransaction {
     readonly applications: readonly PaymentApplicationWrite[];
     readonly invoiceBalances: readonly InvoiceBalanceWrite[];
   }): Promise<boolean>;
+  /** Runs after a successful write set, still inside the caller's transaction. */
+  appendAudit?(applications: readonly PaymentApplicationWrite[]): Promise<void>;
 }
 
 export interface PaymentAllocationDependencies {
@@ -279,11 +289,25 @@ export interface PaymentReversalTransaction {
     readonly reversal: PaymentReversalWrite;
     readonly invoice: PaymentReversalInvoiceWrite;
   }): Promise<boolean>;
+  /** Runs after a successful reversal and invoice CAS, inside the same transaction. */
+  appendAudit?(reversal: PaymentReversalWrite): Promise<void>;
 }
 
 export interface PaymentReversalDependencies {
   transaction<T>(operation: (transaction: PaymentReversalTransaction) => Promise<T>): Promise<T>;
 }
+
+/** Request-derived context required to append payment mutation evidence. */
+export interface PaymentMutationAudit {
+  readonly metadata: RequestAuditMetadata;
+  /** Injectable only to prove that audit failures roll back business writes. */
+  readonly append?: RequestAuditAppender;
+}
+
+type PaymentAuditTransaction = Pick<
+  Prisma.TransactionClient,
+  "payment" | "paymentApplication" | "paymentApplicationReversal" | "invoice" | "auditEvent"
+>;
 
 export interface ReversePaymentApplicationInput {
   readonly amount: DecimalInput;
@@ -515,6 +539,7 @@ export async function reversePaymentApplicationWithDependencies(
       },
     });
     if (!persisted) throw new PaymentReversalConflictError();
+    await transaction.appendAudit?.(reversal);
     return planned;
   });
 
@@ -591,6 +616,7 @@ function prepareAllocation(
   }
 
   const applicationWrites = plan.applications.map((application) => ({
+    id: randomUUID(),
     paymentId: payment.id,
     invoiceId: application.invoiceId,
     amount: legacyNumber(application.amount, moneyFormat),
@@ -636,6 +662,7 @@ export async function applyPaymentWithDependencies(
     const invoices = await transaction.loadInvoices(applications.map((application) => application.invoiceId));
     const prepared = prepareAllocation(payment, invoices, applications);
     if (!(await transaction.persistAllocation(prepared))) throw new PaymentAllocationConflictError();
+    await transaction.appendAudit?.(prepared.applications);
     return prepared.plan;
   });
 }
@@ -746,21 +773,37 @@ export async function getPayment(tenantId: string, paymentId: string): Promise<P
   return toPaymentModel(row);
 }
 
-export async function recordPayment(tenantId: string, input: RecordPaymentInput): Promise<PaymentModel> {
-  const customer = await prisma.customer.findFirst({
-    where: { id: input.customerId, tenantId },
-    select: { id: true },
-  });
-  if (customer === null) {
-    throw new NotFoundError("PAYMENT_CUSTOMER_NOT_FOUND", "The payment customer was not found");
-  }
-  const payment = await createPaymentWithDependencies(tenantId, input, {
-    createPayment: (data) => prisma.payment.create({ data }),
+export async function recordPayment(
+  tenantId: string,
+  input: RecordPaymentInput,
+  audit: PaymentMutationAudit
+): Promise<PaymentModel> {
+  assertPaymentAuditTenant(tenantId, audit);
+  const payment = await prisma.$transaction(async (transaction) => {
+    const customer = await transaction.customer.findFirst({
+      where: { id: input.customerId, tenantId },
+      select: { id: true },
+    });
+    if (customer === null) {
+      throw new NotFoundError("PAYMENT_CUSTOMER_NOT_FOUND", "The payment customer was not found");
+    }
+    const created = await createPaymentWithDependencies(tenantId, input, {
+      createPayment: (data) => transaction.payment.create({ data }),
+    });
+    await appendPaymentAudit(transaction, audit, {
+      action: "PAYMENT_RECORDED",
+      resourceKind: "PAYMENT",
+      resourceId: created.id,
+    });
+    return created;
   });
   return getPayment(tenantId, payment.id);
 }
 
-function prismaAllocationDependencies(tenantId: string): PaymentAllocationDependencies {
+function prismaAllocationDependencies(
+  tenantId: string,
+  audit: PaymentMutationAudit
+): PaymentAllocationDependencies {
   return {
     transaction: (operation) =>
       prisma.$transaction(
@@ -797,6 +840,15 @@ function prismaAllocationDependencies(tenantId: string): PaymentAllocationDepend
               }
               return true;
             },
+            async appendAudit(applications) {
+              for (const application of applications) {
+                await appendPaymentAudit(transaction, audit, {
+                  action: "PAYMENT_APPLIED",
+                  resourceKind: "PAYMENT_APPLICATION",
+                  resourceId: application.id,
+                });
+              }
+            },
           }),
         { isolationLevel: "Serializable" }
       ),
@@ -806,13 +858,18 @@ function prismaAllocationDependencies(tenantId: string): PaymentAllocationDepend
 export async function applyPayment(
   tenantId: string,
   paymentId: string,
-  applications: readonly { invoiceId: string; amount: DecimalInput }[]
+  applications: readonly { invoiceId: string; amount: DecimalInput }[],
+  audit: PaymentMutationAudit
 ): Promise<PaymentModel> {
-  await applyPaymentWithDependencies(paymentId, applications, prismaAllocationDependencies(tenantId));
+  assertPaymentAuditTenant(tenantId, audit);
+  await applyPaymentWithDependencies(paymentId, applications, prismaAllocationDependencies(tenantId, audit));
   return getPayment(tenantId, paymentId);
 }
 
-function prismaReversalDependencies(tenantId: string): PaymentReversalDependencies {
+function prismaReversalDependencies(
+  tenantId: string,
+  audit: PaymentMutationAudit
+): PaymentReversalDependencies {
   return {
     transaction: (operation) =>
       prisma.$transaction(
@@ -865,7 +922,15 @@ function prismaReversalDependencies(tenantId: string): PaymentReversalDependenci
                   status: invoice.status,
                 },
               });
-              return updated.count === 1;
+              if (updated.count !== 1) return false;
+              return true;
+            },
+            async appendAudit(reversal) {
+              await appendPaymentAudit(transaction, audit, {
+                action: "PAYMENT_APPLICATION_REVERSED",
+                resourceKind: "PAYMENT_APPLICATION_REVERSAL",
+                resourceId: reversal.id,
+              });
             },
           }),
         { isolationLevel: "Serializable" }
@@ -877,13 +942,15 @@ export async function reversePaymentApplication(
   tenantId: string,
   paymentId: string,
   applicationId: string,
-  input: ReversePaymentApplicationInput
+  input: ReversePaymentApplicationInput,
+  audit: PaymentMutationAudit
 ): Promise<PaymentApplicationReversalModel> {
+  assertPaymentAuditTenant(tenantId, audit);
   const { reversalId } = await reversePaymentApplicationWithDependencies(
     paymentId,
     applicationId,
     input,
-    prismaReversalDependencies(tenantId)
+    prismaReversalDependencies(tenantId, audit)
   );
   const row = await prisma.paymentApplicationReversal.findFirst({
     where: {
@@ -896,4 +963,33 @@ export async function reversePaymentApplication(
   });
   if (row === null) throw new NotFoundError("PAYMENT_APPLICATION_NOT_FOUND", "The payment application was not found on this payment");
   return toPaymentApplicationReversalModel(row);
+}
+
+function assertPaymentAuditTenant(tenantId: string, audit: PaymentMutationAudit): void {
+  if (audit.metadata.tenantId !== tenantId) {
+    throw new Error("payment audit tenant must match the authenticated tenant");
+  }
+}
+
+async function appendPaymentAudit(
+  transaction: PaymentAuditTransaction,
+  audit: PaymentMutationAudit,
+  event: Parameters<RequestAuditAppender>[2]
+): Promise<void> {
+  await (audit.append ?? appendRequestAuditEvent)(
+    auditEventRepository(transaction),
+    audit.metadata,
+    event
+  );
+}
+
+/** Adapts exactly the audited Prisma delegate instead of casting a broad transaction. */
+function auditEventRepository(
+  transaction: Pick<Prisma.TransactionClient, "auditEvent">
+): AuditEventRepository {
+  return {
+    auditEvent: {
+      create: ({ data }) => transaction.auditEvent.create({ data }),
+    },
+  };
 }

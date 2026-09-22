@@ -264,6 +264,39 @@ void describe("payment controller atomic workflow", () => {
     assert.equal(store.attempts, 3);
   });
 
+  void test("appends audit evidence exactly once after a serialization retry succeeds", async () => {
+    let attempts = 0;
+    let auditCalls = 0;
+    const store: PaymentAllocationDependencies = {
+      async transaction(operation) {
+        return operation({
+          async loadPayment() {
+            return payment;
+          },
+          async loadInvoices() {
+            return [invoice];
+          },
+          async persistAllocation() {
+            attempts += 1;
+            return attempts === 2;
+          },
+          async appendAudit(applications) {
+            auditCalls += 1;
+            assert.equal(applications.length, 1);
+            assert.match(applications[0]?.id ?? "", /^[0-9a-f-]{36}$/iu);
+          },
+        });
+      },
+    };
+    await applyPaymentWithDependencies(
+      "payment-1",
+      [{ invoiceId: "invoice-1", amount: "10.0000" }],
+      store
+    );
+    assert.equal(attempts, 2);
+    assert.equal(auditCalls, 1);
+  });
+
   void test("allows only one of two stale interleaved attempts to commit", async () => {
     let committed = false;
     let readers = 0;

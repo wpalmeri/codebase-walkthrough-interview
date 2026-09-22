@@ -8,6 +8,7 @@ import {
 } from "@meridian/contracts";
 import { Router } from "express";
 import { BILLING_WRITE_ROLES, READ_ROLES, requireRole } from "../auth/authorization";
+import { requestAuditMetadata } from "../audit/requestAudit";
 import * as payments from "../controllers/paymentController";
 import { isV1Request } from "../http/apiVersion";
 import { formatNextPageLink } from "../http/pagination";
@@ -54,7 +55,10 @@ paymentsView.post(
   "/",
   h(async (req) => {
     const { body } = validateRequest(RecordPaymentRequestSchema, req);
-    return payments.recordPayment(requireRole(req, BILLING_WRITE_ROLES).tenantId, body);
+    const principal = requireRole(req, BILLING_WRITE_ROLES);
+    return payments.recordPayment(principal.tenantId, body, {
+      metadata: requestAuditMetadata(req, principal),
+    });
   })
 );
 
@@ -65,11 +69,13 @@ paymentsView.post(
       ReversePaymentApplicationRequestSchema,
       req
     );
+    const principal = requireRole(req, BILLING_WRITE_ROLES);
     const reversal = await payments.reversePaymentApplication(
-      requireRole(req, BILLING_WRITE_ROLES).tenantId,
+      principal.tenantId,
       params.id,
       params.applicationId,
-      body
+      body,
+      { metadata: requestAuditMetadata(req, principal) }
     );
     res.status(201);
     return reversal;
@@ -80,10 +86,12 @@ paymentsView.post(
   "/:id/apply",
   h(async (req) => {
     const { params, body } = validateRequest(ApplyPaymentRequestSchema, req);
+    const principal = requireRole(req, BILLING_WRITE_ROLES);
     return payments.applyPayment(
-      requireRole(req, BILLING_WRITE_ROLES).tenantId,
+      principal.tenantId,
       params.id,
-      body.applications
+      body.applications,
+      { metadata: requestAuditMetadata(req, principal) }
     );
   })
 );

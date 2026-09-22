@@ -3,10 +3,25 @@ import { prisma } from "../db";
 import {
   getPayment,
   reversePaymentApplication,
+  type PaymentMutationAudit,
 } from "./paymentController";
 import { NotFoundError, PreconditionError } from "../errors";
 
 const tenantId = "reversal-tenant";
+
+function audit(requestId: string): PaymentMutationAudit {
+  return {
+    metadata: {
+      tenantId,
+      principal: {
+        kind: "DEVELOPMENT",
+        subjectId: "integration:payment-reversal",
+        credentialId: "integration-payment-reversal",
+      },
+      requestId,
+    },
+  };
+}
 
 async function seedPaidApplication(input: {
   suffix: string;
@@ -104,7 +119,8 @@ async function main(): Promise<void> {
         amount: "25.0000",
         reason: "  Duplicate application  ",
         accountingDate: "2026-10-01",
-      }
+      },
+      audit("payment-reversal-partial")
     );
     assert.equal(partial.amountDecimal, "25.0000");
     assert.equal(partial.reason, "Duplicate application");
@@ -127,7 +143,8 @@ async function main(): Promise<void> {
         amount: "75.0000",
         reason: "Remove remaining application",
         accountingDate: "2026-10-02",
-      }
+      },
+      audit("payment-reversal-full")
     );
     assert.equal(full.amountDecimal, "75.0000");
     invoice = await prisma.invoice.findUniqueOrThrow({
@@ -170,11 +187,17 @@ async function main(): Promise<void> {
       suffix: "delivered",
       delivered: true,
     });
-    await reversePaymentApplication(tenantId, delivered.paymentId, delivered.applicationId, {
-      amount: "25.0000",
-      reason: "Delivered invoice correction",
-      accountingDate: "2026-10-04",
-    });
+    await reversePaymentApplication(
+      tenantId,
+      delivered.paymentId,
+      delivered.applicationId,
+      {
+        amount: "25.0000",
+        reason: "Delivered invoice correction",
+        accountingDate: "2026-10-04",
+      },
+      audit("payment-reversal-delivered")
+    );
     assert.equal(
       (
         await prisma.invoice.findUniqueOrThrow({
@@ -196,7 +219,8 @@ async function main(): Promise<void> {
           amount: "1.0000",
           reason: "Closed-period correction",
           accountingDate: "2026-10-31",
-        }
+        },
+        audit("payment-reversal-closed")
       ),
       (error) => {
         assert.ok(error instanceof PreconditionError);
@@ -213,7 +237,8 @@ async function main(): Promise<void> {
           amount: "1.0000",
           reason: "Wrong target",
           accountingDate: "2026-11-01",
-        }
+        },
+        audit("payment-reversal-wrong-target")
       ),
       (error) => {
         assert.ok(error instanceof NotFoundError);

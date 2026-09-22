@@ -6,11 +6,26 @@ import {
   getPayment,
   listPayments,
   reversePaymentApplication,
+  type PaymentMutationAudit,
 } from "./paymentController";
 import { annualRevenue, revenueByCustomer, revenueByQuarter } from "./reportController";
 
 const tenantA = "payment-scope-tenant-a";
 const tenantB = "payment-scope-tenant-b";
+
+function audit(tenantId: string, requestId: string): PaymentMutationAudit {
+  return {
+    metadata: {
+      tenantId,
+      principal: {
+        kind: "DEVELOPMENT",
+        subjectId: "integration:payment-tenant",
+        credentialId: "integration-payment-tenant",
+      },
+      requestId,
+    },
+  };
+}
 
 async function seedTenantLedger(input: {
   tenantId: string;
@@ -120,7 +135,7 @@ async function main(): Promise<void> {
       reversals: await prisma.paymentApplicationReversal.count(),
     };
     await assert.rejects(
-      applyPayment(tenantA, a.paymentId, [{ invoiceId: b.invoiceId, amount: "1.0000" }]),
+      applyPayment(tenantA, a.paymentId, [{ invoiceId: b.invoiceId, amount: "1.0000" }], audit(tenantA, "tenant-a-cross-apply")),
       (error) => {
         assert.ok(error instanceof NotFoundError);
         assert.equal(error.problem.code, "PAYMENT_INVOICE_NOT_FOUND");
@@ -132,7 +147,7 @@ async function main(): Promise<void> {
         amount: "1.0000",
         reason: "cross-tenant denial",
         accountingDate: "2026-10-31",
-      }),
+      }, audit(tenantA, "tenant-a-cross-reversal")),
       (error) => {
         assert.ok(error instanceof NotFoundError);
         assert.equal(error.problem.code, "PAYMENT_APPLICATION_NOT_FOUND");
@@ -153,7 +168,7 @@ async function main(): Promise<void> {
         amount: "1.0000",
         reason: "tenant A closed period",
         accountingDate: "2026-10-31",
-      }),
+      }, audit(tenantA, "tenant-a-closed-reversal")),
       (error) => {
         assert.ok(error instanceof PreconditionError);
         assert.equal(error.problem.code, "ACCOUNTING_PERIOD_CLOSED");
@@ -164,7 +179,7 @@ async function main(): Promise<void> {
       amount: "1.0000",
       reason: "tenant B remains open",
       accountingDate: "2026-10-31",
-    });
+    }, audit(tenantB, "tenant-b-reversal"));
     assert.equal(bReversal.amountDecimal, "1.0000");
     assert.equal((await prisma.invoice.findUniqueOrThrow({ where: { id: a.invoiceId } })).amountPaidDecimal?.toFixed(4), "100.0000");
     assert.equal((await prisma.invoice.findUniqueOrThrow({ where: { id: b.invoiceId } })).amountPaidDecimal?.toFixed(4), "199.0000");
