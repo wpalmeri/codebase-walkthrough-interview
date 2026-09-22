@@ -30,7 +30,7 @@ model Product {
   unit             String // "seat", "GB", "1k calls", ...
   listPrice        Float // Legacy compatibility column; retire after the decimal cutover.
   listPriceDecimal Decimal? // DECIMAL(19,4) in the migration; nullable for expand/backfill/contract rollout.
-  currencyCode     String? // ISO 4217 list-price currency; nullable for the live expand/backfill/contract rollout.
+  currencyCode     String? // Supported list-price currency (currently USD); nullable during rollout.
 
   rates      Rate[]
   orderItems OrderItem[]
@@ -44,7 +44,7 @@ model Rate {
   productId        String
   unitPrice        Float // Legacy compatibility column; retire after the decimal cutover.
   unitPriceDecimal Decimal? // DECIMAL(19,4) in the migration.
-  currencyCode     String? // ISO 4217 contracted-rate currency; nullable for the live expand/backfill/contract rollout.
+  currencyCode     String? // Supported contracted-rate currency (currently USD); nullable during rollout.
   // Volume tiers, e.g. [{"minQty": 100, "unitPrice": 4.5}, {"minQty": 500, "unitPrice": 3.75}]
   tiers            Json?
   effectiveDate    DateTime @default(now())
@@ -72,12 +72,12 @@ model ComboDiscount {
 model Order {
   id         String   @id @default(cuid())
   reference  String? // sales order number, e.g. SO-0042
-  customerId String
+  customerId String // immutable after any order item captures pricing
   orderDate  DateTime @default(now())
   status     String   @default("OPEN") // OPEN | INVOICED | CLOSED
   shipTo     String? // receiving party / delivery address
   notes      String?
-  currencyCode String? // ISO 4217 order-pricing currency; nullable until the bounded backfill and dual write complete.
+  currencyCode String? // Supported order-pricing currency; immutable after capture and nullable only during rollout.
 
   customer Customer       @relation(fields: [customerId], references: [id])
   items    OrderItem[]
@@ -99,7 +99,7 @@ model OrderItem {
   id        String @id @default(cuid())
   orderId   String
   productId String
-  rateId    String // legacy provenance only; billing must use the immutable snapshots below
+  rateId    String // legacy provenance only; immutable once pricing is captured
   quantity  Float // Legacy compatibility column; retire after the decimal cutover.
   unitPrice Float // Legacy compatibility column; retire after the decimal cutover.
 
@@ -140,7 +140,7 @@ model Invoice {
   // An explicit UTC-calendar accounting date, independent of an instant's
   // display timezone. Nullable during the staged backfill rollout.
   accountingDate         String?
-  currencyCode           String? // ISO 4217 invoice currency; immutable after it is set on a finalized invoice.
+  currencyCode           String? // Supported invoice currency (currently USD); immutable once finalized.
 
   customer      Customer             @relation(fields: [customerId], references: [id])
   order         Order                @relation(fields: [orderId], references: [id])
@@ -155,6 +155,33 @@ model AccountingPeriodControl {
   id                Int      @id @default(1)
   closedThroughDate String?
   updatedAt         DateTime @updatedAt
+}
+
+model BackfillCheckpoint {
+  jobName     String    @id
+  lastId      String?
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+}
+
+// Durable request-replay state. State is constrained by the additive migration;
+// the runtime schema below is intentionally the source of its typed boundary.
+model IdempotencyRecord {
+  id                 String    @id @default(cuid())
+  clientScope        String
+  method             String
+  route              String
+  idempotencyKey     String
+  requestFingerprint String
+  state              String    @default("IN_PROGRESS") // IN_PROGRESS | COMPLETED
+  responseStatus     Int?
+  responseContentType String?
+  responseBodyBase64 String?
+  createdAt          DateTime  @default(now())
+  completedAt        DateTime?
+
+  @@unique([clientScope, method, route, idempotencyKey])
+  @@index([createdAt])
 }
 
 model InvoiceLine {
@@ -178,12 +205,12 @@ model InvoiceLine {
 // one payment can be applied across many invoices.
 model Payment {
   id            String   @id @default(cuid())
-  customerId    String
-  amount        Float // Legacy compatibility column.
-  amountDecimal Decimal? // DECIMAL(19,4) in the migration.
-  currencyCode  String? // ISO 4217 received-amount currency; nullable for the live expand/backfill/contract rollout.
-  receivedAt    DateTime @default(now())
-  reference     String?
+  customerId    String // immutable receipt party
+  amount        Float // Legacy compatibility column; immutable receipt amount.
+  amountDecimal Decimal? // DECIMAL(19,4); a legacy null may be backfilled once.
+  currencyCode  String? // Supported receipt currency; a legacy null may be backfilled once.
+  receivedAt    DateTime @default(now()) // immutable receipt timestamp
+  reference     String? // immutable receipt reference
 
   customer     Customer             @relation(fields: [customerId], references: [id])
   applications PaymentApplication[]
@@ -193,8 +220,8 @@ model PaymentApplication {
   id            String   @id @default(cuid())
   paymentId     String
   invoiceId     String
-  amount        Float // Legacy compatibility column.
-  amountDecimal Decimal? // DECIMAL(19,4) in the migration.
+  amount        Float // Legacy compatibility column; immutable ledger fact.
+  amountDecimal Decimal? // DECIMAL(19,4); append-only except a null backfill.
   appliedAt     DateTime @default(now())
 
   payment Payment @relation(fields: [paymentId], references: [id])

@@ -36,6 +36,12 @@ For a new empty database, run `bunx prisma migrate deploy`; Prisma will apply th
 
 `20260922010000_currency_foundation` adds nullable currency codes without defaults or table scans. Deploy application dual-writes before backfilling, then populate product/rate currency first, orders second, invoices third, and payments last in bounded batches. Reconcile that every invoice matches its order and every applied payment matches its invoices before making currency required in a later contract migration; database triggers reject mismatches as soon as both sides are populated.
 
+`20260922060000_usd_currency_policy` makes the current product policy explicit: only USD may
+be newly populated because the service has not implemented other currencies' minor units,
+rounding, display, or settlement semantics. The migration adds guards only and leaves rollout
+columns nullable, so it neither scans nor rewrites historical rows. Supporting another currency
+requires an explicit currency registry and versioned rounding policy before relaxing these guards.
+
 ## Exact order-line amounts
 
 `20260922020000_order_amount_foundation` adds a nullable `OrderItem.amountDecimal` without a default, constraint validation, or backfill. Deploy the snapshot dual-write before populating existing rows in the same bounded, restartable batches as the other order snapshots; reconcile each order's line-amount sum against its draft invoice before switching reads.
@@ -82,3 +88,42 @@ Use a `CHECK` or trigger for the singleton/control semantics and serialize close
 with row locks on the control row. Add date/period constraints as `NOT VALID`, validate them
 separately, then make the column required only after reconciliation confirms no finalized
 invoices remain null. This preserves online migration behavior and avoids a long table lock.
+
+## Resumable backfill checkpoints
+
+`20260922040000_backfill_checkpoints` creates an empty operational checkpoint table without
+touching financial rows. Every concrete backfill writes its last successfully committed primary
+key in the same transaction as that batch; dry runs never advance it. Keep checkpoint rows until
+the reconciliation evidence and later contract migration are complete.
+
+Run `bun run db:backfill:legacy-financial` first in its default dry-run mode. It processes
+products, rates/tiers, discounts, payments, and payment applications as five independently
+checkpointed primary-key streams, refusing exact/legacy disagreement or unreconciled ownership,
+currency, payment-capacity, and invoice-balance facts. Set `BACKFILL_DRY_RUN=false` only after the
+preview is clean; tune `BACKFILL_BATCH_SIZE` and `BACKFILL_THROTTLE_MS` for writer contention.
+This job intentionally does not infer historical order pricing snapshots from current catalog
+terms. Those rows require evidence-backed reconstruction or explicit manual reconciliation.
+
+## Durable idempotency reservations
+
+`20260922050000_idempotency_records` creates a new empty table and index; it does not scan or
+rewrite business data. Deploy it before enabling keyed retries. Reservations deliberately fail
+closed when a process dies after mutating data but before recording the response, so operators
+must investigate stale `IN_PROGRESS` rows rather than deleting or replaying them automatically.
+Retain completed rows for at least the published client retry window, then archive or purge them
+in bounded primary-key batches under an explicit retention policy.
+
+## Captured pricing and payment ledger immutability
+
+`20260922070000_ledger_immutability_guards` installs row-level triggers only; it adds no
+columns, defaults, indexes, scans, or table rebuilds. After an order item receives
+`pricingCapturedAt`, its order/product/rate provenance and the parent order's customer/currency
+cannot be repointed. Apply any unresolved order currency backfill before capturing new items;
+do not bypass the guard by nulling a capture marker.
+
+Payments and payment applications become accounting facts at the database boundary. A legacy
+payment or application may receive its currently null exact decimal (and payment currency) once,
+but changing an amount, party, receipt timestamp/reference, application relationship, or a
+captured exact value is rejected. Neither payments nor applications can be deleted. Corrections must be modeled as
+an approved reversal/adjustment workflow in a later additive release, never by mutating ledger
+history.

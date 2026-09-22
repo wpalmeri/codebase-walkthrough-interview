@@ -5,8 +5,13 @@ import {
   toComboDiscountModel,
   toRateModel,
 } from "../models/rate";
-import { canonicalMoney, canonicalPercentage, legacyNumber } from "../domain/money";
-import { serializeRateTiers, type RateTier } from "../domain/rateTier";
+import {
+  canonicalMoney,
+  canonicalPercentage,
+  legacyNumber,
+  type DecimalInput,
+} from "../domain/money";
+import { serializeRateTiers, type RateTierInput } from "../domain/rateTier";
 import { MoneyStringSchema, PercentageStringSchema, type MoneyString, type PercentageString } from "@meridian/contracts";
 
 export interface DualWrittenMoney {
@@ -20,7 +25,7 @@ export interface DualWrittenPercentage {
 }
 
 /** Produces matching legacy and DECIMAL(19,4) values without rounding either write. */
-export function dualWriteMoney(value: number): DualWrittenMoney {
+export function dualWriteMoney(value: DecimalInput): DualWrittenMoney {
   const decimal = MoneyStringSchema.parse(canonicalMoney(value, "unit price"));
   return {
     legacy: legacyNumber(decimal, { scale: 4, precision: 19, field: "unit price" }),
@@ -29,7 +34,7 @@ export function dualWriteMoney(value: number): DualWrittenMoney {
 }
 
 /** Produces matching legacy and DECIMAL(7,4) percentage values without rounding. */
-export function dualWritePercentage(value: number): DualWrittenPercentage {
+export function dualWritePercentage(value: DecimalInput): DualWrittenPercentage {
   const decimal = PercentageStringSchema.parse(canonicalPercentage(value, "percent off"));
   return {
     legacy: legacyNumber(decimal, { scale: 4, precision: 7, field: "percent off" }),
@@ -47,7 +52,10 @@ export interface RateUpdateData {
  * This intentionally builds only Rate columns. Callers use it as the update
  * boundary so rate changes cannot write or re-rate existing order snapshots.
  */
-export function buildRateUpdateData(input: { unitPrice: number; tiers?: RateTier[] }): RateUpdateData {
+export function buildRateUpdateData(input: {
+  unitPrice: DecimalInput;
+  tiers?: RateTierInput[];
+}): RateUpdateData {
   const price = dualWriteMoney(input.unitPrice);
   return {
     unitPrice: price.legacy,
@@ -77,7 +85,7 @@ export async function listComboDiscounts(customerId?: string): Promise<ComboDisc
 export async function createComboDiscount(input: {
   name: string;
   productIds: string[];
-  percentOff: number;
+  percentOff: DecimalInput;
   customerId?: string | null;
 }): Promise<ComboDiscountModel> {
   const percentOff = dualWritePercentage(input.percentOff);
@@ -98,7 +106,7 @@ export async function createComboDiscount(input: {
 // re-rated (on save, or when an invoice is generated).
 export async function updateRate(
   rateId: string,
-  input: { unitPrice: number; tiers?: RateTier[] }
+  input: { unitPrice: DecimalInput; tiers?: RateTierInput[] }
 ): Promise<RateModel> {
   const rate = await prisma.rate.update({
     where: { id: rateId },

@@ -203,7 +203,7 @@ void describe("financial response contracts", () => {
     assert.equal(MoneyStringSchema.parse("999999999999999.9999"), "999999999999999.9999");
     assert.equal(QuantityStringSchema.parse("9999999999999.999999"), "9999999999999.999999");
     assert.equal(PercentageStringSchema.parse("100.0000"), "100.0000");
-    assert.equal(CurrencyCodeSchema.parse("XTS"), "XTS");
+    assert.equal(CurrencyCodeSchema.parse("USD"), "USD");
 
     assert.throws(() => DecimalStringSchema.parse("01.0"));
     assert.throws(() => MoneyStringSchema.parse("12.34"));
@@ -214,5 +214,6 @@ void describe("financial response contracts", () => {
     assert.throws(() => PercentageStringSchema.parse("not-a-decimal"));
     assert.throws(() => CurrencyCodeSchema.parse("usd"));
     assert.throws(() => CurrencyCodeSchema.parse("US"));
+    assert.throws(() => CurrencyCodeSchema.parse("EUR"));
   });
 });

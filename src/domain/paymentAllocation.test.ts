@@ -70,14 +70,14 @@ void describe("payment allocation planning", () => {
     );
   });
 
-  void test("rejects wrong customer, currency, and invoice lifecycle states", () => {
+  void test("rejects wrong customer, unsupported currency, and invoice lifecycle states", () => {
     assert.throws(
       () => planPaymentAllocation(request({ invoices: [{ ...invoice, customerId: "customer-2" }] })),
       /different customer/
     );
     assert.throws(
       () => planPaymentAllocation(request({ invoices: [{ ...invoice, currencyCode: "EUR" }] })),
-      /different currency/
+      /Invalid input/
     );
     for (const status of ["DRAFT", "VOID", "PAID"] as const) {
       assert.throws(

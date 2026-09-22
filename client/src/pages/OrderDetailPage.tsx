@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiGet, apiPost, apiPut, dateTime, errorMessage, money, shortDate } from "../api";
+import { apiGet, apiPost, apiPut, dateTime, decimalDisplay, errorMessage, financialValue, money, shortDate } from "../api";
 import { Card, EmptyState, PageHeader, StatusBadge, icons } from "../components";
 import { navigate } from "../router";
 import type { Customer, Order } from "../types";
@@ -24,7 +24,11 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
         setNotes(row.notes ?? "");
         setOrderDate(row.orderDate.slice(0, 10));
         setCustomerId(row.customerId);
-        setQty(Object.fromEntries(row.items.map((item) => [item.id, String(item.quantity)])));
+        setQty(
+          Object.fromEntries(
+            row.items.map((item) => [item.id, item.quantityDecimal ?? String(item.quantity)])
+          )
+        );
       })
       .catch((error) => setError(errorMessage(error)));
   };
@@ -45,7 +49,9 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
     notes !== (order.notes ?? "") ||
     orderDate !== order.orderDate.slice(0, 10) ||
     customerId !== order.customerId ||
-    order.items.some((item) => Number(qty[item.id]) !== item.quantity);
+    order.items.some(
+      (item) => qty[item.id] !== (item.quantityDecimal ?? String(item.quantity))
+    );
 
   const act = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -66,7 +72,7 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
         customerId,
         orderDate,
         notes,
-        items: order.items.map((item) => ({ id: item.id, quantity: Number(qty[item.id]) })),
+        items: order.items.map((item) => ({ id: item.id, quantity: qty[item.id] })),
       })
     );
 
@@ -140,7 +146,9 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
                     <td className="muted">{item.productSku}</td>
                     <td className="num">
                       {locked ? (
-                        <span className="mono">{item.quantity}</span>
+                        <span className="mono">
+                          {decimalDisplay(item.quantityDecimal ?? item.quantity)}
+                        </span>
                       ) : (
                         <input
                           className="qty"
@@ -150,8 +158,8 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
                         />
                       )}
                     </td>
-                    <td className="num">{money(item.unitPrice)}</td>
-                    <td className="num">{money(item.amount)}</td>
+                    <td className="num">{money(financialValue(item.effectiveUnitPriceDecimal, item.unitPrice))}</td>
+                    <td className="num">{money(financialValue(item.amountDecimal, item.amount))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -159,7 +167,7 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
             <div className="totals">
               <div className="totals-row grand">
                 <span className="t-label">Order total</span>
-                <span className="t-value">{money(order.total)}</span>
+                <span className="t-value">{money(financialValue(order.totalDecimal, order.total))}</span>
               </div>
             </div>
           </Card>

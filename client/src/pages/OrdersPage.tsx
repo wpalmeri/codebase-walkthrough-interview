@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiGet, errorMessage, money, shortDate } from "../api";
+import { apiGet, errorMessage, financialValue, money, shortDate, sumMoney } from "../api";
 import { Card, PageHeader, StatTile, StatusBadge } from "../components";
 import { navigate } from "../router";
 import type { Order } from "../types";
@@ -15,10 +15,14 @@ export function OrdersPage() {
   }, []);
 
   const openOrders = orders.filter((order) => !order.invoiceId);
-  const openValue = openOrders.reduce((sum, order) => sum + order.total, 0);
-  const invoicedValue = orders
-    .filter((order) => order.invoiceId)
-    .reduce((sum, order) => sum + order.total, 0);
+  const openValue = sumMoney(
+    openOrders.map((order) => financialValue(order.totalDecimal, order.total))
+  );
+  const invoicedValue = sumMoney(
+    orders
+      .filter((order) => order.invoiceId)
+      .map((order) => financialValue(order.totalDecimal, order.total))
+  );
 
   return (
     <div>
@@ -72,7 +76,7 @@ export function OrdersPage() {
                   )}
                 </td>
                 <td className="num">{order.items.length}</td>
-                <td className="num">{money(order.total)}</td>
+                <td className="num">{money(financialValue(order.totalDecimal, order.total))}</td>
               </tr>
             ))}
           </tbody>

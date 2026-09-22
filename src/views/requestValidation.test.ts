@@ -1,6 +1,8 @@
 import {
   ApplyPaymentRequestSchema,
+  CreateComboDiscountRequestSchema,
   CreateOrderRequestSchema,
+  RecordPaymentRequestSchema,
   RevenueReportRequestSchema,
   SendInvoiceRequestSchema,
   UpdateRateRequestSchema,
@@ -29,6 +31,50 @@ void describe("request contracts", () => {
       }).success,
       false
     );
+  });
+
+  void test("accepts exact decimal strings without weakening legacy numeric clients", () => {
+    assert.equal(
+      CreateOrderRequestSchema.safeParse({
+        params: {},
+        query: {},
+        body: {
+          customerId: "customer-1",
+          items: [{ productId: "product-1", quantity: "0.100001" }],
+        },
+      }).success,
+      true
+    );
+    assert.equal(
+      RecordPaymentRequestSchema.safeParse({
+        params: {},
+        query: {},
+        body: { customerId: "customer-1", amount: "0.1000" },
+      }).success,
+      true
+    );
+    assert.equal(
+      CreateComboDiscountRequestSchema.safeParse({
+        params: {},
+        query: {},
+        body: { name: "Bundle", productIds: ["product-1"], percentOff: "7.5000" },
+      }).success,
+      true
+    );
+  });
+
+  void test("rejects ambiguous or out-of-scale decimal strings at the API boundary", () => {
+    for (const amount of ["01.00", "1e2", "0.00001", "-1", "0"]) {
+      assert.equal(
+        RecordPaymentRequestSchema.safeParse({
+          params: {},
+          query: {},
+          body: { customerId: "customer-1", amount },
+        }).success,
+        false,
+        amount
+      );
+    }
   });
 
   void test("rejects non-positive quantities and duplicate products", () => {
@@ -127,6 +173,24 @@ void describe("request contracts", () => {
         body: {
           unitPrice: 5,
           tiers: [{ upTo: 100, unitPrice: 4, floor: 50, ceiling: 40 }],
+        },
+      }).success,
+      false
+    );
+    assert.equal(
+      UpdateRateRequestSchema.safeParse({
+        params: { id: "rate-1" },
+        query: {},
+        body: {
+          unitPrice: "5",
+          tiers: [
+            {
+              upTo: "100",
+              unitPrice: "4",
+              floor: "900719925474099.0001",
+              ceiling: "900719925474099.0000",
+            },
+          ],
         },
       }).success,
       false

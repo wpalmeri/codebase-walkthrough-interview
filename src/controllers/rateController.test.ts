@@ -6,8 +6,10 @@ import { buildRateUpdateData, dualWritePercentage } from "./rateController";
 void describe("rate dual-write boundary", () => {
   void test("writes matching legacy and exact rate values with string-backed tiers", () => {
     const update = buildRateUpdateData({
-      unitPrice: 12.3456,
-      tiers: [{ upTo: 100, unitPrice: 12.3456, floor: 1.25, ceiling: 500 }],
+      unitPrice: "12.3456",
+      tiers: [
+        { upTo: "100", unitPrice: "12.3456", floor: "1.25", ceiling: "500" },
+      ],
     });
 
     assert.equal(update.unitPriceDecimal, "12.3456");
@@ -21,7 +23,7 @@ void describe("rate dual-write boundary", () => {
       },
     ]);
 
-    const discount = dualWritePercentage(7.5);
+    const discount = dualWritePercentage("7.5");
     assert.equal(discount.decimal, "7.5000");
     assert.equal(canonicalPercentage(discount.legacy), discount.decimal);
   });

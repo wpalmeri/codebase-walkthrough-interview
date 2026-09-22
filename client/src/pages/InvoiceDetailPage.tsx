@@ -1,5 +1,15 @@
 import { useEffect, useState } from "react";
-import { apiGet, apiPost, apiPut, dateTime, errorMessage, money, shortDate } from "../api";
+import {
+  apiGet,
+  apiPost,
+  apiPut,
+  decimalDisplay,
+  dateTime,
+  errorMessage,
+  financialValue,
+  money,
+  shortDate,
+} from "../api";
 import { Card, EmptyState, PageHeader, StatusBadge } from "../components";
 import type { Invoice } from "../types";
 
@@ -99,9 +109,9 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                 {invoice.lines.map((line) => (
                   <tr key={line.id}>
                     <td>{line.description}</td>
-                    <td className="num">{line.quantity}</td>
-                    <td className="num">{money(line.unitPrice)}</td>
-                    <td className="num">{money(line.amount)}</td>
+                    <td className="num">{decimalDisplay(line.quantityDecimal ?? line.quantity)}</td>
+                    <td className="num">{money(financialValue(line.unitPriceDecimal, line.unitPrice))}</td>
+                    <td className="num">{money(financialValue(line.amountDecimal, line.amount))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -109,15 +119,15 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
             <div className="totals">
               <div className="totals-row">
                 <span className="t-label">Subtotal</span>
-                <span className="t-value">{money(invoice.total)}</span>
+                <span className="t-value">{money(financialValue(invoice.totalDecimal, invoice.total))}</span>
               </div>
               <div className="totals-row">
                 <span className="t-label">Amount paid</span>
-                <span className="t-value">{money(invoice.amountPaid)}</span>
+                <span className="t-value">{money(financialValue(invoice.amountPaidDecimal, invoice.amountPaid))}</span>
               </div>
               <div className="totals-row grand">
                 <span className="t-label">Balance due</span>
-                <span className="t-value">{money(invoice.balance)}</span>
+                <span className="t-value">{money(financialValue(invoice.balanceDecimal, invoice.balance))}</span>
               </div>
             </div>
           </Card>
@@ -143,7 +153,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                     <tr key={payment.id}>
                       <td>{shortDate(payment.receivedAt)}</td>
                       <td>{payment.reference ?? <span className="muted">—</span>}</td>
-                      <td className="num">{money(payment.amount)}</td>
+                      <td className="num">{money(financialValue(payment.amountDecimal, payment.amount))}</td>
                     </tr>
                   ))}
                 </tbody>

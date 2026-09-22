@@ -236,7 +236,11 @@ export function exactPricingInput(input: {
   product: Omit<z.input<typeof OrderPricingProductSchema>, "currencyCode"> & {
     currencyCode: string;
   };
-  rate: Omit<z.input<typeof OrderPricingRateSchema>, "baseUnitPrice" | "tiers"> & {
+  rate: Omit<
+    z.input<typeof OrderPricingRateSchema>,
+    "currencyCode" | "baseUnitPrice" | "tiers"
+  > & {
+    currencyCode: string;
     baseUnitPrice: string | number;
     tiers: readonly {
       upTo: string | number | null;
