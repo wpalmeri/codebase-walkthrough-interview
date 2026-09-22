@@ -229,6 +229,14 @@ async function main(): Promise<void> {
     assert.equal(missingCondition.status, 428);
     assert.equal(problemCode(missingCondition.body), "PRECONDITION_REQUIRED");
 
+    const missingPatchPrice = await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a", {
+      method: "PATCH",
+      headers: { "if-match": initial.etag ?? "" },
+      body: JSON.stringify({ tiers: [] }),
+    });
+    assert.equal(missingPatchPrice.status, 400);
+    assert.equal(problemCode(missingPatchPrice.body), "VALIDATION_ERROR");
+
     const malformedCondition = await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a", {
       method: "PUT",
       headers: { "if-match": "not-an-etag" },
@@ -344,6 +352,43 @@ async function main(): Promise<void> {
     });
     assert.equal(JSON.stringify(conditionalAudits).includes("conditional-rate-replay"), false);
 
+    const patchStart = await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a");
+    assert.ok(patchStart.etag !== null);
+    const patchHeaders = {
+      "if-match": patchStart.etag,
+      "idempotency-key": "conditional-rate-patch-replay",
+      "idempotency-client": "rate-conditional-integration",
+      "x-request-id": "audit-conditional-patch-request-1",
+    };
+    const patchFirst = await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a", {
+      method: "PATCH",
+      headers: patchHeaders,
+      body: JSON.stringify({ unitPrice: "12.5000" }),
+    });
+    const patchReplay = await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a", {
+      method: "PATCH",
+      headers: patchHeaders,
+      body: JSON.stringify({ unitPrice: "12.5000" }),
+    });
+    assert.equal(patchFirst.status, 200);
+    assert.equal(patchReplay.status, 200);
+    assert.equal(responsePrice(patchFirst.body), "12.5000");
+    assert.equal(patchReplay.etag, patchFirst.etag);
+    assert.deepEqual(patchReplay.body, patchFirst.body);
+    assert.equal((await prisma.rate.findUniqueOrThrow({ where: { id: "conditional-rate-a" } })).resourceVersion, 3);
+    assert.deepEqual(await auditEventForRequest("audit-conditional-patch-request-1"), {
+      tenantId: tenantA,
+      action: "RATE_UPDATED",
+      principalKind: "TENANT_API_KEY",
+      principalSubject: "conditional-rate-admin-a",
+      principalCredentialId: "conditional-rate-key-a",
+      requestId: "audit-conditional-patch-request-1",
+      idempotencyKeyFingerprint: fingerprintIdempotencyKey("conditional-rate-patch-replay"),
+      resourceKind: "RATE",
+      resourceId: "conditional-rate-a",
+    });
+    assert.equal((await auditEvents()).length, 3);
+
     const keyWithDifferentCondition = await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a", {
       method: "PUT",
       headers: {
@@ -354,7 +399,7 @@ async function main(): Promise<void> {
     });
     assert.equal(keyWithDifferentCondition.status, 409);
     assert.equal(problemCode(keyWithDifferentCondition.body), "IDEMPOTENCY_KEY_REUSED");
-    assert.equal((await auditEvents()).length, 2);
+    assert.equal((await auditEvents()).length, 3);
 
     const directEtag = (await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a")).etag;
     assert.ok(directEtag !== null);
@@ -366,7 +411,7 @@ async function main(): Promise<void> {
     });
     assert.equal(directWriteStale.status, 412);
     assert.equal(problemCode(directWriteStale.body), "ETAG_VERSION_MISMATCH");
-    assert.equal((await auditEvents()).length, 2);
+    assert.equal((await auditEvents()).length, 3);
 
     const beforeLegacyWrite = await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a");
     assert.ok(beforeLegacyWrite.etag !== null);

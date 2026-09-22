@@ -119,6 +119,9 @@ void test("Invoice descriptor routes own full paths, headers, exact decimal outp
   const get = invoiceOperations[1];
   const replace = invoiceOperations[2];
   const patch = invoiceOperations[3];
+  assert.equal(replace.deprecated, true);
+  assert.match(replace.description ?? "", /Deprecated.*Use PATCH/u);
+  assert.notEqual(patch.deprecated, true);
   assert.ok("ETag" in get.responseHeaders.shape);
   for (const conditional of [replace, patch]) {
     assert.ok("If-Match" in conditional.requestHeaders.shape);

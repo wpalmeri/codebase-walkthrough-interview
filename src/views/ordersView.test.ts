@@ -80,6 +80,9 @@ void test("order operation descriptors retain complete paths, conditional header
   const get = orderOperations[1];
   const put = orderOperations[3];
   const patch = orderOperations[4];
+  assert.equal(put.deprecated, true);
+  assert.match(put.description ?? "", /Deprecated.*Use PATCH/u);
+  assert.notEqual(patch.deprecated, true);
   assert.equal(get.success.schema.safeParse({ id: "order-1", unexpected: true }).success, false);
   assert.ok("ETag" in get.responseHeaders.shape);
   assert.ok("ETag" in put.responseHeaders.shape);

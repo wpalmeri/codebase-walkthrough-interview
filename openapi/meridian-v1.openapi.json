@@ -2151,7 +2151,7 @@
         "summary": "Get an invoice"
       },
       "patch": {
-        "description": "`/api/v1` requires an exact strong If-Match ETag and returns the next ETag.",
+        "description": "Partially updates invoice dates. `/api/v1` requires an exact strong If-Match ETag and returns the next ETag.",
         "operationId": "updateInvoice",
         "parameters": [
           {
@@ -2902,7 +2902,8 @@
         "summary": "Partially update invoice dates"
       },
       "put": {
-        "description": "`/api/v1` requires an exact strong If-Match ETag and returns the next ETag.",
+        "deprecated": true,
+        "description": "Deprecated: this historical partial-update PUT remains supported for existing clients. Use PATCH `/invoices/{id}` for all new partial date updates. `/api/v1` requires an exact strong If-Match ETag and returns the next ETag.",
         "operationId": "replaceInvoice",
         "parameters": [
           {
@@ -6934,7 +6935,8 @@
         "summary": "Partially update an order"
       },
       "put": {
-        "description": "`/api/v1` requires an exact strong If-Match ETag and returns the next ETag; legacy `/api` keeps its unconditional update behavior.",
+        "deprecated": true,
+        "description": "Deprecated: this historical partial-update PUT remains supported for existing clients. Use PATCH `/orders/{id}` for all new partial updates. `/api/v1` requires an exact strong If-Match ETag and returns the next ETag; legacy `/api` keeps its unconditional update behavior.",
         "operationId": "replaceOrder",
         "parameters": [
           {
@@ -11710,8 +11712,524 @@
         ],
         "summary": "Get a rate"
       },
+      "patch": {
+        "description": "Updates the required unit price and optional tiers, not immutable rate identity. `/api/v1` requires an exact strong If-Match ETag.",
+        "operationId": "patchRate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Client",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "tiers": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "ceiling": {
+                          "anyOf": [
+                            {
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            {
+                              "pattern": "^(?:0|[1-9]\\d{0,14})(?:\\.\\d{1,4})?$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "floor": {
+                          "anyOf": [
+                            {
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            {
+                              "pattern": "^(?:0|[1-9]\\d{0,14})(?:\\.\\d{1,4})?$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "unitPrice": {
+                          "anyOf": [
+                            {
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            {
+                              "pattern": "^(?:0|[1-9]\\d{0,14})(?:\\.\\d{1,4})?$",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "upTo": {
+                          "anyOf": [
+                            {
+                              "exclusiveMinimum": 0,
+                              "type": "number"
+                            },
+                            {
+                              "pattern": "^(?:0|[1-9]\\d{0,12})(?:\\.\\d{1,6})?$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "upTo",
+                        "unitPrice"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                  },
+                  "unitPrice": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      {
+                        "pattern": "^(?:0|[1-9]\\d{0,14})(?:\\.\\d{1,4})?$",
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "unitPrice"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "currencyCode": {
+                      "enum": [
+                        "USD"
+                      ],
+                      "type": "string"
+                    },
+                    "customerId": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "effectiveDate": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "productId": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "productName": {
+                      "type": "string"
+                    },
+                    "productSku": {
+                      "type": "string"
+                    },
+                    "tiers": {
+                      "items": {
+                        "properties": {
+                          "ceiling": {
+                            "minimum": 0,
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "floor": {
+                            "minimum": 0,
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "unitPrice": {
+                            "minimum": 0,
+                            "type": "number"
+                          },
+                          "upTo": {
+                            "exclusiveMinimum": 0,
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "upTo",
+                          "unitPrice"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "tiersDecimal": {
+                      "items": {
+                        "properties": {
+                          "ceiling": {
+                            "pattern": "^(?:0|[1-9]\\d{0,14})\\.\\d{4}$",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "floor": {
+                            "pattern": "^(?:0|[1-9]\\d{0,14})\\.\\d{4}$",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "unitPrice": {
+                            "pattern": "^(?:0|[1-9]\\d{0,14})\\.\\d{4}$",
+                            "type": "string"
+                          },
+                          "upTo": {
+                            "pattern": "^(?:0|[1-9]\\d{0,12})\\.\\d{6}$",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "upTo",
+                          "unitPrice"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "unitPrice": {
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "unitPriceDecimal": {
+                      "pattern": "^(?:0|[1-9]\\d{0,14})\\.\\d{4}$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "customerId",
+                    "productId",
+                    "unitPrice",
+                    "tiers",
+                    "effectiveDate"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Updated rate representation",
+            "headers": {
+              "ETag": {
+                "required": true,
+                "schema": {
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 412",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 428",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "tenantBearer": []
+          }
+        ],
+        "summary": "Partially update a rate's mutable commercial terms"
+      },
       "put": {
-        "description": "This updates the unit price and optional tiers, not immutable rate identity. `/api/v1` requires an exact strong If-Match ETag.",
+        "deprecated": true,
+        "description": "Deprecated: this historical partial-update PUT remains supported for existing clients. Use PATCH `/rates/{id}` for all new mutable commercial-term updates. Both routes require an exact strong If-Match ETag on `/api/v1`.",
         "operationId": "updateRate",
         "parameters": [
           {

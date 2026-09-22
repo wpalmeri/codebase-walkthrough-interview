@@ -29,6 +29,8 @@ const generatedInvoiceListIsCursorPage: GeneratedInvoiceListIsCursorPage = true;
 const OperationSchema = z.object({
   operationId: z.string(),
   summary: z.string(),
+  description: z.string().optional(),
+  deprecated: z.boolean().optional(),
   security: z.array(z.object({ tenantBearer: z.array(z.never()) })),
   parameters: z.array(z.object({ name: z.string(), in: z.string(), required: z.boolean().optional() })),
   responses: z.record(z.string(), z.unknown()),
@@ -88,6 +90,7 @@ void describe("generated version-one OpenAPI contract", () => {
         "post /payments/{id}/applications/{applicationId}/reversals",
         "post /tenant-api-keys",
         "post /tenant-api-keys/revoke",
+        "patch /rates/{id}",
         "put /rates/{id}",
         "put /invoices/{id}",
         "put /orders/{id}",
@@ -113,6 +116,7 @@ void describe("generated version-one OpenAPI contract", () => {
     const products = operation(document, "/products", "get");
     const getRate = operation(document, "/rates/{id}", "get");
     const updateRate = operation(document, "/rates/{id}", "put");
+    const patchRate = operation(document, "/rates/{id}", "patch");
     const createCombo = operation(document, "/rates/combos", "post");
 
     assert.deepEqual(customers.security, [{ tenantBearer: [] }]);
@@ -123,6 +127,8 @@ void describe("generated version-one OpenAPI contract", () => {
     assert.equal(getRate.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"), true);
     assert.equal(updateRate.parameters.some((parameter) => parameter.name === "If-Match" && parameter.required === true), true);
     assert.equal(updateRate.parameters.some((parameter) => parameter.name === "Idempotency-Key"), true);
+    assert.equal(patchRate.parameters.some((parameter) => parameter.name === "If-Match" && parameter.required === true), true);
+    assert.equal(patchRate.parameters.some((parameter) => parameter.name === "Idempotency-Key"), true);
     assert.equal(createCombo.parameters.some((parameter) => parameter.name === "Idempotency-Key"), true);
 
     const parsed = z
@@ -130,16 +136,20 @@ void describe("generated version-one OpenAPI contract", () => {
         paths: z.object({
           "/rates/{id}": z.object({
             get: z.object({ responses: z.record(z.string(), z.unknown()) }),
-            put: z.object({ responses: z.record(z.string(), z.unknown()), description: z.string() }),
+            put: z.object({ responses: z.record(z.string(), z.unknown()), description: z.string(), deprecated: z.literal(true) }),
+            patch: z.object({ responses: z.record(z.string(), z.unknown()), description: z.string() }),
           }),
         }),
       })
       .parse(document);
     const getSuccess = z.object({ headers: z.object({ ETag: z.unknown() }) }).parse(parsed.paths["/rates/{id}"].get.responses["200"]);
     const putSuccess = z.object({ headers: z.object({ ETag: z.unknown() }) }).parse(parsed.paths["/rates/{id}"].put.responses["200"]);
+    const patchSuccess = z.object({ headers: z.object({ ETag: z.unknown() }) }).parse(parsed.paths["/rates/{id}"].patch.responses["200"]);
     assert.ok(getSuccess.headers.ETag);
     assert.ok(putSuccess.headers.ETag);
-    assert.match(parsed.paths["/rates/{id}"].put.description, /mutable commercial terms|If-Match/u);
+    assert.ok(patchSuccess.headers.ETag);
+    assert.match(parsed.paths["/rates/{id}"].put.description, /Deprecated.*Use PATCH/u);
+    assert.match(parsed.paths["/rates/{id}"].patch.description, /required unit price/u);
 
     const badRequest = z
       .object({ content: z.record(z.string(), z.unknown()) })
@@ -291,6 +301,8 @@ void describe("generated version-one OpenAPI contract", () => {
     const put = operation(document, "/orders/{id}", "put");
     const patch = operation(document, "/orders/{id}", "patch");
     const invoice = operation(document, "/orders/{id}/invoice", "post");
+    assert.equal(z.object({ deprecated: z.literal(true), description: z.string() }).parse(put).deprecated, true);
+    assert.match(z.object({ description: z.string() }).parse(put).description, /Deprecated.*Use PATCH/u);
     for (const orderOperation of [list, get, create, put, patch, invoice]) {
       assert.deepEqual(orderOperation.security, [{ tenantBearer: [] }]);
       assert.equal(
@@ -372,6 +384,8 @@ void describe("generated version-one OpenAPI contract", () => {
     const post = operation(document, "/invoices/{id}/post", "post");
     const send = operation(document, "/invoices/{id}/send", "post");
     const refresh = operation(document, "/invoices/transmissions/{transmissionId}/refresh", "post");
+    assert.equal(z.object({ deprecated: z.literal(true), description: z.string() }).parse(put).deprecated, true);
+    assert.match(z.object({ description: z.string() }).parse(put).description, /Deprecated.*Use PATCH/u);
     for (const invoiceOperation of [list, get, put, patch, post, send, refresh]) {
       assert.deepEqual(invoiceOperation.security, [{ tenantBearer: [] }]);
       assert.equal(

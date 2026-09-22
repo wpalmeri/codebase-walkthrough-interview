@@ -104,6 +104,7 @@ const responseSchemas = {
   "get /rates": successResponse(200, [400, 401, 404, 413, 500] as const, RateSchema.array()),
   "get /rates/{id}": successResponse(200, [400, 401, 404, 413, 500] as const, RateSchema),
   "put /rates/{id}": successResponse(200, [400, 401, 403, 404, 409, 412, 413, 428, 500] as const, RateSchema),
+  "patch /rates/{id}": successResponse(200, [400, 401, 403, 404, 409, 412, 413, 428, 500] as const, RateSchema),
   "get /rates/combos": successResponse(200, [400, 401, 404, 413, 500] as const, ComboDiscountSchema.array()),
   "post /rates/combos": successResponse(200, [400, 401, 403, 404, 409, 413, 422, 500] as const, ComboDiscountSchema),
   "get /reports/annual-revenue": successResponse(200, [400, 401, 403, 413, 500] as const, AnnualRevenueSchema.array()),

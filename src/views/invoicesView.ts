@@ -91,14 +91,21 @@ const getInvoiceOperation = defineOperation({
   },
 });
 
-function updateInvoiceOperation(method: "put" | "patch", operationId: string, summary: string) {
+function updateInvoiceOperation(
+  method: "put" | "patch",
+  operationId: string,
+  summary: string,
+  deprecated = false
+) {
   return defineOperation({
     method,
     path: "/invoices/:id",
     operationId,
     summary,
-    description:
-      "`/api/v1` requires an exact strong If-Match ETag and returns the next ETag.",
+    description: deprecated
+      ? "Deprecated: this historical partial-update PUT remains supported for existing clients. Use PATCH `/invoices/{id}` for all new partial date updates. `/api/v1` requires an exact strong If-Match ETag and returns the next ETag."
+      : "Partially updates invoice dates. `/api/v1` requires an exact strong If-Match ETag and returns the next ETag.",
+    deprecated,
     request: UpdateInvoiceRequestSchema,
     hasJsonBody: true,
     success: { status: 200, description: "Updated invoice", schema: InvoiceSchema },
@@ -123,7 +130,7 @@ function updateInvoiceOperation(method: "put" | "patch", operationId: string, su
   });
 }
 
-const replaceInvoiceOperation = updateInvoiceOperation("put", "replaceInvoice", "Replace invoice dates");
+const replaceInvoiceOperation = updateInvoiceOperation("put", "replaceInvoice", "Replace invoice dates", true);
 const updateInvoiceOperationDescriptor = updateInvoiceOperation("patch", "updateInvoice", "Partially update invoice dates");
 
 const postInvoiceOperation = defineOperation({

@@ -75,7 +75,8 @@ export interface paths {
         readonly get: operations["getInvoice"];
         /**
          * Replace invoice dates
-         * @description `/api/v1` requires an exact strong If-Match ETag and returns the next ETag.
+         * @deprecated
+         * @description Deprecated: this historical partial-update PUT remains supported for existing clients. Use PATCH `/invoices/{id}` for all new partial date updates. `/api/v1` requires an exact strong If-Match ETag and returns the next ETag.
          */
         readonly put: operations["replaceInvoice"];
         readonly post?: never;
@@ -84,7 +85,7 @@ export interface paths {
         readonly head?: never;
         /**
          * Partially update invoice dates
-         * @description `/api/v1` requires an exact strong If-Match ETag and returns the next ETag.
+         * @description Partially updates invoice dates. `/api/v1` requires an exact strong If-Match ETag and returns the next ETag.
          */
         readonly patch: operations["updateInvoice"];
         readonly trace?: never;
@@ -175,7 +176,8 @@ export interface paths {
         readonly get: operations["getOrder"];
         /**
          * Update an order
-         * @description `/api/v1` requires an exact strong If-Match ETag and returns the next ETag; legacy `/api` keeps its unconditional update behavior.
+         * @deprecated
+         * @description Deprecated: this historical partial-update PUT remains supported for existing clients. Use PATCH `/orders/{id}` for all new partial updates. `/api/v1` requires an exact strong If-Match ETag and returns the next ETag; legacy `/api` keeps its unconditional update behavior.
          */
         readonly put: operations["replaceOrder"];
         readonly post?: never;
@@ -329,14 +331,19 @@ export interface paths {
         readonly get: operations["getRate"];
         /**
          * Update a rate's mutable commercial terms
-         * @description This updates the unit price and optional tiers, not immutable rate identity. `/api/v1` requires an exact strong If-Match ETag.
+         * @deprecated
+         * @description Deprecated: this historical partial-update PUT remains supported for existing clients. Use PATCH `/rates/{id}` for all new mutable commercial-term updates. Both routes require an exact strong If-Match ETag on `/api/v1`.
          */
         readonly put: operations["updateRate"];
         readonly post?: never;
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
-        readonly patch?: never;
+        /**
+         * Partially update a rate's mutable commercial terms
+         * @description Updates the required unit price and optional tiers, not immutable rate identity. `/api/v1` requires an exact strong If-Match ETag.
+         */
+        readonly patch: operations["patchRate"];
         readonly trace?: never;
     };
     readonly "/rates/combos": {
@@ -3997,6 +4004,163 @@ export interface operations {
         };
     };
     readonly updateRate: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                readonly "Idempotency-Client"?: string;
+                readonly "Idempotency-Key"?: string;
+                readonly "If-Match": string;
+                readonly "X-Request-ID"?: string;
+            };
+            readonly path: {
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": {
+                    readonly tiers?: readonly {
+                        readonly ceiling?: number | string | null;
+                        readonly floor?: number | string | null;
+                        readonly unitPrice: number | string;
+                        readonly upTo: number | string | null;
+                    }[];
+                    readonly unitPrice: number | string;
+                };
+            };
+        };
+        readonly responses: {
+            /** @description Updated rate representation */
+            readonly 200: {
+                headers: {
+                    readonly ETag: string;
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        /** @enum {string} */
+                        readonly currencyCode?: "USD";
+                        readonly customerId: string;
+                        /** Format: date-time */
+                        readonly effectiveDate: string;
+                        readonly id: string;
+                        readonly productId: string;
+                        readonly productName?: string;
+                        readonly productSku?: string;
+                        readonly tiers: readonly {
+                            readonly ceiling?: number | null;
+                            readonly floor?: number | null;
+                            readonly unitPrice: number;
+                            readonly upTo: number | null;
+                        }[];
+                        readonly tiersDecimal?: readonly {
+                            readonly ceiling?: string | null;
+                            readonly floor?: string | null;
+                            readonly unitPrice: string;
+                            readonly upTo: string | null;
+                        }[];
+                        readonly unitPrice: number;
+                        readonly unitPriceDecimal?: string;
+                    };
+                };
+            };
+            /** @description Invalid request syntax, headers, or validated input */
+            readonly 400: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ValidationError"];
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 401 */
+            readonly 401: {
+                headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 403 */
+            readonly 403: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 404 */
+            readonly 404: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 409 */
+            readonly 409: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 412 */
+            readonly 412: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 428 */
+            readonly 428: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 500 */
+            readonly 500: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    readonly patchRate: {
         readonly parameters: {
             readonly query?: never;
             readonly header: {

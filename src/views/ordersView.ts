@@ -112,7 +112,8 @@ const updateOrderOperation = defineOperation({
   operationId: "replaceOrder",
   summary: "Update an order",
   description:
-    "`/api/v1` requires an exact strong If-Match ETag and returns the next ETag; legacy `/api` keeps its unconditional update behavior.",
+    "Deprecated: this historical partial-update PUT remains supported for existing clients. Use PATCH `/orders/{id}` for all new partial updates. `/api/v1` requires an exact strong If-Match ETag and returns the next ETag; legacy `/api` keeps its unconditional update behavior.",
+  deprecated: true,
   request: UpdateOrderRequestSchema,
   hasJsonBody: true,
   success: { status: 200, description: "Updated order", schema: OrderSchema },

@@ -91,36 +91,53 @@ const getRateOperation = defineOperation({
   },
 });
 
-const updateRateOperation = defineOperation({
-  method: "put",
-  path: "/rates/:id",
-  operationId: "updateRate",
-  summary: "Update a rate's mutable commercial terms",
-  description:
-    "This updates the unit price and optional tiers, not immutable rate identity. `/api/v1` requires an exact strong If-Match ETag.",
-  request: UpdateRateRequestSchema,
-  hasJsonBody: true,
-  success: { status: 200, description: "Updated rate representation", schema: RateSchema },
-  security: "tenantBearer",
-  roles: ADMIN_ROLES,
-  errors: [400, 401, 403, 404, 409, 412, 428, 500],
-  requestHeaders: IdempotencyRequestHeadersSchema.merge(RateConditionalRequestHeadersSchema),
-  responseHeaders: EtagResponseHeadersSchema,
-  handler: async ({ input, principal, request, response }) => {
-    const audit = { metadata: requestAuditMetadata(request, principal) };
-    if (!isV1Request(request)) return rates.updateRate(principal.tenantId, input.params.id, input.body, audit);
+function updateRateOperation(
+  method: "put" | "patch",
+  operationId: string,
+  summary: string,
+  deprecated = false
+) {
+  return defineOperation({
+    method,
+    path: "/rates/:id",
+    operationId,
+    summary,
+    description: deprecated
+      ? "Deprecated: this historical partial-update PUT remains supported for existing clients. Use PATCH `/rates/{id}` for all new mutable commercial-term updates. Both routes require an exact strong If-Match ETag on `/api/v1`."
+      : "Updates the required unit price and optional tiers, not immutable rate identity. `/api/v1` requires an exact strong If-Match ETag.",
+    deprecated,
+    request: UpdateRateRequestSchema,
+    hasJsonBody: true,
+    success: { status: 200, description: "Updated rate representation", schema: RateSchema },
+    security: "tenantBearer",
+    roles: ADMIN_ROLES,
+    errors: [400, 401, 403, 404, 409, 412, 428, 500],
+    requestHeaders: IdempotencyRequestHeadersSchema.merge(RateConditionalRequestHeadersSchema),
+    responseHeaders: EtagResponseHeadersSchema,
+    handler: async ({ input, principal, request, response }) => {
+      const audit = { metadata: requestAuditMetadata(request, principal) };
+      if (!isV1Request(request)) return rates.updateRate(principal.tenantId, input.params.id, input.body, audit);
 
-    const result = await rates.updateRateConditionally(
-      principal.tenantId,
-      input.params.id,
-      input.body,
-      request.get("if-match"),
-      audit
-    );
-    response.setHeader("ETag", result.etag);
-    return result.rate;
-  },
-});
+      const result = await rates.updateRateConditionally(
+        principal.tenantId,
+        input.params.id,
+        input.body,
+        request.get("if-match"),
+        audit
+      );
+      response.setHeader("ETag", result.etag);
+      return result.rate;
+    },
+  });
+}
+
+const updateRateOperationDescriptor = updateRateOperation(
+  "put",
+  "updateRate",
+  "Update a rate's mutable commercial terms",
+  true
+);
+const patchRateOperation = updateRateOperation("patch", "patchRate", "Partially update a rate's mutable commercial terms");
 
 /** Reused by the document generator; these are the objects Express mounts. */
 export const rateOperations = [
@@ -128,7 +145,8 @@ export const rateOperations = [
   listComboDiscountsOperation,
   createComboDiscountOperation,
   getRateOperation,
-  updateRateOperation,
+  updateRateOperationDescriptor,
+  patchRateOperation,
 ] as const;
 
 export const ratesView = Router();

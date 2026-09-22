@@ -63,7 +63,7 @@ export function createOpenApiV1Document(operations: readonly AnyApiOperation[]) 
       operationId: operation.operationId,
       summary: operation.summary,
       ...(operation.description === undefined ? {} : { description: operation.description }),
-      ...(operation.deprecated === undefined ? {} : { deprecated: operation.deprecated }),
+      ...(operation.deprecated === true ? { deprecated: true } : {}),
       security: [{ [operation.security]: [] }],
       request: {
         params: parts.params,
