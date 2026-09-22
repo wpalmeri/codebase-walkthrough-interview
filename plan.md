@@ -47,6 +47,17 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - [x] Add constant-time production API-key authentication (`e43d63d`).
 - [x] Add durable mutation idempotency with alias-normalized replay scope (`f5f4f03`).
 - [x] Replace the fixed PDF buffer with deterministic, exact, multi-page invoice artifacts (`25b2d20`).
+- [x] Add request correlation and strictly redacted structured error events (`97c3363`).
+
+### Tenant isolation and runtime operations
+
+- [x] Add the expand-only tenant schema, least-privilege role enums, issuer-scoped identities, per-tenant accounting controls, and direct-SQL ownership guards (`2f0245d`).
+- [x] Add a dry-run-first, checkpointed legacy-ownership backfill with relationship reconciliation and restart tests (`42f143f`).
+- [x] Derive strict tenant principals from authenticated credentials and scope durable idempotency by tenant (`1a8ee49`).
+- [x] Enforce viewer, billing, and administrator authorization boundaries (`2f7f3f3`).
+- [x] Isolate catalog, rate, order, invoice, delivery, payment, reversal, and report operations by tenant with two-tenant negative tests (`cdf771c`, `24f9ee1`, `c87ce13`).
+- [x] Add one-time-secret tenant API-key issuance and monotonic revocation tooling (`4b0ae4f`).
+- [x] Add public liveness, redacted readiness, and bounded graceful shutdown behavior (`492ddd1`).
 
 ### Migrations, backfills, and test infrastructure
 
@@ -58,6 +69,7 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - [x] Add pinned PostgreSQL contract coverage for native NUMERIC, constraints, locking, and serializable failure (`07f4318`).
 - [x] Backfill order pricing and invoice identity snapshots only from immutable persisted evidence (`4620816`, `57dd259`).
 - [x] Add a bounded, read-only financial reconciliation gate with deterministic issue contracts (`c59ed50`).
+- [x] Add an expand-only resource-version migration and strict strong-ETag/`If-Match` primitives (`fb4eda4`).
 
 ### Continuous enforcement and supply chain
 
@@ -66,19 +78,19 @@ This is the execution source of truth. Implement each numbered item as an atomic
 
 ## Ranked remaining implementation sequence
 
-1. **P0 — Add real authorization and tenant isolation**
-   - Introduce tenant/user principals, derive ownership scope from authentication, and apply it to every lookup, mutation, idempotency scope, report, and delivery action.
-   - Make the browser authenticate without exposing a long-lived server API key; add cross-tenant negative tests and database defense-in-depth where practical.
-
-2. **P0 — Contract historical financial fields after deployment evidence is clean**
+1. **P0 — Contract historical financial fields after deployment evidence is clean**
    - Run the implemented dry-run backfills and bounded reconciliation against each live deployment, route irreducible rows to manual reconciliation, and retain signed operational evidence of a zero-issue full scan.
    - Only after that gate, ship separate online contract migrations that make authoritative fields required and retire float reads/writes. Never scan or rewrite production rows in deploy migrations.
 
+2. **P0 — Complete interactive-user authentication**
+   - Replace the browser's development-only unauthenticated path with an authorization-code/PKCE session flow backed by issuer-scoped user identities and tenant memberships; do not expose tenant or legacy API keys to browser JavaScript.
+   - Add CSRF/session rotation/logout/role-change tests and keep server-to-server tenant API keys as a separate credential class. The identity-provider choice and deployment configuration are external prerequisites, but the server trust boundary must remain fail-closed.
+
 3. **P1 — Strengthen API evolution and database scale**
-   - Add resource versions and conditional writes with ETags/`If-Match` while retaining current endpoints.
+   - Adopt the resource-version foundation in aggregate mutations with atomic compare-and-swap writes, strong response ETags, and stale interleaving tests; require preconditions on `/api/v1` while preserving legacy `/api` clients during rollout.
    - Add cursor pagination, stable ordering, supporting indexes, and SQL-side report aggregation through online PostgreSQL migrations.
    - Generate OpenAPI from the Zod contracts, generate/validate the client, and add consumer-contract tests so `/api/v1` can evolve independently.
-   - Replace remaining raw lifecycle strings with schema-derived enums at boundaries and explicit database constraints/types where the target database supports them.
+   - Replace the remaining raw lifecycle literals with schema-derived enums at boundaries and explicit database constraints/types where the target database supports them.
 
 4. **P1 — Add auditability and continuous controls**
    - Record append-only audit events for financial and lifecycle mutations using authenticated actors and correlation/idempotency identifiers.
@@ -87,7 +99,7 @@ This is the execution source of truth. Implement each numbered item as an atomic
 
 5. **P2 — Operational and architecture hardening**
    - Extend the existing architecture ratchet to raw lifecycle literals and unvalidated boundary data as the remaining exceptions are removed.
-   - Produce an SBOM, add structured logs/metrics/readiness/graceful shutdown, and document secret rotation and recovery drills.
+   - Produce an SBOM, add metrics, and document API-key/pepper rotation and recovery drills; liveness, readiness, graceful shutdown, request correlation, and redacted structured error logs are already implemented.
 
 ## Deferred by agreement
 
