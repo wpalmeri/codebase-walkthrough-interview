@@ -18,6 +18,7 @@ import { isV1Request } from "../http/apiVersion";
 import { formatNextPageLink } from "../http/pagination";
 import {
   IdempotencyRequestHeadersSchema,
+  PaginationResponseHeadersSchema,
   defineOperation,
   mountOperation,
 } from "../openapi/operation";
@@ -46,6 +47,7 @@ const listPaymentsOperation = defineOperation({
   security: "tenantBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 500],
+  responseHeaders: PaginationResponseHeadersSchema,
   handler: async ({ input, principal, request, response }) => {
     if (!isV1Request(request)) {
       // ListPaymentsV1RequestSchema is the v1 public contract. Re-validate

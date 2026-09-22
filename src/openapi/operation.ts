@@ -18,6 +18,7 @@ export const ApiErrorStatusSchema = z.union([
   z.literal(404),
   z.literal(409),
   z.literal(412),
+  z.literal(413),
   z.literal(422),
   z.literal(428),
   z.literal(500),
@@ -29,6 +30,11 @@ export const RequestIdRequestHeadersSchema = z.object({
 });
 export const RequestIdResponseHeadersSchema = z.object({
   [REQUEST_ID_HEADER]: RequestIdSchema,
+});
+
+/** RFC 8288 next-page relation, emitted only when another page exists. */
+export const PaginationResponseHeadersSchema = z.object({
+  Link: z.string().min(1).max(4_096).optional(),
 });
 
 export const IdempotencyRequestHeadersSchema = z.object({
@@ -104,8 +110,16 @@ export function defineOperation<RequestSchema extends RequestComposite, SuccessS
     readonly responseHeaders?: z.ZodObject;
   }
 ): ApiOperation<RequestSchema, SuccessSchema> {
+  // The app's shared JSON parser runs before route selection. Any operation
+  // can therefore reject an oversized application/json payload, including a
+  // caller incorrectly attaching one to a bodyless operation.
+  const errors: readonly ApiErrorStatus[] =
+    !operation.errors.includes(413)
+      ? [...operation.errors, 413]
+      : operation.errors;
   return {
     ...operation,
+    errors,
     requestHeaders: mergeHeaders(RequestIdRequestHeadersSchema, operation.requestHeaders),
     responseHeaders: mergeHeaders(RequestIdResponseHeadersSchema, operation.responseHeaders),
   };

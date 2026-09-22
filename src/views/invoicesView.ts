@@ -20,6 +20,7 @@ import { formatNextPageLink } from "../http/pagination";
 import {
   EtagResponseHeadersSchema,
   IdempotencyRequestHeadersSchema,
+  PaginationResponseHeadersSchema,
   RateConditionalRequestHeadersSchema,
   defineOperation,
   mountOperation,
@@ -47,6 +48,7 @@ const listInvoicesOperation = defineOperation({
   security: "tenantBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 500],
+  responseHeaders: PaginationResponseHeadersSchema,
   handler: async ({ input, principal, request, response }) => {
     if (!isV1Request(request)) {
       validateRequest(ListInvoicesRequestSchema, request);

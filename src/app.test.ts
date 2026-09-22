@@ -8,7 +8,7 @@ import {
   PreconditionError,
   ProblemDetailsSchema,
 } from "./errors";
-import { createApp } from "./app";
+import { JSON_BODY_LIMIT_BYTES, createApp } from "./app";
 import { h } from "./views/helpers";
 
 async function requestApp(
@@ -20,6 +20,7 @@ async function requestApp(
   readonly contentType: string | null;
   readonly link: string | null;
   readonly requestId: string | null;
+  readonly wwwAuthenticate: string | null;
   readonly body: unknown;
 }> {
   const server = app.listen(0);
@@ -33,6 +34,7 @@ async function requestApp(
       contentType: response.headers.get("content-type"),
       link: response.headers.get("link"),
       requestId: response.headers.get("x-request-id"),
+      wwwAuthenticate: response.headers.get("www-authenticate"),
       body: await response.json(),
     };
   } finally {
@@ -48,6 +50,13 @@ function close(server: Server): Promise<void> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function jsonBodyWithByteLength(byteLength: number, secret: string): string {
+  const envelope = `{"secret":"${secret}"}`;
+  const fillerLength = byteLength - Buffer.byteLength(envelope);
+  if (fillerLength < 0) throw new Error("requested JSON body is smaller than its envelope");
+  return `{"secret":"${secret}${"x".repeat(fillerLength)}"}`;
 }
 
 void describe("HTTP problem-details boundary", () => {
@@ -315,6 +324,51 @@ void describe("HTTP problem-details boundary", () => {
     });
   });
 
+  void test("rejects a limit-plus-one JSON body as a redacted 413 without unexpected-error logging", async () => {
+    const rawErrors: unknown[] = [];
+    const privateEvents: unknown[] = [];
+    const secret = "body-secret-that-must-not-leak";
+    const body = jsonBodyWithByteLength(JSON_BODY_LIMIT_BYTES + 1, secret);
+    assert.equal(Buffer.byteLength(body), JSON_BODY_LIMIT_BYTES + 1);
+
+    const acceptedBoundary = await requestApp(createApp(), "/api/v1/payments", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: jsonBodyWithByteLength(JSON_BODY_LIMIT_BYTES, secret),
+    });
+    assert.notEqual(acceptedBoundary.status, 413, "the documented byte limit is inclusive");
+    assert.doesNotMatch(JSON.stringify(acceptedBoundary.body), /body-secret|must-not-leak/i);
+
+    const response = await requestApp(createApp({
+      logError(error) {
+        rawErrors.push(error);
+      },
+      privateErrorLogSink(event) {
+        privateEvents.push(event);
+      },
+    }), "/api/v1/payments", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": "oversized-json-body-1",
+      },
+      body,
+    });
+
+    assert.equal(response.status, 413);
+    assert.equal(response.contentType, "application/problem+json; charset=utf-8");
+    assert.equal(response.requestId, "oversized-json-body-1");
+    assert.deepEqual(response.body, {
+      type: "urn:meridian:problem:payload-too-large",
+      title: "Request body too large",
+      status: 413,
+      code: "PAYLOAD_TOO_LARGE",
+    });
+    assert.equal(rawErrors.length, 0);
+    assert.equal(privateEvents.length, 0);
+    assert.doesNotMatch(JSON.stringify(response.body), /body-secret|must-not-leak/i);
+  });
+
   void test("returns a stable problem for an unknown route", async () => {
     const response = await requestApp(createApp(), "/api/no-such-route");
     assert.equal(response.status, 404);
@@ -361,6 +415,8 @@ void describe("HTTP problem-details boundary", () => {
 
     for (const response of [missing, wrong]) {
       assert.equal(response.status, 401);
+      assert.equal(response.wwwAuthenticate, 'Bearer realm="meridian-api"');
+      assert.match(response.requestId ?? "", /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu);
       assert.deepEqual(response.body, {
         type: "urn:meridian:problem:unauthorized",
         title: "Unauthorized",

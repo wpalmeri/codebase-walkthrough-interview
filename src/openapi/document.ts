@@ -7,7 +7,15 @@ import {
   ProblemDetailsSchema,
   ValidationErrorResponseSchema,
 } from "@meridian/contracts";
-import { openApiPath, requestParts, type AnyApiOperation, type ApiErrorStatus } from "./operation";
+import { z } from "zod";
+import { JSON_BODY_LIMIT_BYTES } from "../http/jsonBody";
+import {
+  RequestIdResponseHeadersSchema,
+  openApiPath,
+  requestParts,
+  type AnyApiOperation,
+  type ApiErrorStatus,
+} from "./operation";
 
 const JSON_MEDIA_TYPE = "application/json";
 const PROBLEM_MEDIA_TYPE = "application/problem+json";
@@ -85,17 +93,32 @@ function errorResponse(
   problemDetails: typeof ProblemDetailsSchema,
   validationError: typeof ValidationErrorResponseSchema
 ): ResponseConfig {
+  const headers =
+    status === 401
+      ? RequestIdResponseHeadersSchema.extend({
+          "WWW-Authenticate": z.string().min(1).max(512),
+        })
+      : RequestIdResponseHeadersSchema;
   if (status === 400) {
     return {
       description: "Invalid request syntax, headers, or validated input",
+      headers,
       content: {
         [JSON_MEDIA_TYPE]: { schema: validationError },
         [PROBLEM_MEDIA_TYPE]: { schema: problemDetails },
       },
     };
   }
+  if (status === 413) {
+    return {
+      description: `JSON request payload exceeds the ${JSON_BODY_LIMIT_BYTES}-byte limit`,
+      headers,
+      content: { [PROBLEM_MEDIA_TYPE]: { schema: problemDetails } },
+    };
+  }
   return {
     description: `Error ${status}`,
+    headers,
     content: { [PROBLEM_MEDIA_TYPE]: { schema: problemDetails } },
   };
 }

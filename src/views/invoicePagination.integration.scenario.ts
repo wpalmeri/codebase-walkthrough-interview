@@ -99,9 +99,16 @@ async function main(): Promise<void> {
     const received = first.data.map(({ id }) => id);
     let cursor: string | null = first.page.nextCursor;
     while (cursor !== null) {
-      const next = invoicePage(await request(server, "v1", "invoice-page-key-a", `/invoices?limit=2&cursor=${encodeURIComponent(cursor)}`));
+      const nextResponse = await request(
+        server,
+        "v1",
+        "invoice-page-key-a",
+        `/invoices?limit=2&cursor=${encodeURIComponent(cursor)}`
+      );
+      const next = invoicePage(nextResponse);
       received.push(...next.data.map(({ id }) => id));
       cursor = next.page.nextCursor;
+      if (cursor === null) assert.equal(nextResponse.link, null, "the final page omits Link");
     }
     assert.deepEqual(received, originalInvoiceIds, "every original row appears exactly once");
 

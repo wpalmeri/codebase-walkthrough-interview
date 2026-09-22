@@ -10,7 +10,7 @@ import { READ_ROLES } from "../auth/authorization";
 import * as products from "../controllers/productController";
 import { isV1Request } from "../http/apiVersion";
 import { formatNextPageLink } from "../http/pagination";
-import { defineOperation, mountOperation } from "../openapi/operation";
+import { PaginationResponseHeadersSchema, defineOperation, mountOperation } from "../openapi/operation";
 import { RequestValidationError, validateRequest } from "./helpers";
 
 const ProductListResponseSchema = z.union([ProductSchema.array(), ProductPageSchema]);
@@ -33,6 +33,7 @@ const listProductsOperation = defineOperation({
   security: "tenantBearer",
   roles: READ_ROLES,
   errors: [400, 401, 500],
+  responseHeaders: PaginationResponseHeadersSchema,
   handler: async ({ input, principal, request, response }) => {
     if (!isV1Request(request)) {
       // The v1 contract is intentionally not accepted by legacy clients.

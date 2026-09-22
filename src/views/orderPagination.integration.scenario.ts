@@ -152,11 +152,16 @@ async function main(): Promise<void> {
     const received = firstPage.data.map(({ id }) => id);
     let cursor: string | null = firstPage.page.nextCursor;
     while (cursor !== null) {
-      const next = orderPage(
-        await request(server, "v1", "order-page-key-a", `/orders?limit=2&cursor=${encodeURIComponent(cursor)}`)
+      const nextResponse = await request(
+        server,
+        "v1",
+        "order-page-key-a",
+        `/orders?limit=2&cursor=${encodeURIComponent(cursor)}`
       );
+      const next = orderPage(nextResponse);
       received.push(...next.data.map(({ id }) => id));
       cursor = next.page.nextCursor;
+      if (cursor === null) assert.equal(nextResponse.link, null, "the final page omits Link");
     }
     assert.deepEqual(received, originalOrderIds, "every original row appears exactly once");
 

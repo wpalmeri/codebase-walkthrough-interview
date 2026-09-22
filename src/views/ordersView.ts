@@ -21,6 +21,7 @@ import { formatNextPageLink } from "../http/pagination";
 import {
   EtagResponseHeadersSchema,
   IdempotencyRequestHeadersSchema,
+  PaginationResponseHeadersSchema,
   defineOperation,
   mountOperation,
 } from "../openapi/operation";
@@ -46,6 +47,7 @@ const listOrdersOperation = defineOperation({
   security: "tenantBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 500],
+  responseHeaders: PaginationResponseHeadersSchema,
   handler: async ({ input, principal, request, response }) => {
     if (!isV1Request(request)) {
       validateRequest(ListOrdersRequestSchema, request);

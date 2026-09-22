@@ -476,6 +476,7 @@ export interface operations {
             /** @description Cursor-paginated customer page */
             readonly 200: {
                 headers: {
+                    readonly Link?: string;
                     readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
@@ -500,6 +501,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -510,6 +512,18 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -519,6 +533,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -544,6 +559,7 @@ export interface operations {
             /** @description Cursor-paginated invoice page */
             readonly 200: {
                 headers: {
+                    readonly Link?: string;
                     readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
@@ -651,6 +667,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -661,6 +678,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -670,6 +689,17 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -679,6 +709,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -805,6 +836,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -815,6 +847,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -824,6 +858,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -833,6 +868,17 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -842,6 +888,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -978,6 +1025,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -988,6 +1036,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -997,6 +1047,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1006,6 +1057,7 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1015,6 +1067,7 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1024,6 +1077,17 @@ export interface operations {
             /** @description Error 412 */
             readonly 412: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1033,6 +1097,7 @@ export interface operations {
             /** @description Error 422 */
             readonly 422: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1042,6 +1107,7 @@ export interface operations {
             /** @description Error 428 */
             readonly 428: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1051,6 +1117,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1187,6 +1254,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1197,6 +1265,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1206,6 +1276,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1215,6 +1286,7 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1224,6 +1296,7 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1233,6 +1306,17 @@ export interface operations {
             /** @description Error 412 */
             readonly 412: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1242,6 +1326,7 @@ export interface operations {
             /** @description Error 422 */
             readonly 422: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1251,6 +1336,7 @@ export interface operations {
             /** @description Error 428 */
             readonly 428: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1260,6 +1346,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1387,6 +1474,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1397,6 +1485,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1406,6 +1496,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1415,6 +1506,7 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1424,6 +1516,7 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1433,6 +1526,17 @@ export interface operations {
             /** @description Error 412 */
             readonly 412: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1442,6 +1546,7 @@ export interface operations {
             /** @description Error 422 */
             readonly 422: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1451,6 +1556,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1585,6 +1691,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1595,6 +1702,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1604,6 +1713,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1613,6 +1723,7 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1622,6 +1733,7 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1631,6 +1743,17 @@ export interface operations {
             /** @description Error 412 */
             readonly 412: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1640,6 +1763,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1689,6 +1813,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1699,6 +1824,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1708,6 +1835,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1717,6 +1845,17 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1726,6 +1865,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1751,6 +1891,7 @@ export interface operations {
             /** @description Cursor-paginated order page */
             readonly 200: {
                 headers: {
+                    readonly Link?: string;
                     readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
@@ -1810,6 +1951,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1820,6 +1962,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1829,6 +1973,17 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1838,6 +1993,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1926,6 +2082,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1936,6 +2093,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1945,6 +2104,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1954,6 +2114,17 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1963,6 +2134,7 @@ export interface operations {
             /** @description Error 422 */
             readonly 422: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -1972,6 +2144,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2050,6 +2223,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2060,6 +2234,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2069,6 +2245,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2078,6 +2255,17 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2087,6 +2275,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2184,6 +2373,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2194,6 +2384,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2203,6 +2395,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2212,6 +2405,7 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2221,6 +2415,7 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2230,6 +2425,17 @@ export interface operations {
             /** @description Error 412 */
             readonly 412: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2239,6 +2445,7 @@ export interface operations {
             /** @description Error 422 */
             readonly 422: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2248,6 +2455,7 @@ export interface operations {
             /** @description Error 428 */
             readonly 428: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2257,6 +2465,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2354,6 +2563,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2364,6 +2574,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2373,6 +2585,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2382,6 +2595,7 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2391,6 +2605,7 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2400,6 +2615,17 @@ export interface operations {
             /** @description Error 412 */
             readonly 412: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2409,6 +2635,7 @@ export interface operations {
             /** @description Error 422 */
             readonly 422: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2418,6 +2645,7 @@ export interface operations {
             /** @description Error 428 */
             readonly 428: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2427,6 +2655,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2554,6 +2783,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2564,6 +2794,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2573,6 +2805,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2582,6 +2815,7 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2591,6 +2825,17 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2600,6 +2845,7 @@ export interface operations {
             /** @description Error 422 */
             readonly 422: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2609,6 +2855,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2635,6 +2882,7 @@ export interface operations {
             /** @description Cursor-paginated payment page */
             readonly 200: {
                 headers: {
+                    readonly Link?: string;
                     readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
@@ -2691,6 +2939,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2701,6 +2950,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2710,6 +2961,17 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2719,6 +2981,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2801,6 +3064,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2811,6 +3075,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2820,6 +3086,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2829,6 +3096,17 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2838,6 +3116,7 @@ export interface operations {
             /** @description Error 422 */
             readonly 422: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2847,6 +3126,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2921,6 +3201,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2931,6 +3212,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2940,6 +3223,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2949,6 +3233,17 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -2958,6 +3253,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3015,6 +3311,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3025,6 +3322,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3034,6 +3333,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3043,6 +3343,7 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3052,6 +3353,7 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3061,6 +3363,17 @@ export interface operations {
             /** @description Error 412 */
             readonly 412: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3070,6 +3383,7 @@ export interface operations {
             /** @description Error 422 */
             readonly 422: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3079,6 +3393,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3164,6 +3479,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3174,6 +3490,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3183,6 +3501,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3192,6 +3511,7 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3201,6 +3521,7 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3210,6 +3531,17 @@ export interface operations {
             /** @description Error 412 */
             readonly 412: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3219,6 +3551,7 @@ export interface operations {
             /** @description Error 422 */
             readonly 422: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3228,6 +3561,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3253,6 +3587,7 @@ export interface operations {
             /** @description Cursor-paginated product page */
             readonly 200: {
                 headers: {
+                    readonly Link?: string;
                     readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
@@ -3278,6 +3613,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3288,6 +3624,18 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3297,6 +3645,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3355,6 +3704,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3365,6 +3715,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3374,6 +3726,17 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3383,6 +3746,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3442,6 +3806,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3452,6 +3817,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3461,6 +3828,17 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3470,6 +3848,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3544,6 +3923,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3554,6 +3934,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3563,6 +3945,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3572,6 +3955,7 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3581,6 +3965,7 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3590,6 +3975,17 @@ export interface operations {
             /** @description Error 412 */
             readonly 412: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3599,6 +3995,7 @@ export interface operations {
             /** @description Error 428 */
             readonly 428: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3608,6 +4005,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3653,6 +4051,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3663,6 +4062,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3672,6 +4073,17 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3681,6 +4093,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3735,6 +4148,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3745,6 +4159,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3754,6 +4170,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3763,6 +4180,7 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3772,6 +4190,17 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3781,6 +4210,7 @@ export interface operations {
             /** @description Error 422 */
             readonly 422: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3790,6 +4220,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3830,6 +4261,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3840,6 +4272,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3849,6 +4283,17 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3858,6 +4303,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3899,6 +4345,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3909,6 +4356,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3918,6 +4367,17 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3927,6 +4387,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3967,6 +4428,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3977,6 +4439,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3986,6 +4450,17 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -3995,6 +4470,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -4048,6 +4524,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -4058,6 +4535,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -4067,6 +4546,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -4076,6 +4556,17 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -4085,6 +4576,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -4135,6 +4627,7 @@ export interface operations {
             /** @description Invalid request syntax, headers, or validated input */
             readonly 400: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -4145,6 +4638,8 @@ export interface operations {
             /** @description Error 401 */
             readonly 401: {
                 headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -4154,6 +4649,7 @@ export interface operations {
             /** @description Error 403 */
             readonly 403: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -4163,6 +4659,7 @@ export interface operations {
             /** @description Error 404 */
             readonly 404: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -4172,6 +4669,17 @@ export interface operations {
             /** @description Error 409 */
             readonly 409: {
                 headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {
@@ -4181,6 +4689,7 @@ export interface operations {
             /** @description Error 500 */
             readonly 500: {
                 headers: {
+                    readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
                 };
                 content: {

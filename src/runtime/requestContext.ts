@@ -16,7 +16,7 @@ export const RequestIdSchema = z
   .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u);
 export type RequestId = z.infer<typeof RequestIdSchema>;
 
-export const PrivateErrorStageSchema = z.enum(["UNHANDLED"]);
+export const PrivateErrorStageSchema = z.enum(["UNHANDLED", "IDEMPOTENCY_PERSISTENCE"]);
 export type PrivateErrorStage = z.infer<typeof PrivateErrorStageSchema>;
 
 /** A deliberately small, redacted event safe for operational error logging. */

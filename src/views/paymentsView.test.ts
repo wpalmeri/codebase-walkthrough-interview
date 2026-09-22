@@ -99,5 +99,5 @@ void test("payment operation descriptors validate both retained list shapes and 
     assert.ok("Idempotency-Client" in operation.requestHeaders.shape);
   }
   assert.equal(paymentOperations[3].success.status, 201);
-  assert.deepEqual(paymentOperations[3].errors, [400, 401, 403, 404, 409, 412, 422, 500]);
+  assert.deepEqual(paymentOperations[3].errors, [400, 401, 403, 404, 409, 412, 422, 500, 413]);
 });

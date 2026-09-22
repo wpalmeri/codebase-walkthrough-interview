@@ -229,6 +229,14 @@
             },
             "description": "Cursor-paginated customer page",
             "headers": {
+              "Link": {
+                "required": false,
+                "schema": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
               "X-Request-ID": {
                 "required": true,
                 "schema": {
@@ -253,7 +261,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -263,7 +282,47 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -273,7 +332,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -771,6 +841,14 @@
             },
             "description": "Cursor-paginated invoice page",
             "headers": {
+              "Link": {
+                "required": false,
+                "schema": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
               "X-Request-ID": {
                 "required": true,
                 "schema": {
@@ -795,7 +873,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -805,7 +894,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -815,7 +923,39 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -825,7 +965,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -976,7 +1127,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -986,7 +1148,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -996,7 +1177,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -1006,7 +1198,39 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -1016,7 +1240,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1494,7 +1729,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -1504,7 +1750,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -1514,7 +1779,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -1524,7 +1800,39 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -1534,7 +1842,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2077,7 +2396,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -2087,7 +2417,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -2097,7 +2446,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -2107,7 +2467,18 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -2117,7 +2488,18 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "412": {
             "content": {
@@ -2127,7 +2509,39 @@
                 }
               }
             },
-            "description": "Error 412"
+            "description": "Error 412",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -2137,7 +2551,18 @@
                 }
               }
             },
-            "description": "Error 422"
+            "description": "Error 422",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "428": {
             "content": {
@@ -2147,7 +2572,18 @@
                 }
               }
             },
-            "description": "Error 428"
+            "description": "Error 428",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -2157,7 +2593,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2700,7 +3147,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -2710,7 +3168,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -2720,7 +3197,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -2730,7 +3218,18 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -2740,7 +3239,18 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "412": {
             "content": {
@@ -2750,7 +3260,39 @@
                 }
               }
             },
-            "description": "Error 412"
+            "description": "Error 412",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -2760,7 +3302,18 @@
                 }
               }
             },
-            "description": "Error 422"
+            "description": "Error 422",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "428": {
             "content": {
@@ -2770,7 +3323,18 @@
                 }
               }
             },
-            "description": "Error 428"
+            "description": "Error 428",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -2780,7 +3344,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3269,7 +3844,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -3279,7 +3865,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -3289,7 +3894,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -3299,7 +3915,18 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -3309,7 +3936,18 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "412": {
             "content": {
@@ -3319,7 +3957,39 @@
                 }
               }
             },
-            "description": "Error 412"
+            "description": "Error 412",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -3329,7 +3999,18 @@
                 }
               }
             },
-            "description": "Error 422"
+            "description": "Error 422",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -3339,7 +4020,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3852,7 +4544,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -3862,7 +4565,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -3872,7 +4594,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -3882,7 +4615,18 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -3892,7 +4636,18 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "412": {
             "content": {
@@ -3902,7 +4657,39 @@
                 }
               }
             },
-            "description": "Error 412"
+            "description": "Error 412",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -3912,7 +4699,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -4214,6 +5012,14 @@
             },
             "description": "Cursor-paginated order page",
             "headers": {
+              "Link": {
+                "required": false,
+                "schema": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
               "X-Request-ID": {
                 "required": true,
                 "schema": {
@@ -4238,7 +5044,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -4248,7 +5065,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -4258,7 +5094,39 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -4268,7 +5136,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -4606,7 +5485,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -4616,7 +5506,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -4626,7 +5535,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -4636,7 +5556,39 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -4646,7 +5598,18 @@
                 }
               }
             },
-            "description": "Error 422"
+            "description": "Error 422",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -4656,7 +5619,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -4937,7 +5911,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -4947,7 +5932,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -4957,7 +5961,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -4967,7 +5982,39 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -4977,7 +6024,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -5370,7 +6428,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -5380,7 +6449,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -5390,7 +6478,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -5400,7 +6499,18 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -5410,7 +6520,18 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "412": {
             "content": {
@@ -5420,7 +6541,39 @@
                 }
               }
             },
-            "description": "Error 412"
+            "description": "Error 412",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -5430,7 +6583,18 @@
                 }
               }
             },
-            "description": "Error 422"
+            "description": "Error 422",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "428": {
             "content": {
@@ -5440,7 +6604,18 @@
                 }
               }
             },
-            "description": "Error 428"
+            "description": "Error 428",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -5450,7 +6625,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -5843,7 +7029,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -5853,7 +7050,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -5863,7 +7079,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -5873,7 +7100,18 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -5883,7 +7121,18 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "412": {
             "content": {
@@ -5893,7 +7142,39 @@
                 }
               }
             },
-            "description": "Error 412"
+            "description": "Error 412",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -5903,7 +7184,18 @@
                 }
               }
             },
-            "description": "Error 422"
+            "description": "Error 422",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "428": {
             "content": {
@@ -5913,7 +7205,18 @@
                 }
               }
             },
-            "description": "Error 428"
+            "description": "Error 428",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -5923,7 +7226,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -6412,7 +7726,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -6422,7 +7747,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -6432,7 +7776,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -6442,7 +7797,18 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -6452,7 +7818,39 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -6462,7 +7860,18 @@
                 }
               }
             },
-            "description": "Error 422"
+            "description": "Error 422",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -6472,7 +7881,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -6752,6 +8172,14 @@
             },
             "description": "Cursor-paginated payment page",
             "headers": {
+              "Link": {
+                "required": false,
+                "schema": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
               "X-Request-ID": {
                 "required": true,
                 "schema": {
@@ -6776,7 +8204,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -6786,7 +8225,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -6796,7 +8254,39 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -6806,7 +8296,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -7092,7 +8593,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -7102,7 +8614,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -7112,7 +8643,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -7122,7 +8664,39 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -7132,7 +8706,18 @@
                 }
               }
             },
-            "description": "Error 422"
+            "description": "Error 422",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -7142,7 +8727,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -7382,7 +8978,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -7392,7 +8999,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -7402,7 +9028,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -7412,7 +9049,39 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -7422,7 +9091,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -7609,7 +9289,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -7619,7 +9310,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -7629,7 +9339,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -7639,7 +9360,18 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -7649,7 +9381,18 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "412": {
             "content": {
@@ -7659,7 +9402,39 @@
                 }
               }
             },
-            "description": "Error 412"
+            "description": "Error 412",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -7669,7 +9444,18 @@
                 }
               }
             },
-            "description": "Error 422"
+            "description": "Error 422",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -7679,7 +9465,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -7987,7 +9784,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -7997,7 +9805,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -8007,7 +9834,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -8017,7 +9855,18 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -8027,7 +9876,18 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "412": {
             "content": {
@@ -8037,7 +9897,39 @@
                 }
               }
             },
-            "description": "Error 412"
+            "description": "Error 412",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -8047,7 +9939,18 @@
                 }
               }
             },
-            "description": "Error 422"
+            "description": "Error 422",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -8057,7 +9960,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8195,6 +10109,14 @@
             },
             "description": "Cursor-paginated product page",
             "headers": {
+              "Link": {
+                "required": false,
+                "schema": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
               "X-Request-ID": {
                 "required": true,
                 "schema": {
@@ -8219,7 +10141,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -8229,7 +10162,47 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -8239,7 +10212,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8434,7 +10418,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -8444,7 +10439,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -8454,7 +10468,39 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -8464,7 +10510,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8594,7 +10651,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -8604,7 +10672,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -8614,7 +10701,39 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -8624,7 +10743,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8813,7 +10943,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -8823,7 +10964,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -8833,7 +10993,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -8843,7 +11014,18 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -8853,7 +11035,39 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -8863,7 +11077,18 @@
                 }
               }
             },
-            "description": "Error 422"
+            "description": "Error 422",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -8873,7 +11098,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9074,7 +11310,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -9084,7 +11331,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -9094,7 +11360,39 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -9104,7 +11402,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9432,7 +11741,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -9442,7 +11762,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -9452,7 +11791,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -9462,7 +11812,18 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -9472,7 +11833,18 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "412": {
             "content": {
@@ -9482,7 +11854,39 @@
                 }
               }
             },
-            "description": "Error 412"
+            "description": "Error 412",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "428": {
             "content": {
@@ -9492,7 +11896,18 @@
                 }
               }
             },
-            "description": "Error 428"
+            "description": "Error 428",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -9502,7 +11917,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9623,7 +12049,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -9633,7 +12070,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -9643,7 +12099,39 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -9653,7 +12141,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9779,7 +12278,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -9789,7 +12299,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -9799,7 +12328,39 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -9809,7 +12370,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9930,7 +12502,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -9940,7 +12523,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -9950,7 +12552,39 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -9960,7 +12594,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -10120,7 +12765,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -10130,7 +12786,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -10140,7 +12815,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -10150,7 +12836,39 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -10160,7 +12878,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -10302,7 +13031,18 @@
                 }
               }
             },
-            "description": "Invalid request syntax, headers, or validated input"
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -10312,7 +13052,26 @@
                 }
               }
             },
-            "description": "Error 401"
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -10322,7 +13081,18 @@
                 }
               }
             },
-            "description": "Error 403"
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "content": {
@@ -10332,7 +13102,18 @@
                 }
               }
             },
-            "description": "Error 404"
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "409": {
             "content": {
@@ -10342,7 +13123,39 @@
                 }
               }
             },
-            "description": "Error 409"
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -10352,7 +13165,18 @@
                 }
               }
             },
-            "description": "Error 500"
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [

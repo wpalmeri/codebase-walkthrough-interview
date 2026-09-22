@@ -48,6 +48,8 @@ export interface IdempotencyStore {
   complete(id: string, response: IdempotencyResponse): Promise<void>;
 }
 
+export type IdempotencyPersistenceErrorHandler = (error: unknown, request: Request) => void;
+
 class IdempotencyHeaderError extends ApplicationError {
   constructor(
     code:
@@ -256,7 +258,10 @@ const INTERNAL_ERROR_BODY = Buffer.from(
  * response before it is released to the caller. An interrupted reservation stays
  * in progress and fails closed, which is preferable to applying a charge twice.
  */
-export function createIdempotencyMiddleware(store: IdempotencyStore): RequestHandler {
+export function createIdempotencyMiddleware(
+  store: IdempotencyStore,
+  onPersistenceError?: IdempotencyPersistenceErrorHandler
+): RequestHandler {
   return (request, response, next) => {
     let record: IdempotencyRecord | null;
     try {
@@ -289,7 +294,7 @@ export function createIdempotencyMiddleware(store: IdempotencyStore): RequestHan
           );
           return;
         }
-        captureAndPersistResponse(response, store, reservation.id);
+        captureAndPersistResponse(request, response, store, reservation.id, onPersistenceError);
         next();
       },
       next
@@ -297,7 +302,13 @@ export function createIdempotencyMiddleware(store: IdempotencyStore): RequestHan
   };
 }
 
-function captureAndPersistResponse(response: Response, store: IdempotencyStore, recordId: string): void {
+function captureAndPersistResponse(
+  request: Request,
+  response: Response,
+  store: IdempotencyStore,
+  recordId: string,
+  onPersistenceError?: IdempotencyPersistenceErrorHandler
+): void {
   const originalEnd = response.end.bind(response);
   const callbacks: (() => void)[] = [];
   const chunks: Buffer[] = [];
@@ -334,8 +345,21 @@ function captureAndPersistResponse(response: Response, store: IdempotencyStore, 
         () => {
           originalEnd(body, () => callbacks.forEach((done) => done()));
         },
-        () => {
+        (error) => {
+          // Observability is best-effort at this terminal boundary. A broken
+          // user-provided sink must never prevent the fail-closed response.
+          try {
+            onPersistenceError?.(error, request);
+          } catch {
+            // The persistence failure remains the primary event; do not expose
+            // either it or a secondary logging failure to the caller.
+          }
           response.statusCode = 500;
+          response.removeHeader("etag");
+          response.removeHeader("content-length");
+          response.removeHeader("content-encoding");
+          response.removeHeader("last-modified");
+          response.setHeader("cache-control", "no-store");
           response.setHeader("content-type", "application/problem+json");
           originalEnd(INTERNAL_ERROR_BODY, () => callbacks.forEach((done) => done()));
         }

@@ -192,16 +192,16 @@ async function main(): Promise<void> {
     const receivedCustomers = firstCustomers.data.map(({ id }) => id);
     let customerCursor: string | null = firstCustomers.page.nextCursor;
     while (customerCursor !== null) {
-      const next = customerPage(
-        await request(
-          server,
-          "v1",
-          "catalog-page-key-a",
-          `/customers?limit=2&cursor=${encodeURIComponent(customerCursor)}`
-        )
+      const nextResponse = await request(
+        server,
+        "v1",
+        "catalog-page-key-a",
+        `/customers?limit=2&cursor=${encodeURIComponent(customerCursor)}`
       );
+      const next = customerPage(nextResponse);
       receivedCustomers.push(...next.data.map(({ id }) => id));
       customerCursor = next.page.nextCursor;
+      if (customerCursor === null) assert.equal(nextResponse.link, null, "the final page omits Link");
     }
     assert.deepEqual(receivedCustomers, originalCustomerIds);
 
@@ -223,16 +223,16 @@ async function main(): Promise<void> {
     const receivedProducts = firstProducts.data.map(({ id }) => id);
     let productCursor: string | null = firstProducts.page.nextCursor;
     while (productCursor !== null) {
-      const next = productPage(
-        await request(
-          server,
-          "v1",
-          "catalog-page-key-a",
-          `/products?limit=2&cursor=${encodeURIComponent(productCursor)}`
-        )
+      const nextResponse = await request(
+        server,
+        "v1",
+        "catalog-page-key-a",
+        `/products?limit=2&cursor=${encodeURIComponent(productCursor)}`
       );
+      const next = productPage(nextResponse);
       receivedProducts.push(...next.data.map(({ id }) => id));
       productCursor = next.page.nextCursor;
+      if (productCursor === null) assert.equal(nextResponse.link, null, "the final page omits Link");
     }
     assert.deepEqual(receivedProducts, originalProductIds);
 

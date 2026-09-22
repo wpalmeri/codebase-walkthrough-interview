@@ -5,6 +5,7 @@ import path from "node:path";
 import type { paths as GeneratedApiPaths } from "../../client/src/generated/meridian-api";
 import { z } from "zod";
 import { createOpenApiV1Document } from "./document";
+import { openApiPath } from "./operation";
 import { openApiV1Operations } from "./operations";
 import { customerOperations } from "../views/customersView";
 
@@ -144,6 +145,49 @@ void describe("generated version-one OpenAPI contract", () => {
       .parse(parsed.paths["/rates/{id}"].put.responses["400"]);
     assert.equal("application/json" in badRequest.content, true);
     assert.equal("application/problem+json" in badRequest.content, true);
+  });
+
+  void test("derives body-limit and response-header contracts from the operation descriptors", () => {
+    const document = createOpenApiV1Document(openApiV1Operations);
+    const paths = z
+      .object({ paths: z.record(z.string(), z.record(z.string(), z.unknown())) })
+      .parse(document).paths;
+
+    for (const descriptor of openApiV1Operations) {
+      const responses = z
+        .object({ responses: z.record(z.string(), z.unknown()) })
+        .parse(paths[openApiPath(descriptor.path)]?.[descriptor.method]).responses;
+
+      for (const status of descriptor.errors) {
+        const error = z.object({ headers: z.record(z.string(), z.unknown()) }).parse(responses[String(status)]);
+        assert.ok(error.headers["X-Request-ID"], `${descriptor.operationId} ${status} documents X-Request-ID`);
+        if (status === 401) {
+          assert.ok(error.headers["WWW-Authenticate"], `${descriptor.operationId} 401 documents WWW-Authenticate`);
+        }
+      }
+
+      assert.equal(descriptor.errors.includes(413), true, `${descriptor.operationId} exposes the global JSON limit`);
+      const tooLarge = z
+        .object({ description: z.string(), content: z.record(z.string(), z.unknown()) })
+        .parse(responses["413"]);
+      assert.match(tooLarge.description, /102400-byte limit/u);
+      assert.ok(tooLarge.content["application/problem+json"]);
+    }
+
+    for (const path of ["/customers", "/products", "/payments", "/invoices", "/orders"]) {
+      const listOperation = z
+        .object({ responses: z.record(z.string(), z.unknown()) })
+        .parse(paths[path]?.get);
+      const response = z
+        .object({ headers: z.record(z.string(), z.unknown()) })
+        .parse(listOperation.responses["200"]);
+      assert.ok(response.headers.Link, `${path} list response documents an optional Link header`);
+      assert.equal(
+        z.object({ required: z.literal(false) }).parse(response.headers.Link).required,
+        false,
+        `${path} does not require Link on the final page`
+      );
+    }
   });
 
   void test("documents one-time tenant-key issuance as non-cacheable and non-replayable", () => {

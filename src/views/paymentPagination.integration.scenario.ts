@@ -165,16 +165,16 @@ async function main(): Promise<void> {
     const received = firstPage.data.map(({ id }) => id);
     let cursor: string | null = firstPage.page.nextCursor;
     while (cursor !== null) {
-      const next = page(
-        await request(
-          server,
-          "v1",
-          "payment-page-key-a",
-          `${customerAQuery}&cursor=${encodeURIComponent(cursor)}`
-        )
+      const nextResponse = await request(
+        server,
+        "v1",
+        "payment-page-key-a",
+        `${customerAQuery}&cursor=${encodeURIComponent(cursor)}`
       );
+      const next = page(nextResponse);
       received.push(...next.data.map(({ id }) => id));
       cursor = next.page.nextCursor;
+      if (cursor === null) assert.equal(nextResponse.link, null, "the final page omits Link");
     }
     assert.equal(received.length, originalPaymentIds.length);
     assert.equal(new Set(received).size, originalPaymentIds.length, "tied rows are not duplicated");

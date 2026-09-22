@@ -5,6 +5,7 @@ import express from "express";
 import { describe, test } from "node:test";
 import { createApp } from "./app";
 import type { Principal } from "./auth/principal";
+import { PrivateErrorLogSchema } from "./runtime/requestContext";
 import {
   createIdempotencyMiddleware,
   type IdempotencyRecord,
@@ -32,6 +33,12 @@ class InMemoryIdempotencyStore implements IdempotencyStore {
     const record = this.records.get(id);
     if (record === undefined) throw new Error("reservation disappeared");
     record.response = response;
+  }
+}
+
+class FailingCompleteIdempotencyStore extends InMemoryIdempotencyStore {
+  override async complete(_id: string, _response: IdempotencyResponse): Promise<void> {
+    throw new Error("private idempotency persistence failure");
   }
 }
 
@@ -111,9 +118,57 @@ void describe("durable idempotency HTTP boundary", () => {
       assert.equal(second.headers.get("content-type"), first.headers.get("content-type"));
       assert.equal(first.headers.get("etag"), '"receipt-r-1"');
       assert.equal(second.headers.get("etag"), first.headers.get("etag"));
+      assert.match(first.headers.get("x-request-id") ?? "", /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu);
+      assert.match(second.headers.get("x-request-id") ?? "", /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu);
+      assert.notEqual(second.headers.get("x-request-id"), first.headers.get("x-request-id"));
       assert.equal(await second.text(), await first.text());
       assert.equal(applies, 1);
     });
+  });
+
+  void test("fails closed and logs redacted evidence when response persistence fails", async () => {
+    const rawErrors: unknown[] = [];
+    const privateEvents: unknown[] = [];
+    const app = createApp({
+      idempotencyStore: new FailingCompleteIdempotencyStore(),
+      logError(error) {
+        rawErrors.push(error);
+      },
+      privateErrorLogSink(event) {
+        privateEvents.push(event);
+        throw new Error("private logger failure must not block the response");
+      },
+      configure(testApp) {
+        testApp.post("/api/idempotency-persistence-failure", (_request, response) => {
+          response.setHeader("etag", '"must-not-survive"');
+          response.status(201).json({ secret: "handler-body-must-not-survive" });
+        });
+      },
+    });
+
+    await withServer(app, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/idempotency-persistence-failure`,
+        mutation("persistence-failure", { amount: "1.0000" })
+      );
+      assert.equal(response.status, 500);
+      assert.equal(response.headers.get("etag"), null);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal(response.headers.get("content-type"), "application/problem+json");
+      const body = await response.json();
+      assert.deepEqual(body, {
+        type: "urn:meridian:problem:internal-error",
+        title: "Internal Server Error",
+        status: 500,
+        code: "INTERNAL_ERROR",
+      });
+      assert.doesNotMatch(JSON.stringify(body), /handler-body|persistence failure/u);
+    });
+
+    assert.equal(rawErrors.length, 1);
+    assert.equal(privateEvents.length, 1);
+    assert.equal(JSON.stringify(privateEvents).includes("persistence failure"), false);
+    assert.equal(PrivateErrorLogSchema.parse(privateEvents[0]).stage, "IDEMPOTENCY_PERSISTENCE");
   });
 
   void test("rejects a changed request for the same scoped key, while routes and clients remain isolated", async () => {
