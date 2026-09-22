@@ -50,12 +50,16 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - [x] Add request correlation and strictly redacted structured error events (`97c3363`).
 - [x] Add v1 Rate strong ETags, exact conditional writes, legacy invalidation, and ETag-safe idempotent replay (`ea35b16`).
 - [x] Extend v1 strong ETags and exact conditional writes to Order and Invoice aggregates, including indirect child/evidence invalidation and stale-writer tests (`400b451`, `ec43053`).
-- [x] Add a strict shared cursor/page contract and integrate tenant-scoped v1 Payment, Customer, and Product pagination without changing legacy arrays (`5052272`, `861a9cb`, `4e4bd4f`).
+- [x] Add a strict shared cursor/page contract and integrate tenant-scoped v1 Payment, Customer, Product, Order, and Invoice pagination without changing legacy arrays (`5052272`, `861a9cb`, `4e4bd4f`, `375e89e`, `3f9a0f9`).
 - [x] Remove destination PII and commercial identifiers from delivery operational telemetry (`b43fd2b`).
 - [x] Bound recipient addresses in shared Zod contracts and add expand-only database backstops that do not reject untouched invalid history (`e29c920`, `3c145b8`).
-- [x] Define one Zod/OpenAPI operation contract and adopt it for Customer, Product, Rate, Order, Payment, and Report routes while the incomplete specification remains unpublished (`9d9790d`, `d4bc9b0`, `482879c`, `7288959`, `b0f0327`).
+- [x] Define one Zod/OpenAPI operation contract and adopt it for every v1 route family, including Invoice (`9d9790d`, `d4bc9b0`, `482879c`, `7288959`, `b0f0327`, `91c7020`).
+- [x] Publish the complete deterministic OpenAPI 3.1 document and generated TypeScript shapes with a CI drift check (`b5329ed`).
+- [x] Validate every current browser success payload through shared Zod contracts without leaking malformed response data (`c7ef0cb`).
+- [x] Split browser-safe schemas from Node-only cursor signing so client validation does not bundle server crypto (`e15b502`).
 - [x] Append request-derived audit evidence atomically for Rate, combo-discount, Order, Invoice, delivery, payment receipt, allocation, and reversal mutations (`ddf6424`, `d5532b1`, `c2406cf`).
 - [x] Replace unbounded report loading with tenant/date/status-filtered, fixed-size keyset scans and exact decimal reduction (`52a8e1c`).
+- [x] Preserve historical customer identity in revenue reports through immutable invoice snapshots with an explicit legacy-null fallback (`1a7d922`).
 
 ### Tenant isolation and runtime operations
 
@@ -65,6 +69,7 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - [x] Enforce viewer, billing, and administrator authorization boundaries (`2f7f3f3`).
 - [x] Isolate catalog, rate, order, invoice, delivery, payment, reversal, and report operations by tenant with two-tenant negative tests (`cdf771c`, `24f9ee1`, `c87ce13`).
 - [x] Add one-time-secret tenant API-key issuance and monotonic revocation tooling (`4b0ae4f`).
+- [x] Add authenticated tenant-admin API-key issuance/revocation with transaction-coupled audit evidence, one-time-secret protections, and API/database lockout guards (`b7b22ab`).
 - [x] Add public liveness, redacted readiness, and bounded graceful shutdown behavior (`492ddd1`).
 
 ### Migrations, backfills, and test infrastructure
@@ -79,14 +84,18 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - [x] Add a bounded, read-only financial reconciliation gate with deterministic issue contracts (`c59ed50`).
 - [x] Add an expand-only resource-version migration and strict strong-ETag/`If-Match` primitives (`fb4eda4`).
 - [x] Add trigger-only Order and Invoice aggregate-version migrations and measured tenant-first catalog pagination indexes (`400b451`, `ec43053`, `4e4bd4f`).
+- [x] Add measured tenant-first Order and Invoice pagination indexes with explicit SQLite writer-blocking deployment guidance (`375e89e`, `3f9a0f9`).
 - [x] Guard changed Customer emails at the database boundary without scanning or rewriting historical rows (`3c145b8`).
 - [x] Add an empty-table append-only audit migration with generated enum vocabulary, tenant ownership, valid action/resource pairs, immutable rows, and an expand-safe insert guard (`8a393ca`, `25a1528`).
 - [x] Move Prisma's seed configuration into typed `prisma.config.ts` while keeping the database URL external (`813d3d9`).
+- [x] Add a read-only, bounded tenant-contract preflight that proves ownership, relationship, uniqueness, foreign-key, and integrity readiness before any contract migration (`153a8cb`).
 
 ### Continuous enforcement and supply chain
 
 - [x] Ratchet architectural integrity against new float-backed finance fields, raw financial coercion, direct ledger mutations, and hand-written API model types (`478ddca`).
 - [x] Replace raw Prisma lifecycle field types with generated enums and prevent regressions through the architecture ratchet (`c34bae7`).
+- [x] Derive remaining production lifecycle and method values from shared Zod or generated Prisma enums and reject new raw literals (`bef142b`).
+- [x] Reject destructive, scan-coupled, or malformed deploy migrations through the architecture ratchet (`e307053`).
 - [x] Upgrade and pin vulnerable runtime/tooling dependencies and verify a zero-finding live audit (`0fce620`).
 
 ## Ranked remaining implementation sequence
@@ -99,21 +108,26 @@ This is the execution source of truth. Implement each numbered item as an atomic
    - Replace the browser's development-only unauthenticated path with an authorization-code/PKCE session flow backed by issuer-scoped user identities and tenant memberships; do not expose tenant or legacy API keys to browser JavaScript.
    - Add CSRF/session rotation/logout/role-change tests and keep server-to-server tenant API keys as a separate credential class. The identity-provider choice and deployment configuration are external prerequisites, but the server trust boundary must remain fail-closed.
 
-3. **P1 — Strengthen API evolution and database scale**
-   - Finish bounded, tenant-bound v1 cursor pagination for Order and Invoice lists. Payment, Customer, and Product are complete; every SQLite index build still requires production-copy timing and a controlled low-write window, while PostgreSQL should use concurrent index creation.
-   - Convert the remaining Invoice route family to the shared operation definition, then publish the complete deterministic OpenAPI document, generate/validate the client, and add consumer-contract tests so `/api/v1` can evolve independently.
-   - Keep the current report implementation bounded and exact on SQLite; use database-native exact aggregation only after a target database can guarantee numeric semantics without lossy SQLite `SUM` behavior.
-   - Decide and migrate global `Product.sku` and `Invoice.number` uniqueness to deliberate tenant-scoped contracts. SQLite requires a separately rehearsed table-rebuild contract migration after tenant ownership is fully backfilled; do not disguise it as an online additive change.
-   - Replace remaining raw lifecycle literals outside the converted Prisma fields with schema-derived enums at boundaries, then add explicit database constraints/types where the target database supports them.
+3. **P1 — Finish authenticated accounting and contract migrations**
+   - Add an authenticated ADMIN accounting-close endpoint that revalidates the acting tenant credential and appends the close audit event in the same transaction. Preserve the existing close/backfill/reconciliation gates and test stale actors, monotonic concurrency, audit failure rollback, and cross-tenant isolation.
+   - Define the direct API-key CLI as an explicit bootstrap or break-glass boundary with recovery, rotation, and operator-evidence procedures; do not present unauthenticated local execution as equivalent to the audited API.
+   - Run `db:audit:tenant-contract` after ownership backfill and reconciliation. Only after a clean deployment-specific report should a separately rehearsed SQLite contract migration make ownership required and change global `Product.sku` and `Invoice.number` uniqueness to tenant-scoped contracts.
 
-4. **P1 — Add auditability and continuous controls**
-   - Add authenticated-operator, transactional audit evidence to API-key and accounting-control mutations. Do not invent actor identity from local usernames or unauthenticated CLI input; establish the admin trust boundary first.
-   - Schedule reconciliation in read-only bounded batches, export metrics, and alert on drift without automatically rewriting financial history.
+4. **P1 — Harden the published HTTP contract and client usability**
+   - Map oversized JSON to redacted Problem Details `413`, publish real `X-Request-ID`, `WWW-Authenticate`, and pagination `Link` response headers, and verify them against live HTTP behavior.
+   - Build a small contract-bound v1 SDK over the generated shapes for pagination, ETags, idempotency, Problem Details, and response headers. Keep the existing browser adapter compatible while removing its arbitrary generic response escape hatch incrementally.
+   - Mark historical partial-update `PUT` operations deprecated and direct new clients to PATCH. Reserve true replacement semantics and mandatory idempotency for an explicitly versioned v2 contract so existing clients do not break.
+   - Add canonical read resources and `Location` headers before deprecating action-style mutation paths; retain current v1 statuses and aliases during adoption.
+   - Keep exact reports bounded on SQLite; use database-native exact aggregation only after the target PostgreSQL schema and NUMERIC semantics are deployed and proven.
+
+5. **P1 — Add continuous operational controls**
+   - Schedule financial and tenant-contract reconciliation in read-only bounded batches, export metrics, and alert on drift without automatically rewriting financial history.
    - Add recipient-correction semantics; delivery telemetry and audit storage are already constrained to non-PII operational metadata.
+   - Produce an SBOM and document tested API-key/pepper rotation, final-admin recovery, and accounting-close recovery drills; liveness, readiness, graceful shutdown, request correlation, and redacted structured error logs are already implemented.
 
-5. **P2 — Operational and architecture hardening**
-   - Extend the existing architecture ratchet to migration safety, raw lifecycle literals, and unvalidated boundary data as the remaining exceptions are removed.
-   - Produce an SBOM, add metrics, and document API-key/pepper rotation and recovery drills; liveness, readiness, graceful shutdown, request correlation, and redacted structured error logs are already implemented.
+6. **P2 — Later protocol and architecture improvements**
+   - Serve a discoverable versioned OpenAPI document if third-party integrations need runtime discovery, with an explicit compatibility and deprecation policy.
+   - Introduce PostgreSQL-specific online/concurrent index and final-admin invariants rather than assuming SQLite migration SQL carries over unchanged.
 
 ## Deferred by agreement
 
