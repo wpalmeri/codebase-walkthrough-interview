@@ -4,7 +4,7 @@ import {
   PercentageInputStringSchema,
   QuantityInputStringSchema,
 } from "./decimal.js";
-import { PaginationQuerySchema } from "./pagination.js";
+import { PaginationQuerySchema } from "./paginationSchemas.js";
 
 export const TransmissionMethodSchema = z.enum(["EMAIL", "PORTAL", "API"]);
 

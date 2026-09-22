@@ -4,7 +4,7 @@ import {
   PercentageStringSchema,
   QuantityStringSchema,
 } from "./decimal.js";
-import { PageEnvelopeSchema } from "./pagination.js";
+import { PageEnvelopeSchema } from "./paginationSchemas.js";
 import { TransmissionMethodSchema } from "./requests.js";
 
 const id = z.string().min(1);
@@ -315,4 +315,4 @@ export type AnnualRevenue = z.infer<typeof AnnualRevenueSchema>;
 
 export * from "./requests.js";
 export * from "./decimal.js";
-export * from "./pagination.js";
+export * from "./paginationSchemas.js";
