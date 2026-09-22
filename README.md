@@ -20,7 +20,7 @@ Orders are created and have products associated with them. Products have both ge
 Once an invoice is posted, the associated order should no longer be editable including any core fields or pricing associated with it. 
 
 **Monthly close:**
-This is a process done outside of the system but supported by the system. It is supported by no longer dating invoices for a previous month after you have closed it. If no invoice is added to a previous month, the revenue for that month should never change under and circumstances.
+This is a process done outside of the system but supported by the system. It is supported by no longer dating invoices for a previous month after you have closed it. If no invoice is added to a previous month, the revenue for that month should never change under any circumstances.
 
 Note this uses sqllite for development simplicity, but you should assume that in practices it uses modern Postgres. 
 
