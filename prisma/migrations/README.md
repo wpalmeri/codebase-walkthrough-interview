@@ -127,6 +127,20 @@ resolve typed `MISSING_PRICING_EVIDENCE`, `INVALID_PRICING_EVIDENCE`,
 `CONFLICTING_SNAPSHOT_CURRENCY` results before retrying; never reconstruct missing history from
 the live catalog or overwrite contradictory records with a best guess.
 
+## Historical invoice identity snapshots
+
+Run `bun run db:backfill:invoice-snapshots` in its default dry-run mode after the order-pricing and
+invoice-Decimal backfills. For finalized invoices, `invoice-snapshot-v1` preserves the already
+snapshotted bill-to identity and fills missing line SKU/unit fields only when each immutable
+invoice line has exactly one description-plus-exact-values match to an immutable captured order
+item. It never uses the current Customer, Product, Rate, or Discount state to invent issued
+invoice history; missing finalized bill-to identity or ambiguous/conflicting line evidence stops
+for manual reconciliation.
+
+An unissued DRAFT invoice may fill a missing bill-to identity from its current customer because
+that invoice is still mutable. The job remains primary-key-bounded, transactionally checkpointed,
+throttled, restart-idempotent, and write-disabled until `BACKFILL_DRY_RUN=false` is explicit.
+
 Run `bun run db:backfill:legacy-financial` first in its default dry-run mode. It processes
 products, rates/tiers, discounts, payments, and payment applications as five independently
 checkpointed primary-key streams, refusing exact/legacy disagreement or unreconciled ownership,
