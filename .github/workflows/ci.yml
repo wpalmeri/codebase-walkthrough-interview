@@ -25,3 +25,30 @@ jobs:
       - run: bun run check
       - run: bun run test
       - run: bun run --cwd client build
+
+  postgres-financial-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:16.6-alpine
+        env:
+          POSTGRES_DB: meridian_contract
+          POSTGRES_USER: meridian
+          POSTGRES_PASSWORD: meridian
+        options: >-
+          --health-cmd "pg_isready -U meridian -d meridian_contract"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://meridian:meridian@localhost:5432/meridian_contract
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure PostgreSQL client
+        run: |
+          command -v psql || (sudo apt-get update && sudo apt-get install --yes postgresql-client)
+          psql --version
+      - run: bash prisma/postgres/tests/financial_integrity.sh
