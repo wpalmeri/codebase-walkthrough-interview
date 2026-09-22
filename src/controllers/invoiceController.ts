@@ -15,6 +15,7 @@ import {
   canonicalMoney,
   decimalOrLegacy,
   legacyNumber,
+  type DecimalInput,
 } from "../domain/money";
 import { productSubtotal } from "../domain/pricing";
 import { InvoiceModel, toInvoiceModel } from "../models/invoice";
@@ -52,6 +53,7 @@ interface DeliverableInvoice {
   issueDate: Date;
   dueDate: Date;
   total: number;
+  totalDecimal?: DecimalInput | null;
   customerNameSnapshot?: string | null;
   customerEmailSnapshot?: string | null;
   billingAddressSnapshot?: string | null;
@@ -65,8 +67,11 @@ interface DeliverableInvoice {
   lines: {
     description: string;
     quantity: number;
+    quantityDecimal?: DecimalInput | null;
     unitPrice: number;
+    unitPriceDecimal?: DecimalInput | null;
     amount: number;
+    amountDecimal?: DecimalInput | null;
   }[];
 }
 
