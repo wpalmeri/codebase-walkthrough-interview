@@ -1,3 +1,8 @@
+import {
+  EmailAddressSchema,
+  TransmissionMethodSchema,
+  type TransmissionMethod,
+} from "@meridian/contracts";
 import { prisma } from "../db";
 import { parseRateTiers } from "../domain/rateTier";
 import { InvoiceModel, toInvoiceModel } from "../models/invoice";
@@ -18,6 +23,61 @@ const invoiceInclude = {
   applications: { include: { payment: true }, orderBy: { appliedAt: "asc" } },
   transmissions: { orderBy: { createdAt: "asc" } },
 } as const;
+
+interface DeliverableInvoice {
+  id: string;
+  number: string;
+  status: string;
+  issueDate: Date;
+  dueDate: Date;
+  total: number;
+  customerNameSnapshot?: string | null;
+  customerEmailSnapshot?: string | null;
+  billingAddressSnapshot?: string | null;
+  customer: {
+    name: string;
+    email: string;
+    billingAddress: string | null;
+    portalAccount: string | null;
+    clearinghouseId: string | null;
+  };
+  lines: {
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    amount: number;
+  }[];
+}
+
+interface TransmissionResult {
+  status: string;
+  detail: string;
+  externalJobId?: string;
+}
+
+interface TransmissionRecordInput extends TransmissionResult {
+  invoiceId: string;
+  method: TransmissionMethod;
+}
+
+interface FailedTransmissionInput {
+  invoiceId: string;
+  method: TransmissionMethod;
+  externalJobId?: string;
+  detail: string;
+}
+
+export interface InvoiceDeliveryDependencies {
+  findInvoice(invoiceId: string): Promise<DeliverableInvoice>;
+  renderPdf(invoice: Parameters<typeof renderInvoicePdf>[0]): Buffer;
+  sendEmail(to: string, invoiceNumber: string, pdf: Buffer): TransmissionResult;
+  createPortalJob(portalAccount: string, invoiceNumber: string): TransmissionResult;
+  submitToClearinghouse(clearinghouseId: string, invoiceNumber: string): TransmissionResult;
+  attachDocument(method: string, reference: string, pdf: Buffer): void;
+  recordSuccessfulTransmission(input: TransmissionRecordInput): Promise<void>;
+  recordFailedTransmission(input: FailedTransmissionInput): Promise<void>;
+  getInvoice(invoiceId: string): Promise<InvoiceModel>;
+}
 
 export async function listInvoices(): Promise<InvoiceModel[]> {
   const rows = await prisma.invoice.findMany({
@@ -258,47 +318,166 @@ export async function postInvoice(invoiceId: string): Promise<InvoiceModel> {
   return getInvoice(invoiceId);
 }
 
-export async function sendInvoice(invoiceId: string, method: string): Promise<InvoiceModel> {
-  const invoice = await prisma.invoice.findUniqueOrThrow({
-    where: { id: invoiceId },
-    include: { customer: true, lines: true },
-  });
+const defaultInvoiceDeliveryDependencies: InvoiceDeliveryDependencies = {
+  async findInvoice(invoiceId) {
+    const invoice = await prisma.invoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+      include: { customer: true, lines: true },
+    });
+    return invoice;
+  },
+  renderPdf: renderInvoicePdf,
+  sendEmail,
+  createPortalJob,
+  submitToClearinghouse,
+  attachDocument,
+  async recordSuccessfulTransmission(input) {
+    await prisma.$transaction([
+      prisma.transmission.create({
+        data: {
+          invoiceId: input.invoiceId,
+          method: input.method,
+          status: input.status,
+          externalJobId: input.externalJobId ?? null,
+          detail: input.detail,
+        },
+      }),
+      prisma.invoice.update({ where: { id: input.invoiceId }, data: { status: "SENT" } }),
+    ]);
+  },
+  async recordFailedTransmission(input) {
+    await prisma.transmission.create({
+      data: {
+        invoiceId: input.invoiceId,
+        method: input.method,
+        status: "FAILED",
+        externalJobId: input.externalJobId ?? null,
+        detail: input.detail,
+      },
+    });
+  },
+  getInvoice,
+};
 
-  let result: { status: string; detail: string; externalJobId?: string };
-  if (method === "EMAIL") {
-    result = sendEmail(invoice.customer.email, invoice.number);
-  } else if (method === "PORTAL") {
-    result = createPortalJob(invoice.customer.portalAccount ?? "unknown", invoice.number);
-  } else if (method === "API") {
-    result = submitToClearinghouse(invoice.customer.clearinghouseId ?? "unknown", invoice.number);
-  } else {
-    throw new Error(`Unknown transmission method: ${method}`);
+type DeliveryStage = "recipient validation" | "PDF rendering" | "delivery" | "attachment" | "state recording";
+
+function requiredDestination(value: string | null, label: string): string {
+  if (!value?.trim()) throw new Error(`${label} is not configured`);
+  return value;
+}
+
+function safeFailureDetail(stage: DeliveryStage, error: unknown): string {
+  const message = error instanceof Error ? error.message : "Unexpected delivery error";
+  const safeMessage = message
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, "[redacted-email]")
+    .split("")
+    .map((character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 || code === 127 ? " " : character;
+    })
+    .join("")
+    .trim()
+    .slice(0, 300);
+  return `Invoice transmission failed during ${stage}${safeMessage ? `: ${safeMessage}` : ""}`;
+}
+
+async function recordDeliveryFailure(
+  dependencies: InvoiceDeliveryDependencies,
+  input: FailedTransmissionInput,
+  deliveryError: unknown
+): Promise<never> {
+  try {
+    await dependencies.recordFailedTransmission(input);
+  } catch (recordingError) {
+    throw new AggregateError(
+      [deliveryError, recordingError],
+      "Invoice delivery failed and its failure could not be recorded",
+      { cause: recordingError }
+    );
+  }
+  throw deliveryError;
+}
+
+export async function sendInvoiceWithDependencies(
+  invoiceId: string,
+  rawMethod: string,
+  dependencies: InvoiceDeliveryDependencies
+): Promise<InvoiceModel> {
+  const method = TransmissionMethodSchema.parse(rawMethod);
+  const invoice = await dependencies.findInvoice(invoiceId);
+  if (invoice.status !== "POSTED" && invoice.status !== "SENT") {
+    throw new Error(
+      `Invoice ${invoice.number} must be POSTED or SENT before transmission (current status: ${invoice.status})`
+    );
   }
 
-  const transmission = await prisma.transmission.create({
-    data: {
+  let stage: DeliveryStage = "recipient validation";
+  let result: TransmissionResult | undefined;
+  try {
+    const customerName = invoice.customerNameSnapshot ?? invoice.customer.name;
+    const customerEmail = invoice.customerEmailSnapshot ?? invoice.customer.email;
+    const billingAddress = invoice.billingAddressSnapshot ?? invoice.customer.billingAddress;
+
+    let destination: string;
+    if (method === "EMAIL") {
+      destination = EmailAddressSchema.parse(customerEmail);
+    } else if (method === "PORTAL") {
+      destination = requiredDestination(invoice.customer.portalAccount, "Portal account");
+    } else {
+      destination = requiredDestination(
+        invoice.customer.clearinghouseId,
+        "Clearinghouse identifier"
+      );
+    }
+
+    stage = "PDF rendering";
+    const pdf = dependencies.renderPdf({
+      number: invoice.number,
+      customerName,
+      billingAddress,
+      issueDate: invoice.issueDate,
+      dueDate: invoice.dueDate,
+      total: invoice.total,
+      lines: invoice.lines,
+    });
+
+    stage = "delivery";
+    if (method === "EMAIL") {
+      result = dependencies.sendEmail(destination, invoice.number, pdf);
+    } else if (method === "PORTAL") {
+      result = dependencies.createPortalJob(destination, invoice.number);
+      stage = "attachment";
+      dependencies.attachDocument(method, result.externalJobId ?? invoice.number, pdf);
+    } else {
+      result = dependencies.submitToClearinghouse(destination, invoice.number);
+      stage = "attachment";
+      dependencies.attachDocument(method, result.externalJobId ?? invoice.number, pdf);
+    }
+
+    stage = "state recording";
+    await dependencies.recordSuccessfulTransmission({
       invoiceId,
       method,
-      status: result.status,
-      externalJobId: result.externalJobId ?? null,
-      detail: result.detail,
-    },
-  });
-  await prisma.invoice.update({ where: { id: invoiceId }, data: { status: "SENT" } });
+      ...result,
+    });
+  } catch (error) {
+    return recordDeliveryFailure(
+      dependencies,
+      {
+        invoiceId,
+        method,
+        externalJobId: result?.externalJobId,
+        detail: safeFailureDetail(stage, error),
+      },
+      error
+    );
+  }
 
-  // Generate the invoice PDF and hand it off for delivery.
-  const pdf = renderInvoicePdf({
-    number: invoice.number,
-    customerName: invoice.customer.name,
-    billingAddress: invoice.customer.billingAddress,
-    issueDate: invoice.issueDate,
-    dueDate: invoice.dueDate,
-    total: invoice.total,
-    lines: invoice.lines,
-  });
-  attachDocument(method, transmission.externalJobId ?? transmission.id, pdf);
+  return dependencies.getInvoice(invoiceId);
+}
 
-  return getInvoice(invoiceId);
+export async function sendInvoice(invoiceId: string, method: string): Promise<InvoiceModel> {
+  return sendInvoiceWithDependencies(invoiceId, method, defaultInvoiceDeliveryDependencies);
 }
 
 // Poll the external portal service and refresh the job status.
