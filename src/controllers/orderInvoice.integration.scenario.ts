@@ -126,6 +126,7 @@ async function main(): Promise<void> {
   const posted = await invoices.postInvoice(draft.id);
   assert.equal(posted.status, "POSTED");
   assert.equal(posted.totalDecimal, "31.5000");
+  assert.match(posted.accountingDate ?? "", /^\d{4}-\d{2}-\d{2}$/u);
   assert.equal(posted.customerName, "Snapshot Customer");
   const postedLineIds = posted.lines.map((line) => line.id).toSorted();
 
@@ -140,6 +141,33 @@ async function main(): Promise<void> {
     /finalized invoices cannot be changed/
   );
   assert.equal((await invoices.getInvoice(draft.id)).totalDecimal, "31.5000");
+
+  const closedOrder = await orders.createOrder({
+    customerId: customer.id,
+    items: [{ productId: seat.id, quantity: 1 }],
+  });
+  const closedDraft = await invoices.createInvoiceForOrder(closedOrder.id);
+  assert.ok(closedDraft.accountingDate);
+  await prisma.accountingPeriodControl.create({
+    data: { id: 1, closedThroughDate: closedDraft.accountingDate },
+  });
+  await assert.rejects(
+    invoices.postInvoice(closedDraft.id),
+    /Accounting date .* is closed through/
+  );
+  await assert.rejects(
+    invoices.updateInvoice(closedDraft.id, {
+      issueDate: `${closedDraft.accountingDate}T12:00:00.000Z`,
+    }),
+    /Accounting date .* is closed through/
+  );
+  await assert.rejects(
+    prisma.invoice.update({
+      where: { id: closedDraft.id },
+      data: { status: "POSTED", postedAt: new Date() },
+    })
+  );
+  assert.equal((await prisma.invoice.findUniqueOrThrow({ where: { id: closedDraft.id } })).status, "DRAFT");
   } finally {
     await prisma.$disconnect();
   }

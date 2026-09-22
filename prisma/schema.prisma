@@ -137,6 +137,9 @@ model Invoice {
   customerEmailSnapshot  String?
   billingAddressSnapshot String?
   postedAt               DateTime?
+  // An explicit UTC-calendar accounting date, independent of an instant's
+  // display timezone. Nullable during the staged backfill rollout.
+  accountingDate         String?
   currencyCode           String? // ISO 4217 invoice currency; immutable after it is set on a finalized invoice.
 
   customer      Customer             @relation(fields: [customerId], references: [id])
@@ -144,6 +147,14 @@ model Invoice {
   lines         InvoiceLine[]
   applications  PaymentApplication[]
   transmissions Transmission[]
+}
+
+// This table has exactly one permitted row (id = 1). Its nullable close date
+// means no accounting period has been closed yet; the date is inclusive.
+model AccountingPeriodControl {
+  id                Int      @id @default(1)
+  closedThroughDate String?
+  updatedAt         DateTime @updatedAt
 }
 
 model InvoiceLine {

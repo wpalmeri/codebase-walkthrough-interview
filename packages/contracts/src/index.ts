@@ -213,6 +213,7 @@ export const InvoiceSchema = z.object({
   status: InvoiceStatusSchema,
   issueDate: isoDateTime,
   dueDate: isoDateTime,
+  accountingDate: z.iso.date().optional(),
   total: nonNegativeMoney,
   amountPaid: nonNegativeMoney,
   totalDecimal: MoneyStringSchema.optional(),
@@ -259,6 +260,7 @@ export const QuarterRevenueSchema = z.object({
   quarter: z.string(),
   invoiceCount: z.number().int().nonnegative(),
   revenue: nonNegativeMoney,
+  revenueDecimal: MoneyStringSchema.optional(),
 });
 export type QuarterRevenue = z.infer<typeof QuarterRevenueSchema>;
 
@@ -267,6 +269,7 @@ export const CustomerRevenueSchema = z.object({
   customerName: z.string(),
   invoiceCount: z.number().int().nonnegative(),
   revenue: nonNegativeMoney,
+  revenueDecimal: MoneyStringSchema.optional(),
 });
 export type CustomerRevenue = z.infer<typeof CustomerRevenueSchema>;
 
@@ -274,6 +277,7 @@ export const AnnualRevenueSchema = z.object({
   year: z.number().int(),
   invoiceCount: z.number().int().nonnegative(),
   revenue: nonNegativeMoney,
+  revenueDecimal: MoneyStringSchema.optional(),
 });
 export type AnnualRevenue = z.infer<typeof AnnualRevenueSchema>;
 

@@ -7,6 +7,12 @@ import { randomUUID } from "node:crypto";
 import { Prisma, type OrderItem, type Product } from "@prisma/client";
 import { prisma } from "../db";
 import {
+  assertAccountingDateOpen,
+  parseAccountingDate,
+  utcAccountingDateFromInstant,
+  type AccountingDate,
+} from "../domain/accountingPeriod";
+import {
   MONEY_PRECISION,
   MONEY_SCALE,
   QUANTITY_PRECISION,
@@ -18,6 +24,7 @@ import {
   type DecimalInput,
 } from "../domain/money";
 import { productSubtotal } from "../domain/pricing";
+import { PreconditionError } from "../errors";
 import { InvoiceModel, toInvoiceModel } from "../models/invoice";
 import { toTransmissionModel, TransmissionModel } from "../models/transmission";
 import { renderInvoicePdf } from "../services/pdf";
@@ -45,6 +52,25 @@ const quantityFormat = {
 } as const;
 type InvoiceTransaction = Prisma.TransactionClient;
 type InvoiceSourceItem = OrderItem & { product: Product };
+
+async function requireOpenAccountingDate(
+  transaction: InvoiceTransaction,
+  accountingDate: AccountingDate
+): Promise<void> {
+  const control = await transaction.accountingPeriodControl.findUnique({ where: { id: 1 } });
+  const closedThroughDate =
+    control?.closedThroughDate === null || control?.closedThroughDate === undefined
+      ? null
+      : parseAccountingDate(control.closedThroughDate);
+  try {
+    assertAccountingDateOpen(accountingDate, closedThroughDate);
+  } catch {
+    throw new PreconditionError(
+      "ACCOUNTING_PERIOD_CLOSED",
+      `Accounting date ${accountingDate} is closed through ${closedThroughDate}`
+    );
+  }
+}
 
 interface DeliverableInvoice {
   id: string;
@@ -175,6 +201,7 @@ export async function createInvoiceForOrder(orderId: string): Promise<InvoiceMod
     const totalDecimal = invoiceTotal(lines);
     const id = randomUUID();
     const issueDate = new Date();
+    const accountingDate = utcAccountingDateFromInstant(issueDate);
     const dueDate = new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
     await transaction.invoice.create({
       data: {
@@ -184,6 +211,7 @@ export async function createInvoiceForOrder(orderId: string): Promise<InvoiceMod
         orderId,
         issueDate,
         dueDate,
+        accountingDate,
         total: legacyNumber(totalDecimal, moneyFormat),
         totalDecimal,
         amountPaid: 0,
@@ -216,9 +244,16 @@ export async function updateInvoice(
     const issueDate = input.issueDate === undefined ? invoice.issueDate : new Date(input.issueDate);
     const dueDate = input.dueDate === undefined ? invoice.dueDate : new Date(input.dueDate);
     if (dueDate < issueDate) throw new Error("Invoice due date must be on or after issue date");
+    const accountingDate =
+      input.issueDate === undefined
+        ? invoice.accountingDate
+        : utcAccountingDateFromInstant(issueDate);
+    if (accountingDate !== null) {
+      await requireOpenAccountingDate(transaction, parseAccountingDate(accountingDate));
+    }
     const updated = await transaction.invoice.updateMany({
       where: { id: invoiceId, status: "DRAFT" },
-      data: { issueDate, dueDate },
+      data: { issueDate, dueDate, accountingDate },
     });
     if (updated.count !== 1) throw new Error("Invoice changed concurrently");
   });
@@ -281,6 +316,11 @@ export async function postInvoice(invoiceId: string): Promise<InvoiceModel> {
     });
     const lines = order.items.map(invoiceLineData);
     const totalDecimal = invoiceTotal(lines);
+    const accountingDate =
+      invoice.accountingDate === null
+        ? utcAccountingDateFromInstant(invoice.issueDate)
+        : parseAccountingDate(invoice.accountingDate);
+    await requireOpenAccountingDate(transaction, accountingDate);
     await transaction.invoiceLine.deleteMany({ where: { invoiceId } });
     await transaction.invoice.update({ where: { id: invoiceId }, data: { lines: { create: lines } } });
     const updated = await transaction.invoice.updateMany({
@@ -288,6 +328,7 @@ export async function postInvoice(invoiceId: string): Promise<InvoiceModel> {
       data: {
         status: "POSTED",
         postedAt: new Date(),
+        accountingDate,
         customerId: order.customerId,
         total: legacyNumber(totalDecimal, moneyFormat),
         totalDecimal,

@@ -48,6 +48,7 @@ export function toInvoiceModel(row: InvoiceRow): InvoiceModel {
     status: row.status,
     issueDate: row.issueDate.toISOString(),
     dueDate: row.dueDate.toISOString(),
+    accountingDate: row.accountingDate ?? undefined,
     total: Number(totalDecimal),
     amountPaid: Number(amountPaidDecimal),
     totalDecimal,

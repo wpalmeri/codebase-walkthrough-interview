@@ -40,6 +40,24 @@ For a new empty database, run `bunx prisma migrate deploy`; Prisma will apply th
 
 `20260922020000_order_amount_foundation` adds a nullable `OrderItem.amountDecimal` without a default, constraint validation, or backfill. Deploy the snapshot dual-write before populating existing rows in the same bounded, restartable batches as the other order snapshots; reconcile each order's line-amount sum against its draft invoice before switching reads.
 
+## Accounting close and accounting dates
+
+`20260922030000_accounting_close` adds a nullable `Invoice.accountingDate` (an explicit
+UTC-calendar `YYYY-MM-DD` date) and the singleton `AccountingPeriodControl` row. It is a
+pure expand migration: it neither infers dates from legacy timestamps nor backfills or scans
+invoices. Deploy the application code that dual-writes a deliberately selected accounting date,
+then backfill in small, restartable primary-key batches using a documented UTC conversion from
+the legacy instant. Reconcile every finalized invoice's assigned date with the approved close
+calendar before inserting or advancing `AccountingPeriodControl(id = 1).closedThroughDate`.
+The database refuses to establish or advance a close while any posted, sent, or paid invoice
+still lacks an accounting date.
+
+The close boundary is inclusive and only moves forward. SQLite triggers reject malformed dates
+and prevent finalized invoice inserts, posting, or redating into a closed period, while allowing
+existing null dates during rollout. Do not bulk-update historical closed dates through ordinary
+application credentials; handle an accounting correction through an auditable, separately
+approved procedure.
+
 ## SQLite limitations and production path
 
 SQLite permits `DECIMAL(19,4)` declarations but applies numeric affinity rather than enforcing
@@ -57,3 +75,10 @@ primary-key batches, add constraints as `NOT VALID` and validate them separately
 then enforce `NOT NULL` and remove legacy float columns in a later release. Build large indexes
 with `CREATE INDEX CONCURRENTLY` outside a transaction, and rehearse rollback/reconciliation on
 a production-sized snapshot before cutover.
+
+For the accounting-date path on PostgreSQL, add `accounting_date date NULL` and a singleton
+control table in an expand release, dual-write, and backfill in bounded primary-key batches.
+Use a `CHECK` or trigger for the singleton/control semantics and serialize close/post operations
+with row locks on the control row. Add date/period constraints as `NOT VALID`, validate them
+separately, then make the column required only after reconciliation confirms no finalized
+invoices remain null. This preserves online migration behavior and avoids a long table lock.

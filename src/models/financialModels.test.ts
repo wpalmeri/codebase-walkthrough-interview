@@ -127,6 +127,7 @@ void describe("exact financial response models", () => {
       status: "POSTED",
       issueDate: createdAt,
       dueDate: createdAt,
+      accountingDate: "2026-09-22",
       total: 999,
       amountPaid: 777,
       totalDecimal: new Prisma.Decimal("25.0000"),

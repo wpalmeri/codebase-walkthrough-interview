@@ -8,54 +8,104 @@ import {
   type RevenueReportRequest,
 } from "@meridian/contracts";
 import { prisma } from "../db";
+import {
+  parseAccountingDate,
+  utcAccountingDateFromInstant,
+  type AccountingDate,
+} from "../domain/accountingPeriod";
+import {
+  MONEY_PRECISION,
+  MONEY_SCALE,
+  addDecimal,
+  compareDecimal,
+  decimalOrLegacy,
+  type DecimalInput,
+} from "../domain/money";
 
 export type ReportPeriod = RevenueReportRequest["query"];
 
 export const REVENUE_RECOGNIZED_STATUSES = ["POSTED", "SENT", "PAID"] as const;
+const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "revenue" } as const;
+const zeroMoney = decimalOrLegacy({ decimal: "0", legacy: null }, moneyFormat);
 
 export interface ReportableInvoice {
   status: string;
   issueDate: Date;
+  accountingDate?: string | null;
   total: number;
+  totalDecimal?: DecimalInput | null;
   customerId: string;
   customer: { name: string };
 }
 
 export interface RevenueRow {
-  issueDate: Date;
+  accountingDate: AccountingDate;
   customerId: string;
   customerName: string;
   revenue: number;
+  revenueDecimal: string;
 }
 
-// Invoice.total is the materialized billing amount. In contrast to rebuilding a
-// total from an order, it preserves invoice-level adjustments and does not rely
-// on mutable rates or products that may no longer exist.
+function reportAccountingDate(value: string): AccountingDate {
+  return /^\d{4}-\d{2}-\d{2}$/u.test(value)
+    ? parseAccountingDate(value)
+    : utcAccountingDateFromInstant(new Date(value));
+}
+
+// Invoice totals and accounting dates are materialized. Legacy timestamp/float
+// fallback remains only for rows not yet processed by the bounded backfill.
 export function toRecognizedRevenueRows(invoices: readonly ReportableInvoice[]): RevenueRow[] {
   const recognizedStatuses = new Set<string>(REVENUE_RECOGNIZED_STATUSES);
   return invoices
     .filter((invoice) => recognizedStatuses.has(invoice.status))
-    .map((invoice) => ({
-      issueDate: invoice.issueDate,
-      customerId: invoice.customerId,
-      customerName: invoice.customer.name,
-      revenue: invoice.total,
-    }));
+    .map((invoice) => {
+      const revenueDecimal = decimalOrLegacy(
+        { decimal: invoice.totalDecimal, legacy: invoice.total },
+        { ...moneyFormat, field: "invoice revenue" }
+      );
+      return {
+        accountingDate:
+          invoice.accountingDate === null || invoice.accountingDate === undefined
+            ? utcAccountingDateFromInstant(invoice.issueDate)
+            : parseAccountingDate(invoice.accountingDate),
+        customerId: invoice.customerId,
+        customerName: invoice.customer.name,
+        revenue: Number(revenueDecimal),
+        revenueDecimal,
+      };
+    });
 }
 
 async function invoiceRevenues(period: ReportPeriod): Promise<RevenueRow[]> {
-  const issueDate: { gte?: Date; lte?: Date } = {};
-  if (period.from) issueDate.gte = new Date(period.from);
-  if (period.to) issueDate.lte = new Date(period.to);
+  const from = period.from === undefined ? undefined : reportAccountingDate(period.from);
+  const to = period.to === undefined ? undefined : reportAccountingDate(period.to);
+  const accountingDate = {
+    ...(from === undefined ? {} : { gte: from }),
+    ...(to === undefined ? {} : { lte: to }),
+  };
+  const issueDate = {
+    ...(from === undefined ? {} : { gte: new Date(`${from}T00:00:00.000Z`) }),
+    ...(to === undefined ? {} : { lte: new Date(`${to}T23:59:59.999Z`) }),
+  };
+  const hasPeriod = from !== undefined || to !== undefined;
   const invoices = await prisma.invoice.findMany({
     where: {
       status: { in: [...REVENUE_RECOGNIZED_STATUSES] },
-      ...(period.from || period.to ? { issueDate } : {}),
+      ...(hasPeriod
+        ? {
+            OR: [
+              { accountingDate },
+              { accountingDate: null, issueDate },
+            ],
+          }
+        : {}),
     },
     select: {
       status: true,
       issueDate: true,
+      accountingDate: true,
       total: true,
+      totalDecimal: true,
       customerId: true,
       customer: { select: { name: true } },
     },
@@ -65,54 +115,61 @@ async function invoiceRevenues(period: ReportPeriod): Promise<RevenueRow[]> {
 
 function periodBounds(
   period: ReportPeriod,
-  dates: readonly Date[]
-): { start: Date; end: Date } | null {
-  const start = period.from
-    ? new Date(period.from)
-    : dates.length > 0
-      ? new Date(Math.min(...dates.map((date) => date.getTime())))
-      : null;
-  const end = period.to
-    ? new Date(period.to)
-    : dates.length > 0
-      ? new Date(Math.max(...dates.map((date) => date.getTime())))
-      : null;
-  if (!start || !end || start > end) return null;
+  dates: readonly AccountingDate[]
+): { start: AccountingDate; end: AccountingDate } | null {
+  const start =
+    period.from === undefined
+      ? dates.toSorted()[0]
+      : reportAccountingDate(period.from);
+  const end =
+    period.to === undefined
+      ? dates.toSorted().at(-1)
+      : reportAccountingDate(period.to);
+  if (start === undefined || end === undefined || start > end) return null;
   return { start, end };
+}
+
+function yearAndMonth(accountingDate: AccountingDate): { year: number; month: number } {
+  return {
+    year: Number(accountingDate.slice(0, 4)),
+    month: Number(accountingDate.slice(5, 7)),
+  };
 }
 
 export function summarizeRevenueByQuarter(
   rows: readonly RevenueRow[],
   period: ReportPeriod
 ): QuarterRevenue[] {
-  const totals = new Map<string, { invoiceCount: number; revenue: number }>();
+  const totals = new Map<string, { invoiceCount: number; revenueDecimal: string }>();
   for (const row of rows) {
-    const quarter = Math.floor(row.issueDate.getMonth() / 3) + 1;
-    const key = `${row.issueDate.getFullYear()}-Q${quarter}`;
-    const bucket = totals.get(key) ?? { invoiceCount: 0, revenue: 0 };
+    const { year, month } = yearAndMonth(row.accountingDate);
+    const quarter = Math.floor((month - 1) / 3) + 1;
+    const key = `${year}-Q${quarter}`;
+    const bucket = totals.get(key) ?? { invoiceCount: 0, revenueDecimal: zeroMoney };
     bucket.invoiceCount += 1;
-    bucket.revenue += row.revenue;
+    bucket.revenueDecimal = addDecimal(bucket.revenueDecimal, row.revenueDecimal, moneyFormat);
     totals.set(key, bucket);
   }
 
-  // Emit every quarter in the period, including empty ones.
   const bounds = periodBounds(
     period,
-    rows.map((row) => row.issueDate)
+    rows.map((row) => row.accountingDate)
   );
   if (!bounds) return [];
+  const start = yearAndMonth(bounds.start);
+  const end = yearAndMonth(bounds.end);
   const result: QuarterRevenue[] = [];
-  let year = bounds.start.getFullYear();
-  let quarter = Math.floor(bounds.start.getMonth() / 3) + 1;
-  const endYear = bounds.end.getFullYear();
-  const endQuarter = Math.floor(bounds.end.getMonth() / 3) + 1;
-  while (year < endYear || (year === endYear && quarter <= endQuarter)) {
+  let year = start.year;
+  let quarter = Math.floor((start.month - 1) / 3) + 1;
+  const endQuarter = Math.floor((end.month - 1) / 3) + 1;
+  while (year < end.year || (year === end.year && quarter <= endQuarter)) {
     const key = `${year}-Q${quarter}`;
-    const bucket = totals.get(key);
+    const bucket = totals.get(key) ?? { invoiceCount: 0, revenueDecimal: zeroMoney };
     result.push({
       quarter: key,
-      invoiceCount: bucket?.invoiceCount ?? 0,
-      revenue: bucket?.revenue ?? 0,
+      invoiceCount: bucket.invoiceCount,
+      revenue: Number(bucket.revenueDecimal),
+      revenueDecimal: bucket.revenueDecimal,
     });
     quarter += 1;
     if (quarter > 4) {
@@ -124,48 +181,58 @@ export function summarizeRevenueByQuarter(
 }
 
 export function summarizeRevenueByCustomer(rows: readonly RevenueRow[]): CustomerRevenue[] {
-  const buckets = new Map<string, CustomerRevenue>();
+  const buckets = new Map<
+    string,
+    { customerId: string; customerName: string; invoiceCount: number; revenueDecimal: string }
+  >();
   for (const row of rows) {
     const bucket = buckets.get(row.customerId) ?? {
       customerId: row.customerId,
       customerName: row.customerName,
       invoiceCount: 0,
-      revenue: 0,
+      revenueDecimal: zeroMoney,
     };
     bucket.invoiceCount += 1;
-    bucket.revenue += row.revenue;
+    bucket.revenueDecimal = addDecimal(bucket.revenueDecimal, row.revenueDecimal, moneyFormat);
     buckets.set(row.customerId, bucket);
   }
-  return CustomerRevenueSchema.array().parse(
-    [...buckets.values()].toSorted((a, b) => b.revenue - a.revenue)
-  );
+  const result = [...buckets.values()]
+    .toSorted((left, right) => compareDecimal(right.revenueDecimal, left.revenueDecimal, moneyFormat))
+    .map((bucket) => ({
+      ...bucket,
+      revenue: Number(bucket.revenueDecimal),
+    }));
+  return CustomerRevenueSchema.array().parse(result);
 }
 
 export function summarizeAnnualRevenue(
   rows: readonly RevenueRow[],
   period: ReportPeriod
 ): AnnualRevenue[] {
-  const totals = new Map<number, { invoiceCount: number; revenue: number }>();
+  const totals = new Map<number, { invoiceCount: number; revenueDecimal: string }>();
   for (const row of rows) {
-    const year = row.issueDate.getFullYear();
-    const bucket = totals.get(year) ?? { invoiceCount: 0, revenue: 0 };
+    const year = yearAndMonth(row.accountingDate).year;
+    const bucket = totals.get(year) ?? { invoiceCount: 0, revenueDecimal: zeroMoney };
     bucket.invoiceCount += 1;
-    bucket.revenue += row.revenue;
+    bucket.revenueDecimal = addDecimal(bucket.revenueDecimal, row.revenueDecimal, moneyFormat);
     totals.set(year, bucket);
   }
 
   const bounds = periodBounds(
     period,
-    rows.map((row) => row.issueDate)
+    rows.map((row) => row.accountingDate)
   );
   if (!bounds) return [];
+  const startYear = yearAndMonth(bounds.start).year;
+  const endYear = yearAndMonth(bounds.end).year;
   const result: AnnualRevenue[] = [];
-  for (let year = bounds.start.getFullYear(); year <= bounds.end.getFullYear(); year++) {
-    const bucket = totals.get(year);
+  for (let year = startYear; year <= endYear; year += 1) {
+    const bucket = totals.get(year) ?? { invoiceCount: 0, revenueDecimal: zeroMoney };
     result.push({
       year,
-      invoiceCount: bucket?.invoiceCount ?? 0,
-      revenue: bucket?.revenue ?? 0,
+      invoiceCount: bucket.invoiceCount,
+      revenue: Number(bucket.revenueDecimal),
+      revenueDecimal: bucket.revenueDecimal,
     });
   }
   return AnnualRevenueSchema.array().parse(result);
