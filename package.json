@@ -16,6 +16,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
     "db:validate": "prisma validate",
+    "test": "bun test",
     "lint": "oxlint .",
     "typecheck": "bun run typecheck:server && bun run --cwd client typecheck",
     "typecheck:server": "tsc --noEmit",

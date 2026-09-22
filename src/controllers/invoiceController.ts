@@ -3,8 +3,20 @@ import {
   TransmissionMethodSchema,
   type TransmissionMethod,
 } from "@meridian/contracts";
+import { randomUUID } from "node:crypto";
+import { Prisma, type OrderItem, type Product } from "@prisma/client";
 import { prisma } from "../db";
-import { parseRateTiers } from "../domain/rateTier";
+import {
+  MONEY_PRECISION,
+  MONEY_SCALE,
+  QUANTITY_PRECISION,
+  QUANTITY_SCALE,
+  addDecimal,
+  canonicalMoney,
+  decimalOrLegacy,
+  legacyNumber,
+} from "../domain/money";
+import { productSubtotal } from "../domain/pricing";
 import { InvoiceModel, toInvoiceModel } from "../models/invoice";
 import { toTransmissionModel, TransmissionModel } from "../models/transmission";
 import { renderInvoicePdf } from "../services/pdf";
@@ -23,6 +35,15 @@ const invoiceInclude = {
   applications: { include: { payment: true }, orderBy: { appliedAt: "asc" } },
   transmissions: { orderBy: { createdAt: "asc" } },
 } as const;
+
+const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "amount" } as const;
+const quantityFormat = {
+  scale: QUANTITY_SCALE,
+  precision: QUANTITY_PRECISION,
+  field: "quantity",
+} as const;
+type InvoiceTransaction = Prisma.TransactionClient;
+type InvoiceSourceItem = OrderItem & { product: Product };
 
 interface DeliverableInvoice {
   id: string;
@@ -95,81 +116,88 @@ export async function getInvoice(invoiceId: string): Promise<InvoiceModel> {
   return toInvoiceModel(row);
 }
 
-async function nextInvoiceNumber(): Promise<string> {
-  const count = await prisma.invoice.count();
-  return `INV-${String(count + 1).padStart(5, "0")}`;
+function invoiceNumber(id: string): string {
+  return `INV-${id.toUpperCase()}`;
+}
+
+function invoiceLineData(item: InvoiceSourceItem) {
+  const quantityDecimal = decimalOrLegacy(
+    { decimal: item.quantityDecimal, legacy: item.quantity },
+    { ...quantityFormat, field: `order item ${item.id} quantity` }
+  );
+  const unitPriceDecimal = decimalOrLegacy(
+    { decimal: item.effectiveUnitPriceDecimal, legacy: item.unitPrice },
+    { ...moneyFormat, field: `order item ${item.id} unit price` }
+  );
+  const amountDecimal =
+    item.amountDecimal === null
+      ? canonicalMoney(
+          productSubtotal(unitPriceDecimal, quantityDecimal),
+          `order item ${item.id} amount`
+        )
+      : canonicalMoney(item.amountDecimal, `order item ${item.id} amount`);
+  return {
+    description: `${item.productNameSnapshot ?? item.product.name} @ ${item.productUnitSnapshot ?? item.product.unit}`,
+    quantity: legacyNumber(quantityDecimal, quantityFormat),
+    unitPrice: legacyNumber(unitPriceDecimal, moneyFormat),
+    amount: legacyNumber(amountDecimal, moneyFormat),
+    productSkuSnapshot: item.productSkuSnapshot ?? item.product.sku,
+    productUnitSnapshot: item.productUnitSnapshot ?? item.product.unit,
+    quantityDecimal,
+    unitPriceDecimal,
+    amountDecimal,
+  };
+}
+
+function invoiceTotal(lines: readonly ReturnType<typeof invoiceLineData>[]): string {
+  return lines.reduce(
+    (sum, line) => addDecimal(sum, line.amountDecimal, { ...moneyFormat, field: "invoice total" }),
+    canonicalMoney("0", "invoice total")
+  );
 }
 
 export async function createInvoiceForOrder(orderId: string): Promise<InvoiceModel> {
-  // Generating an invoice re-rates the order so it bills at current prices.
-  const order = await prisma.order.findUniqueOrThrow({
-    where: { id: orderId },
-    include: { customer: true, items: { include: { product: true, rate: true } } },
-  });
-  const combos = await prisma.comboDiscount.findMany({
-    where: { OR: [{ customerId: order.customerId }, { customerId: null }] },
-    include: { products: true },
-  });
-  const orderProductIds = order.items.map((i) => i.productId);
-  const lines: { description: string; quantity: number; unitPrice: number; amount: number }[] =
-    [];
-  for (const item of order.items) {
-    let unitPrice = item.rate.unitPrice;
-    const tiers = parseRateTiers(item.rate.tiers);
-    if (tiers.length > 0 && item.quantity > 0) {
-      // Blend the interval charges into one per-unit price.
-      let total = 0;
-      let lower = 0;
-      for (const interval of tiers.toSorted(
-        (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
-      )) {
-        const upper = interval.upTo ?? Infinity;
-        const units = Math.min(item.quantity, upper) - lower;
-        if (units > 0) {
-          let charge = units * interval.unitPrice;
-          if (interval.floor != null && charge < interval.floor) charge = interval.floor;
-          if (interval.ceiling != null && charge > interval.ceiling) charge = interval.ceiling;
-          total += charge;
-        }
-        lower = upper;
-        if (upper >= item.quantity) break;
-      }
-      unitPrice = total / item.quantity;
-    }
-    for (const combo of combos) {
-      const comboProductIds = combo.products.map((p) => p.id);
-      if (
-        comboProductIds.every((pid) => orderProductIds.includes(pid)) &&
-        comboProductIds.includes(item.productId)
-      ) {
-        unitPrice = unitPrice * (1 - combo.percentOff / 100);
-      }
-    }
-    await prisma.orderItem.update({ where: { id: item.id }, data: { unitPrice } });
-    lines.push({
-      description: `${item.product.name} @ ${item.product.unit}`,
-      quantity: item.quantity,
-      unitPrice,
-      amount: unitPrice * item.quantity,
-    });
-  }
-  const total = lines.reduce((sum, line) => sum + line.amount, 0);
+  const invoiceId = await prisma.$transaction(async (transaction) => {
+    const existing = await transaction.invoice.findUnique({ where: { orderId } });
+    if (existing) return existing.id;
 
-  const issueDate = new Date();
-  const dueDate = new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-  const invoice = await prisma.invoice.create({
-    data: {
-      number: await nextInvoiceNumber(),
-      customerId: order.customerId,
-      orderId,
-      issueDate,
-      dueDate,
-      total,
-      lines: { create: lines },
-    },
+    const order = await transaction.order.findUniqueOrThrow({
+      where: { id: orderId },
+      include: { customer: true, items: { include: { product: true } } },
+    });
+    if (order.items.length === 0) throw new Error("An invoice requires at least one order item");
+    const lines = order.items.map(invoiceLineData);
+    const totalDecimal = invoiceTotal(lines);
+    const id = randomUUID();
+    const issueDate = new Date();
+    const dueDate = new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+    await transaction.invoice.create({
+      data: {
+        id,
+        number: invoiceNumber(id),
+        customerId: order.customerId,
+        orderId,
+        issueDate,
+        dueDate,
+        total: legacyNumber(totalDecimal, moneyFormat),
+        totalDecimal,
+        amountPaid: 0,
+        amountPaidDecimal: canonicalMoney("0"),
+        customerNameSnapshot: order.customer.name,
+        customerEmailSnapshot: order.customer.email,
+        billingAddressSnapshot: order.customer.billingAddress,
+        currencyCode: order.currencyCode,
+        lines: { create: lines },
+      },
+    });
+    const updated = await transaction.order.updateMany({
+      where: { id: orderId, status: "OPEN" },
+      data: { status: "INVOICED" },
+    });
+    if (updated.count !== 1) throw new Error("Only an OPEN order can be invoiced");
+    return id;
   });
-  await prisma.order.update({ where: { id: orderId }, data: { status: "INVOICED" } });
-  return getInvoice(invoice.id);
+  return getInvoice(invoiceId);
 }
 
 // Update the invoice's dates.
@@ -177,143 +205,94 @@ export async function updateInvoice(
   invoiceId: string,
   input: { issueDate?: string; dueDate?: string }
 ): Promise<InvoiceModel> {
-  await prisma.invoice.update({
-    where: { id: invoiceId },
-    data: {
-      issueDate: input.issueDate !== undefined ? new Date(input.issueDate) : undefined,
-      dueDate: input.dueDate !== undefined ? new Date(input.dueDate) : undefined,
-    },
+  await prisma.$transaction(async (transaction) => {
+    const invoice = await transaction.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    if (invoice.status !== "DRAFT") throw new Error("Only a DRAFT invoice can be redated");
+    const issueDate = input.issueDate === undefined ? invoice.issueDate : new Date(input.issueDate);
+    const dueDate = input.dueDate === undefined ? invoice.dueDate : new Date(input.dueDate);
+    if (dueDate < issueDate) throw new Error("Invoice due date must be on or after issue date");
+    const updated = await transaction.invoice.updateMany({
+      where: { id: invoiceId, status: "DRAFT" },
+      data: { issueDate, dueDate },
+    });
+    if (updated.count !== 1) throw new Error("Invoice changed concurrently");
   });
   return getInvoice(invoiceId);
 }
 
-// Draft invoices follow their order: whenever the order changes, the draft is
-// rebuilt from current prices. Posted invoices are left alone.
-export async function syncDraftInvoice(orderId: string): Promise<void> {
-  const invoice = await prisma.invoice.findUnique({ where: { orderId } });
+// Draft invoices copy materialized order snapshots. The delete/create pair is
+// deliberately enclosed by the caller's transaction, so readers see all old
+// lines or all new lines and never a partially rebuilt draft.
+export async function syncDraftInvoiceInTransaction(
+  transaction: InvoiceTransaction,
+  orderId: string
+): Promise<void> {
+  const invoice = await transaction.invoice.findUnique({ where: { orderId } });
   if (!invoice || invoice.status !== "DRAFT") return;
 
-  const order = await prisma.order.findUniqueOrThrow({
+  const order = await transaction.order.findUniqueOrThrow({
     where: { id: orderId },
-    include: { customer: true, items: { include: { product: true, rate: true } } },
+    include: { customer: true, items: { include: { product: true } } },
   });
-  const bundles = await prisma.comboDiscount.findMany({
-    where: { OR: [{ customerId: order.customerId }, { customerId: null }] },
-    include: { products: true },
+  const lines = order.items.map(invoiceLineData);
+  const totalDecimal = invoiceTotal(lines);
+  await transaction.invoiceLine.deleteMany({ where: { invoiceId: invoice.id } });
+  const updated = await transaction.invoice.updateMany({
+    where: { id: invoice.id, status: "DRAFT" },
+    data: {
+      customerId: order.customerId,
+      total: legacyNumber(totalDecimal, moneyFormat),
+      totalDecimal,
+      customerNameSnapshot: order.customer.name,
+      customerEmailSnapshot: order.customer.email,
+      billingAddressSnapshot: order.customer.billingAddress,
+      currencyCode: order.currencyCode,
+    },
   });
-  const productIds = order.items.map((line) => line.productId);
-  const freshLines = order.items.map((line) => {
-    let price = line.rate.unitPrice;
-    const tierList = parseRateTiers(line.rate.tiers);
-    if (tierList.length > 0 && line.quantity > 0) {
-      const sorted = tierList.toSorted(
-        (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
-      );
-      let charged = 0;
-      let from = 0;
-      for (const band of sorted) {
-        const to = band.upTo ?? Infinity;
-        const unitsInBand = Math.min(line.quantity, to) - from;
-        if (unitsInBand > 0) {
-          let bandCharge = unitsInBand * band.unitPrice;
-          if (band.floor != null && bandCharge < band.floor) bandCharge = band.floor;
-          if (band.ceiling != null && bandCharge > band.ceiling) bandCharge = band.ceiling;
-          charged += bandCharge;
-        }
-        from = to;
-        if (to >= line.quantity) break;
-      }
-      price = charged / line.quantity;
-    }
-    for (const bundle of bundles) {
-      const bundleProductIds = bundle.products.map((p) => p.id);
-      if (
-        bundleProductIds.every((pid) => productIds.includes(pid)) &&
-        bundleProductIds.includes(line.productId)
-      ) {
-        price = price * (1 - bundle.percentOff / 100);
-      }
-    }
-    return {
-      description: `${line.product.name} @ ${line.product.unit}`,
-      quantity: line.quantity,
-      unitPrice: price,
-      amount: price * line.quantity,
-    };
-  });
-
-  await prisma.invoiceLine.deleteMany({ where: { invoiceId: invoice.id } });
-  await prisma.invoice.update({
+  if (updated.count !== 1) throw new Error("Draft invoice changed concurrently");
+  await transaction.invoice.update({
     where: { id: invoice.id },
     data: {
-      total: freshLines.reduce((sum, line) => sum + line.amount, 0),
-      lines: { create: freshLines },
+      lines: { create: lines },
     },
   });
 }
 
-// Posting finalizes the invoice: prices are computed one last time and the
-// invoice is stamped POSTED.
+export async function syncDraftInvoice(orderId: string): Promise<void> {
+  await prisma.$transaction((transaction) => syncDraftInvoiceInTransaction(transaction, orderId));
+}
+
+// Posting copies order snapshots one final time and freezes the invoice. It is
+// idempotent for already-finalized non-void invoices.
 export async function postInvoice(invoiceId: string): Promise<InvoiceModel> {
-  const invoice = await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+  await prisma.$transaction(async (transaction) => {
+    const invoice = await transaction.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    if (["POSTED", "SENT", "PAID"].includes(invoice.status)) return;
+    if (invoice.status !== "DRAFT") throw new Error("Only a DRAFT invoice can be posted");
 
-  const order = await prisma.order.findUniqueOrThrow({
-    where: { id: invoice.orderId },
-    include: { customer: true, items: { include: { product: true, rate: true } } },
-  });
-  const combos = await prisma.comboDiscount.findMany({
-    where: { OR: [{ customerId: order.customerId }, { customerId: null }] },
-    include: { products: true },
-  });
-  const idsInOrder = order.items.map((item) => item.productId);
-  const finalLines = order.items.map((item) => {
-    let unitPrice = item.rate.unitPrice;
-    const tiers = parseRateTiers(item.rate.tiers);
-    if (tiers.length > 0 && item.quantity > 0) {
-      let total = 0;
-      let lower = 0;
-      for (const interval of tiers.toSorted(
-        (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
-      )) {
-        const upper = interval.upTo ?? Infinity;
-        const units = Math.min(item.quantity, upper) - lower;
-        if (units > 0) {
-          let charge = units * interval.unitPrice;
-          if (interval.floor != null && charge < interval.floor) charge = interval.floor;
-          if (interval.ceiling != null && charge > interval.ceiling) charge = interval.ceiling;
-          total += charge;
-        }
-        lower = upper;
-        if (upper >= item.quantity) break;
-      }
-      unitPrice = total / item.quantity;
-    }
-    for (const combo of combos) {
-      const comboProductIds = combo.products.map((p) => p.id);
-      if (
-        comboProductIds.every((pid) => idsInOrder.includes(pid)) &&
-        comboProductIds.includes(item.productId)
-      ) {
-        unitPrice = unitPrice * (1 - combo.percentOff / 100);
-      }
-    }
-    return {
-      description: `${item.product.name} @ ${item.product.unit}`,
-      quantity: item.quantity,
-      unitPrice,
-      amount: unitPrice * item.quantity,
-    };
-  });
-
-  await prisma.invoiceLine.deleteMany({ where: { invoiceId } });
-  await prisma.invoice.update({
-    where: { id: invoiceId },
-    data: {
-      status: "POSTED",
-      postedAt: new Date(),
-      total: finalLines.reduce((sum, line) => sum + line.amount, 0),
-      lines: { create: finalLines },
-    },
+    const order = await transaction.order.findUniqueOrThrow({
+      where: { id: invoice.orderId },
+      include: { customer: true, items: { include: { product: true } } },
+    });
+    const lines = order.items.map(invoiceLineData);
+    const totalDecimal = invoiceTotal(lines);
+    await transaction.invoiceLine.deleteMany({ where: { invoiceId } });
+    await transaction.invoice.update({ where: { id: invoiceId }, data: { lines: { create: lines } } });
+    const updated = await transaction.invoice.updateMany({
+      where: { id: invoiceId, status: "DRAFT" },
+      data: {
+        status: "POSTED",
+        postedAt: new Date(),
+        customerId: order.customerId,
+        total: legacyNumber(totalDecimal, moneyFormat),
+        totalDecimal,
+        customerNameSnapshot: order.customer.name,
+        customerEmailSnapshot: order.customer.email,
+        billingAddressSnapshot: order.customer.billingAddress,
+        currencyCode: order.currencyCode,
+      },
+    });
+    if (updated.count !== 1) throw new Error("Invoice changed concurrently while posting");
   });
   return getInvoice(invoiceId);
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { captureOrderPricing, exactPricingInput } from "./orderPricing";
+import { captureOrderPricing, exactPricingInput, repriceOrderPricingSnapshot } from "./orderPricing";
 
 const capturedAt = "2026-09-22T12:00:00.000Z";
 
@@ -80,6 +80,22 @@ void describe("order pricing snapshots", () => {
     assert.equal(captured.pricingSnapshot.rate.tiers[0]?.unitPrice, "2.0000");
     assert.equal(captured.pricingSnapshot.discounts[0]?.name, "Original");
     assert.equal(captured.amountDecimal, "5.4000");
+  });
+
+  void test("reprices a quantity change from captured terms rather than changed live terms", () => {
+    const input = baseInput();
+    input.rate.baseUnitPrice = "4.0000";
+    input.discounts = [{ id: "discount-1", name: "Captured ten percent", percentOff: "10.0000" }];
+    const original = captureOrderPricing(exactPricingInput(input));
+
+    input.rate.baseUnitPrice = "999.0000";
+    input.discounts[0].percentOff = "99.0000";
+    const repriced = repriceOrderPricingSnapshot(original.pricingSnapshot, "5.000000");
+
+    assert.equal(repriced.baseUnitPriceDecimal, "4.0000");
+    assert.equal(repriced.quantityDecimal, "5.000000");
+    assert.equal(repriced.amountDecimal, "18.0000");
+    assert.equal(repriced.pricingCapturedAt, original.pricingCapturedAt);
   });
 
   void test("rejects mismatched currencies, uncovered tiers, duplicate discounts, and zero quantity", () => {

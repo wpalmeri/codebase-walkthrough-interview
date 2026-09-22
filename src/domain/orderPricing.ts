@@ -211,6 +211,27 @@ export function captureOrderPricing(rawInput: OrderPricingInput): CapturedOrderP
   });
 }
 
+/** Recalculates mutable quantity/amount columns from immutable captured terms. */
+export function repriceOrderPricingSnapshot(
+  rawSnapshot: unknown,
+  quantity: string | number
+): CapturedOrderPricing {
+  const snapshot = OrderPricingSnapshotSchema.parse(rawSnapshot);
+  return captureOrderPricing(
+    OrderPricingInputSchema.parse({
+      product: { ...snapshot.product, currencyCode: snapshot.currencyCode },
+      rate: { ...snapshot.rate, currencyCode: snapshot.currencyCode },
+      quantity: canonicalQuantity(quantity, "order line quantity"),
+      discounts: snapshot.discounts.map(({ id, name, percentOff }) => ({
+        id,
+        name,
+        percentOff,
+      })),
+      capturedAt: snapshot.capturedAt,
+    })
+  );
+}
+
 export function exactPricingInput(input: {
   product: Omit<z.input<typeof OrderPricingProductSchema>, "currencyCode"> & {
     currencyCode: string;
