@@ -36,6 +36,13 @@ import {
   sendEmail,
   submitToClearinghouse,
 } from "../services/transmission";
+import {
+  appendRequestAuditEvent,
+  type RequestAuditAppender,
+  type RequestAuditMetadata,
+  RequestAuditMetadataSchema,
+} from "../audit/requestAudit";
+import type { AuditEventRepository } from "../audit/auditEvent";
 
 const invoiceInclude = {
   customer: true,
@@ -140,6 +147,18 @@ export interface InvoiceDeliveryDependencies {
   getInvoice(tenantId: string, invoiceId: string): Promise<InvoiceModel>;
 }
 
+/** Request-derived evidence required by invoice mutations exposed to API routes. */
+export interface InvoiceMutationAudit {
+  readonly metadata: RequestAuditMetadata;
+  /** Injectable only to prove transaction rollback when audit persistence fails. */
+  readonly append?: RequestAuditAppender;
+}
+
+type InvoiceAuditTransaction = Pick<
+  Prisma.TransactionClient,
+  "invoice" | "transmission" | "auditEvent"
+>;
+
 export async function listInvoices(tenantId: string): Promise<InvoiceModel[]> {
   const rows = await prisma.invoice.findMany({
     where: { tenantId },
@@ -197,7 +216,12 @@ function invoiceTotal(lines: readonly ReturnType<typeof invoiceLineData>[]): str
   );
 }
 
-export async function createInvoiceForOrder(tenantId: string, orderId: string): Promise<InvoiceModel> {
+export async function createInvoiceForOrder(
+  tenantId: string,
+  orderId: string,
+  audit: InvoiceMutationAudit
+): Promise<InvoiceModel> {
+  assertInvoiceAuditTenant(tenantId, audit);
   const invoiceId = await prisma.$transaction(async (transaction) => {
     const order = await transaction.order.findFirstOrThrow({
       where: { id: orderId, tenantId },
@@ -245,6 +269,16 @@ export async function createInvoiceForOrder(tenantId: string, orderId: string): 
     if (updated.count !== 1) {
       throw new ConflictError("ORDER_NOT_OPEN", "Only an OPEN order can be invoiced");
     }
+    await appendInvoiceAudit(transaction, audit, {
+      action: "INVOICE_CREATED",
+      resourceKind: "INVOICE",
+      resourceId: id,
+    });
+    await appendInvoiceAudit(transaction, audit, {
+      action: "ORDER_INVOICED",
+      resourceKind: "ORDER",
+      resourceId: order.id,
+    });
     return id;
   });
   return getInvoice(tenantId, invoiceId);
@@ -254,8 +288,10 @@ export async function createInvoiceForOrder(tenantId: string, orderId: string): 
 export async function updateInvoice(
   tenantId: string,
   invoiceId: string,
-  input: { issueDate?: string; dueDate?: string }
+  input: { issueDate?: string; dueDate?: string },
+  audit: InvoiceMutationAudit
 ): Promise<InvoiceModel> {
+  assertInvoiceAuditTenant(tenantId, audit);
   await prisma.$transaction(async (transaction) => {
     const invoice = await transaction.invoice.findFirstOrThrow({ where: { id: invoiceId, tenantId } });
     if (invoice.status !== "DRAFT") {
@@ -286,6 +322,11 @@ export async function updateInvoice(
         "Invoice changed concurrently; reload and retry"
       );
     }
+    await appendInvoiceAudit(transaction, audit, {
+      action: "INVOICE_UPDATED",
+      resourceKind: "INVOICE",
+      resourceId: invoice.id,
+    });
   });
   return getInvoice(tenantId, invoiceId);
 }
@@ -340,7 +381,12 @@ export async function syncDraftInvoice(tenantId: string, orderId: string): Promi
 
 // Posting copies order snapshots one final time and freezes the invoice. It is
 // idempotent for already-finalized non-void invoices.
-export async function postInvoice(tenantId: string, invoiceId: string): Promise<InvoiceModel> {
+export async function postInvoice(
+  tenantId: string,
+  invoiceId: string,
+  audit: InvoiceMutationAudit
+): Promise<InvoiceModel> {
+  assertInvoiceAuditTenant(tenantId, audit);
   await prisma.$transaction(async (transaction) => {
     const invoice = await transaction.invoice.findFirstOrThrow({ where: { id: invoiceId, tenantId } });
     if (["POSTED", "SENT", "PAID"].includes(invoice.status)) return;
@@ -382,11 +428,17 @@ export async function postInvoice(tenantId: string, invoiceId: string): Promise<
         "Invoice changed concurrently while posting; reload and retry"
       );
     }
+    await appendInvoiceAudit(transaction, audit, {
+      action: "INVOICE_POSTED",
+      resourceKind: "INVOICE",
+      resourceId: invoice.id,
+    });
   });
   return getInvoice(tenantId, invoiceId);
 }
 
-const defaultInvoiceDeliveryDependencies: InvoiceDeliveryDependencies = {
+function invoiceDeliveryDependencies(audit: InvoiceMutationAudit): InvoiceDeliveryDependencies {
+  return {
   async findInvoice(tenantId, invoiceId) {
     const invoice = await prisma.invoice.findFirstOrThrow({
       where: { id: invoiceId, tenantId },
@@ -400,8 +452,8 @@ const defaultInvoiceDeliveryDependencies: InvoiceDeliveryDependencies = {
   submitToClearinghouse,
   attachDocument,
   async recordSuccessfulTransmission(input) {
-    await prisma.$transaction([
-      prisma.transmission.create({
+    await prisma.$transaction(async (transaction) => {
+      const transmission = await transaction.transmission.create({
         data: {
           invoiceId: input.invoiceId,
           method: input.method,
@@ -409,31 +461,50 @@ const defaultInvoiceDeliveryDependencies: InvoiceDeliveryDependencies = {
           externalJobId: input.externalJobId ?? null,
           detail: input.detail,
         },
-      }),
-      prisma.invoice.updateMany({
+      });
+      const updated = await transaction.invoice.updateMany({
         where: { id: input.invoiceId, tenantId: input.tenantId },
         data: { status: "SENT" },
-      }),
-    ]);
+      });
+      if (updated.count !== 1) throw new NotFoundError();
+      await appendInvoiceAudit(transaction, audit, {
+        action: "INVOICE_SENT",
+        resourceKind: "INVOICE",
+        resourceId: input.invoiceId,
+      });
+      await appendInvoiceAudit(transaction, audit, {
+        action: "INVOICE_DELIVERY_REQUESTED",
+        resourceKind: "INVOICE_DELIVERY",
+        resourceId: transmission.id,
+      });
+    });
   },
   async recordFailedTransmission(input) {
-    const invoice = await prisma.invoice.findFirst({
-      where: { id: input.invoiceId, tenantId: input.tenantId },
-      select: { id: true },
-    });
-    if (invoice === null) throw new NotFoundError();
-    await prisma.transmission.create({
-      data: {
-        invoiceId: input.invoiceId,
-        method: input.method,
-        status: "FAILED",
-        externalJobId: input.externalJobId ?? null,
-        detail: input.detail,
-      },
+    await prisma.$transaction(async (transaction) => {
+      const invoice = await transaction.invoice.findFirst({
+        where: { id: input.invoiceId, tenantId: input.tenantId },
+        select: { id: true },
+      });
+      if (invoice === null) throw new NotFoundError();
+      const transmission = await transaction.transmission.create({
+        data: {
+          invoiceId: input.invoiceId,
+          method: input.method,
+          status: "FAILED",
+          externalJobId: input.externalJobId ?? null,
+          detail: input.detail,
+        },
+      });
+      await appendInvoiceAudit(transaction, audit, {
+        action: "INVOICE_DELIVERY_REQUESTED",
+        resourceKind: "INVOICE_DELIVERY",
+        resourceId: transmission.id,
+      });
     });
   },
   getInvoice,
-};
+  };
+}
 
 type DeliveryStage = "recipient validation" | "PDF rendering" | "delivery" | "attachment" | "state recording";
 
@@ -568,23 +639,71 @@ export async function sendInvoiceWithDependencies(
   return dependencies.getInvoice(tenantId, invoiceId);
 }
 
-export async function sendInvoice(tenantId: string, invoiceId: string, method: string): Promise<InvoiceModel> {
-  return sendInvoiceWithDependencies(tenantId, invoiceId, method, defaultInvoiceDeliveryDependencies);
+export async function sendInvoice(
+  tenantId: string,
+  invoiceId: string,
+  method: string,
+  audit: InvoiceMutationAudit
+): Promise<InvoiceModel> {
+  assertInvoiceAuditTenant(tenantId, audit);
+  return sendInvoiceWithDependencies(tenantId, invoiceId, method, invoiceDeliveryDependencies(audit));
 }
 
 // Poll the external portal service and refresh the job status.
-export async function refreshTransmission(tenantId: string, transmissionId: string): Promise<TransmissionModel> {
-  const transmission = await prisma.transmission.findFirstOrThrow({
-    where: { id: transmissionId, invoice: { tenantId } },
-  });
-  if (transmission.method === "PORTAL" && transmission.status !== "DELIVERED") {
-    const status = checkPortalJob(transmission.createdAt);
-    const updated = await prisma.transmission.updateMany({
+export async function refreshTransmission(
+  tenantId: string,
+  transmissionId: string,
+  audit: InvoiceMutationAudit
+): Promise<TransmissionModel> {
+  assertInvoiceAuditTenant(tenantId, audit);
+  return prisma.$transaction(async (transaction) => {
+    const transmission = await transaction.transmission.findFirstOrThrow({
       where: { id: transmissionId, invoice: { tenantId } },
-      data: { status },
     });
-    if (updated.count !== 1) throw new NotFoundError();
-    return toTransmissionModel({ ...transmission, status });
+    if (transmission.method === "PORTAL" && transmission.status !== "DELIVERED") {
+      const status = checkPortalJob(transmission.createdAt);
+      if (status === transmission.status) return toTransmissionModel(transmission);
+      const updated = await transaction.transmission.updateMany({
+        where: { id: transmissionId, invoice: { tenantId } },
+        data: { status },
+      });
+      if (updated.count !== 1) throw new NotFoundError();
+      await appendInvoiceAudit(transaction, audit, {
+        action: "INVOICE_DELIVERY_UPDATED",
+        resourceKind: "INVOICE_DELIVERY",
+        resourceId: transmission.id,
+      });
+      return toTransmissionModel({ ...transmission, status });
+    }
+    return toTransmissionModel(transmission);
+  });
+}
+
+function assertInvoiceAuditTenant(tenantId: string, audit: InvoiceMutationAudit): void {
+  const metadata = RequestAuditMetadataSchema.parse(audit.metadata);
+  if (metadata.tenantId !== tenantId) {
+    throw new Error("invoice audit tenant must match the authenticated tenant");
   }
-  return toTransmissionModel(transmission);
+}
+
+async function appendInvoiceAudit(
+  transaction: InvoiceAuditTransaction,
+  audit: InvoiceMutationAudit,
+  event: Parameters<RequestAuditAppender>[2]
+): Promise<void> {
+  await (audit.append ?? appendRequestAuditEvent)(
+    auditEventRepository(transaction),
+    audit.metadata,
+    event
+  );
+}
+
+function auditEventRepository(
+  transaction: Pick<Prisma.TransactionClient, "auditEvent">
+): AuditEventRepository {
+  return {
+    auditEvent: {
+      create: ({ data }) => transaction.auditEvent.create({ data }),
+    },
+  };
 }

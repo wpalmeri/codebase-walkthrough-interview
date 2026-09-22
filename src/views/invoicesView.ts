@@ -9,6 +9,7 @@ import {
 import { Router } from "express";
 import * as invoices from "../controllers/invoiceController";
 import { BILLING_WRITE_ROLES, READ_ROLES, requireRole } from "../auth/authorization";
+import { requestAuditMetadata } from "../audit/requestAudit";
 import { h, validateRequest } from "./helpers";
 
 export const invoicesView = Router();
@@ -31,7 +32,10 @@ invoicesView.get(
 
 const updateInvoice = h(async (req) => {
   const { params, body } = validateRequest(UpdateInvoiceRequestSchema, req);
-  return invoices.updateInvoice(requireRole(req, BILLING_WRITE_ROLES).tenantId, params.id, body);
+  const principal = requireRole(req, BILLING_WRITE_ROLES);
+  return invoices.updateInvoice(principal.tenantId, params.id, body, {
+    metadata: requestAuditMetadata(req, principal),
+  });
 });
 
 invoicesView.put("/:id", updateInvoice);
@@ -41,7 +45,10 @@ invoicesView.post(
   "/:id/post",
   h(async (req) => {
     const { params } = validateRequest(PostInvoiceRequestSchema, req);
-    return invoices.postInvoice(requireRole(req, BILLING_WRITE_ROLES).tenantId, params.id);
+    const principal = requireRole(req, BILLING_WRITE_ROLES);
+    return invoices.postInvoice(principal.tenantId, params.id, {
+      metadata: requestAuditMetadata(req, principal),
+    });
   })
 );
 
@@ -49,7 +56,10 @@ invoicesView.post(
   "/:id/send",
   h(async (req) => {
     const { params, body } = validateRequest(SendInvoiceRequestSchema, req);
-    return invoices.sendInvoice(requireRole(req, BILLING_WRITE_ROLES).tenantId, params.id, body.method);
+    const principal = requireRole(req, BILLING_WRITE_ROLES);
+    return invoices.sendInvoice(principal.tenantId, params.id, body.method, {
+      metadata: requestAuditMetadata(req, principal),
+    });
   })
 );
 
@@ -57,9 +67,11 @@ invoicesView.post(
   "/transmissions/:transmissionId/refresh",
   h(async (req) => {
     const { params } = validateRequest(RefreshTransmissionRequestSchema, req);
+    const principal = requireRole(req, BILLING_WRITE_ROLES);
     return invoices.refreshTransmission(
-      requireRole(req, BILLING_WRITE_ROLES).tenantId,
-      params.transmissionId
+      principal.tenantId,
+      params.transmissionId,
+      { metadata: requestAuditMetadata(req, principal) }
     );
   })
 );

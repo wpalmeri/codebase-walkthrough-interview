@@ -3,6 +3,8 @@ import { once } from "node:events";
 import type { Server } from "node:http";
 import { createApp } from "../app";
 import type { Principal } from "../auth/principal";
+import type { RequestAuditMetadata } from "../audit/requestAudit";
+import { fingerprintIdempotencyKey } from "../audit/auditEvent";
 import { prisma } from "../db";
 import * as invoices from "./invoiceController";
 import * as orders from "./orderController";
@@ -23,6 +25,22 @@ const tenantB: Principal = {
 };
 const tenantAViewer: Principal = { ...tenantA, credentialId: "credential:orders-a-viewer", role: "VIEWER" };
 
+function audit(principal: Principal, requestId: string): RequestAuditMetadata {
+  return {
+    tenantId: principal.tenantId,
+    principal: {
+      kind: principal.kind,
+      subjectId: principal.subjectId,
+      credentialId: principal.credentialId,
+    },
+    requestId,
+  };
+}
+
+function invoiceAudit(principal: Principal, requestId: string): invoices.InvoiceMutationAudit {
+  return { metadata: audit(principal, requestId) };
+}
+
 async function close(server: Server): Promise<void> {
   await new Promise<void>((resolve, reject) =>
     server.close((error) => (error === undefined ? resolve() : reject(error)))
@@ -37,6 +55,31 @@ function responseIds(body: unknown): string[] {
     const id = Object.getOwnPropertyDescriptor(value, "id")?.value;
     assert.equal(typeof id, "string");
     return id;
+  });
+}
+
+function responseId(body: unknown): string {
+  assert.equal(typeof body, "object");
+  assert.notEqual(body, null);
+  const id = Object.getOwnPropertyDescriptor(body, "id")?.value;
+  assert.equal(typeof id, "string");
+  return id;
+}
+
+async function auditEventForRequest(requestId: string) {
+  return prisma.auditEvent.findFirst({
+    where: { requestId },
+    select: {
+      tenantId: true,
+      action: true,
+      principalKind: true,
+      principalSubject: true,
+      principalCredentialId: true,
+      requestId: true,
+      idempotencyKeyFingerprint: true,
+      resourceKind: true,
+      resourceId: true,
+    },
   });
 }
 
@@ -65,12 +108,28 @@ async function main(): Promise<void> {
       prisma.rate.create({ data: { customerId: customerB.id, productId: productB.id, unitPrice: 10, unitPriceDecimal: "10.0000", currencyCode: "USD" } }),
     ]);
     const [orderA, orderB] = await Promise.all([
-      orders.createOrder(tenantA.tenantId, { customerId: customerA.id, items: [{ productId: productA.id, quantity: 1 }] }),
-      orders.createOrder(tenantB.tenantId, { customerId: customerB.id, items: [{ productId: productB.id, quantity: 1 }] }),
+      orders.createOrder(
+        tenantA.tenantId,
+        { customerId: customerA.id, items: [{ productId: productA.id, quantity: 1 }] },
+        audit(tenantA, "tenant-order-a-create")
+      ),
+      orders.createOrder(
+        tenantB.tenantId,
+        { customerId: customerB.id, items: [{ productId: productB.id, quantity: 1 }] },
+        audit(tenantB, "tenant-order-b-create")
+      ),
     ]);
     const [invoiceA, invoiceB] = await Promise.all([
-      invoices.createInvoiceForOrder(tenantA.tenantId, orderA.id),
-      invoices.createInvoiceForOrder(tenantB.tenantId, orderB.id),
+      invoices.createInvoiceForOrder(
+        tenantA.tenantId,
+        orderA.id,
+        invoiceAudit(tenantA, "tenant-order-a-invoice")
+      ),
+      invoices.createInvoiceForOrder(
+        tenantB.tenantId,
+        orderB.id,
+        invoiceAudit(tenantB, "tenant-order-b-invoice")
+      ),
     ]);
     const transmissionA = await prisma.transmission.create({
       data: { invoiceId: invoiceA.id, method: "PORTAL", status: "QUEUED", detail: "queued for ownership test" },
@@ -124,6 +183,7 @@ async function main(): Promise<void> {
         orders: await prisma.order.count(),
         invoices: await prisma.invoice.count(),
         transmissions: await prisma.transmission.count(),
+        auditEvents: await prisma.auditEvent.count(),
       };
 
       const crossTenantRequests: Array<{ path: string; init: RequestInit }> = [
@@ -142,8 +202,13 @@ async function main(): Promise<void> {
       }
       assert.deepEqual(
         { orders: await prisma.order.count(), invoices: await prisma.invoice.count(), transmissions: await prisma.transmission.count() },
-        originalCounts
+        {
+          orders: originalCounts.orders,
+          invoices: originalCounts.invoices,
+          transmissions: originalCounts.transmissions,
+        }
       );
+      assert.equal(await prisma.auditEvent.count(), originalCounts.auditEvents);
       assert.deepEqual(
         await prisma.order.findUniqueOrThrow({ where: { id: orderA.id }, select: { notes: true } }),
         originalNotes
@@ -167,6 +232,77 @@ async function main(): Promise<void> {
         status: 403,
         code: "FORBIDDEN",
       });
+      assert.equal(await prisma.auditEvent.count(), originalCounts.auditEvents);
+
+      const idempotentOrderHeaders = {
+        "x-request-id": "tenant-order-create-race",
+        "idempotency-key": "tenant-order-create-key",
+        "idempotency-client": "tenant-order-integration",
+      };
+      const createBody = JSON.stringify({
+        customerId: customerA.id,
+        items: [{ productId: productA.id, quantity: 2 }],
+      });
+      const [firstCreate, secondCreate] = await Promise.all([
+        request("tenant-a", "/orders", {
+          method: "POST",
+          headers: idempotentOrderHeaders,
+          body: createBody,
+        }),
+        request("tenant-a", "/orders", {
+          method: "POST",
+          headers: idempotentOrderHeaders,
+          body: createBody,
+        }),
+      ]);
+      const completedCreates = [firstCreate, secondCreate].filter(({ response }) => response.status === 200);
+      assert.ok(completedCreates.length >= 1);
+      assert.ok([200, 409].includes(firstCreate.response.status));
+      assert.ok([200, 409].includes(secondCreate.response.status));
+      const idempotentOrderId = responseId(completedCreates[0]?.body);
+      assert.equal(await prisma.order.count({ where: { tenantId: tenantA.tenantId } }), 2);
+      assert.equal(await prisma.auditEvent.count(), originalCounts.auditEvents + 1);
+      assert.deepEqual(await auditEventForRequest("tenant-order-create-race"), {
+        tenantId: tenantA.tenantId,
+        action: "ORDER_CREATED",
+        principalKind: "TENANT_API_KEY",
+        principalSubject: tenantA.subjectId,
+        principalCredentialId: tenantA.credentialId,
+        requestId: "tenant-order-create-race",
+        idempotencyKeyFingerprint: fingerprintIdempotencyKey("tenant-order-create-key"),
+        resourceKind: "ORDER",
+        resourceId: idempotentOrderId,
+      });
+      assert.equal(
+        JSON.stringify(await prisma.auditEvent.findMany()).includes("tenant-order-create-key"),
+        false
+      );
+
+      const updated = await request("tenant-a", `/orders/${idempotentOrderId}`, {
+        method: "PATCH",
+        headers: { "x-request-id": "tenant-order-update-1" },
+        body: JSON.stringify({ notes: "audited order update" }),
+      });
+      assert.equal(updated.response.status, 200);
+      assert.equal(await prisma.auditEvent.count(), originalCounts.auditEvents + 2);
+      assert.deepEqual(await auditEventForRequest("tenant-order-update-1"), {
+        tenantId: tenantA.tenantId,
+        action: "ORDER_UPDATED",
+        principalKind: "TENANT_API_KEY",
+        principalSubject: tenantA.subjectId,
+        principalCredentialId: tenantA.credentialId,
+        requestId: "tenant-order-update-1",
+        idempotencyKeyFingerprint: null,
+        resourceKind: "ORDER",
+        resourceId: idempotentOrderId,
+      });
+
+      const invalid = await request("tenant-a", "/orders", {
+        method: "POST",
+        body: JSON.stringify({ customerId: customerA.id, items: [] }),
+      });
+      assert.equal(invalid.response.status, 400);
+      assert.equal(await prisma.auditEvent.count(), originalCounts.auditEvents + 2);
     } finally {
       await close(server);
     }

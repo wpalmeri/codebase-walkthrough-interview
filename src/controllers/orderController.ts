@@ -24,6 +24,13 @@ import {
   PreconditionError,
 } from "../errors";
 import { OrderModel, toOrderModel } from "../models/order";
+import {
+  appendRequestAuditEvent,
+  type RequestAuditAppender,
+  type RequestAuditMetadata,
+  RequestAuditMetadataSchema,
+} from "../audit/requestAudit";
+import type { AuditEventRepository } from "../audit/auditEvent";
 import { syncDraftInvoiceInTransaction } from "./invoiceController";
 
 const DEFAULT_BILLING_CURRENCY = "USD";
@@ -63,6 +70,7 @@ export async function getOrder(tenantId: string, orderId: string): Promise<Order
 }
 
 type PricingTransaction = Prisma.TransactionClient;
+type OrderAuditTransaction = Pick<Prisma.TransactionClient, "auditEvent">;
 
 async function capturedOrderLines(
   transaction: PricingTransaction,
@@ -200,7 +208,8 @@ export async function createOrder(tenantId: string, input: {
   customerId: string;
   items: { productId: string; quantity: string | number }[];
   notes?: string;
-}): Promise<OrderModel> {
+}, audit: RequestAuditMetadata, appendAudit: RequestAuditAppender = appendRequestAuditEvent): Promise<OrderModel> {
+  const auditMetadata = requireOrderAudit(tenantId, audit);
   const orderId = randomUUID();
   await prisma.$transaction(async (transaction) => {
     const lines = await capturedOrderLines(transaction, {
@@ -230,6 +239,7 @@ export async function createOrder(tenantId: string, input: {
     await transaction.orderItem.createMany({
       data: lines.map((line) => orderItemCreateData(orderId, line)),
     });
+    await appendOrderAudit(transaction, auditMetadata, appendAudit, "ORDER_CREATED", orderId);
   });
   return getOrder(tenantId, orderId);
 }
@@ -245,8 +255,11 @@ export async function saveOrder(
     notes?: string;
     items?: { id: string; quantity: string | number }[];
     comment?: { author?: string; body: string };
-  }
+  },
+  audit: RequestAuditMetadata,
+  appendAudit: RequestAuditAppender = appendRequestAuditEvent
 ): Promise<OrderModel> {
+  const auditMetadata = requireOrderAudit(tenantId, audit);
   await prisma.$transaction(async (transaction) => {
     const order = await transaction.order.findFirstOrThrow({
       where: { id: orderId, tenantId },
@@ -319,6 +332,42 @@ export async function saveOrder(
       });
     }
     await syncDraftInvoiceInTransaction(transaction, tenantId, orderId);
+    await appendOrderAudit(transaction, auditMetadata, appendAudit, "ORDER_UPDATED", order.id);
   });
   return getOrder(tenantId, orderId);
+}
+
+async function appendOrderAudit(
+  transaction: OrderAuditTransaction,
+  metadata: RequestAuditMetadata,
+  appendAudit: RequestAuditAppender,
+  action: "ORDER_CREATED" | "ORDER_UPDATED",
+  orderId: string
+): Promise<void> {
+  await appendAudit(auditRepository(transaction), metadata, {
+    action,
+    resourceKind: "ORDER",
+    resourceId: orderId,
+  });
+}
+
+/** Adapts Prisma's generic delegate to the narrow append-only audit boundary. */
+function auditRepository(transaction: OrderAuditTransaction): AuditEventRepository {
+  return {
+    auditEvent: {
+      create: async ({ data }) => transaction.auditEvent.create({ data }),
+    },
+  };
+}
+
+/** A caller may not attribute a tenant-scoped order mutation to another tenant. */
+function requireOrderAudit(tenantId: string, audit: RequestAuditMetadata): RequestAuditMetadata {
+  const parsedAudit = RequestAuditMetadataSchema.parse(audit);
+  if (parsedAudit.tenantId !== tenantId) {
+    throw new DomainInvariantError(
+      "AUDIT_TENANT_MISMATCH",
+      "Audit metadata must belong to the mutated order tenant"
+    );
+  }
+  return parsedAudit;
 }

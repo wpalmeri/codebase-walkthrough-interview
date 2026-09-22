@@ -9,6 +9,7 @@ import { Router } from "express";
 import * as invoices from "../controllers/invoiceController";
 import * as orders from "../controllers/orderController";
 import { BILLING_WRITE_ROLES, READ_ROLES, requireRole } from "../auth/authorization";
+import { requestAuditMetadata } from "../audit/requestAudit";
 import { h, validateRequest } from "./helpers";
 
 export const ordersView = Router();
@@ -33,13 +34,15 @@ ordersView.post(
   "/",
   h(async (req) => {
     const { body } = validateRequest(CreateOrderRequestSchema, req);
-    return orders.createOrder(requireRole(req, BILLING_WRITE_ROLES).tenantId, body);
+    const principal = requireRole(req, BILLING_WRITE_ROLES);
+    return orders.createOrder(principal.tenantId, body, requestAuditMetadata(req, principal));
   })
 );
 
 const updateOrder = h(async (req) => {
   const { params, body } = validateRequest(UpdateOrderRequestSchema, req);
-  return orders.saveOrder(requireRole(req, BILLING_WRITE_ROLES).tenantId, params.id, body);
+  const principal = requireRole(req, BILLING_WRITE_ROLES);
+  return orders.saveOrder(principal.tenantId, params.id, body, requestAuditMetadata(req, principal));
 });
 
 ordersView.put("/:id", updateOrder);
@@ -49,9 +52,11 @@ ordersView.post(
   "/:id/invoice",
   h(async (req) => {
     const { params } = validateRequest(CreateInvoiceForOrderRequestSchema, req);
+    const principal = requireRole(req, BILLING_WRITE_ROLES);
     return invoices.createInvoiceForOrder(
-      requireRole(req, BILLING_WRITE_ROLES).tenantId,
-      params.id
+      principal.tenantId,
+      params.id,
+      { metadata: requestAuditMetadata(req, principal) }
     );
   })
 );
