@@ -4,6 +4,7 @@ import {
   ComboDiscountSchema,
   CurrencyCodeSchema,
   DecimalStringSchema,
+  EmailAddressSchema,
   InvoiceLineSchema,
   InvoicePaymentSchema,
   InvoiceSchema,
@@ -236,6 +237,16 @@ void describe("problem-details contract", () => {
       false
     );
     assert.equal(ProblemDetailsSchema.safeParse({ ...valid, debug: "secret" }).success, false);
+  });
+});
+
+void describe("email address contract", () => {
+  void test("accepts deliverable syntax and rejects whitespace, header injection, and oversized input", () => {
+    assert.equal(EmailAddressSchema.parse("billing+invoices@example.com"), "billing+invoices@example.com");
+    assert.equal(EmailAddressSchema.safeParse(" billing@example.com").success, false);
+    assert.equal(EmailAddressSchema.safeParse("billing@example.com ").success, false);
+    assert.equal(EmailAddressSchema.safeParse("billing@example.com\r\nBcc: attacker@example.com").success, false);
+    assert.equal(EmailAddressSchema.safeParse(`${"a".repeat(245)}@example.com`).success, false);
   });
 });
 

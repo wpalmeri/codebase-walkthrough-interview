@@ -16,7 +16,8 @@ const nonNegativeMoney = money.nonnegative();
 export const CurrencyCodeSchema = z.literal("USD");
 export type CurrencyCode = z.infer<typeof CurrencyCodeSchema>;
 
-export const EmailAddressSchema = z.email();
+/** Bounded mailbox syntax shared by persisted customer data and delivery inputs. */
+export const EmailAddressSchema = z.email().max(254);
 
 /** Stable RFC 9457-style error envelope shared by every API surface. */
 export const ProblemDetailsSchema = z.strictObject({
