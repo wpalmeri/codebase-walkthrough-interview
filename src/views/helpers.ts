@@ -2,14 +2,15 @@ import {
   ValidationErrorResponseSchema,
   type ValidationIssue,
 } from "@meridian/contracts";
+import { ValidationError } from "../errors";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { z } from "zod";
 
-export class RequestValidationError extends Error {
+export class RequestValidationError extends ValidationError {
   readonly issues: ValidationIssue[];
 
   constructor(issues: ValidationIssue[]) {
-    super("Request validation failed");
+    super();
     this.name = "RequestValidationError";
     this.issues = issues;
   }

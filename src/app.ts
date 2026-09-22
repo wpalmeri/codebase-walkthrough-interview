@@ -1,5 +1,6 @@
 import express from "express";
 import type { NextFunction, Request, Response } from "express";
+import { problemFromError, type ProblemDetails } from "./errors";
 import { api } from "./views";
 
 type AppOptions = {
@@ -9,16 +10,11 @@ type AppOptions = {
    * in-process without starting the production entrypoint.
    */
   configure?: (app: express.Express) => void;
+  /** Receives raw failures for private logging; API responses always stay redacted. */
+  logError?: (error: unknown, request: Request) => void;
 };
 
-type Problem = {
-  type: "about:blank";
-  title: string;
-  status: number;
-  code: "INVALID_JSON" | "NOT_FOUND" | "INTERNAL_ERROR";
-};
-
-function sendProblem(res: Response, problem: Problem): void {
+function sendProblem(res: Response, problem: ProblemDetails): void {
   res.status(problem.status).type("application/problem+json").json(problem);
 }
 
@@ -39,7 +35,7 @@ export function createApp(options: AppOptions = {}): express.Express {
 
   app.use((_req: Request, res: Response) => {
     sendProblem(res, {
-      type: "about:blank",
+      type: "urn:meridian:problem:not-found",
       title: "Not Found",
       status: 404,
       code: "NOT_FOUND",
@@ -57,7 +53,7 @@ export function createApp(options: AppOptions = {}): express.Express {
 
       if (isMalformedJson(error)) {
         sendProblem(res, {
-          type: "about:blank",
+          type: "urn:meridian:problem:invalid-json",
           title: "Malformed JSON request body",
           status: 400,
           code: "INVALID_JSON",
@@ -65,13 +61,11 @@ export function createApp(options: AppOptions = {}): express.Express {
         return;
       }
 
-      console.error(error);
-      sendProblem(res, {
-        type: "about:blank",
-        title: "Internal Server Error",
-        status: 500,
-        code: "INTERNAL_ERROR",
-      });
+      const problem = problemFromError(error);
+      if (problem.status >= 500) {
+        (options.logError ?? console.error)(error, _req);
+      }
+      sendProblem(res, problem);
     }
   );
 

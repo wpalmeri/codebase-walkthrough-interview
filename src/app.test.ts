@@ -1,151 +1,148 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { request, type IncomingHttpHeaders } from "node:http";
 import { describe, test } from "node:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import type { Server } from "node:http";
+import { ConflictError } from "./errors";
 import { createApp } from "./app";
+import { h } from "./views/helpers";
 
-type HttpResponse = {
-  status: number;
-  headers: IncomingHttpHeaders;
-  body: string;
-};
-
-type ProblemResponse = {
-  type: string;
-  title: string;
-  status: number;
-  code: string;
-};
-
-function isProblemResponse(value: unknown): value is ProblemResponse {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "type" in value &&
-    typeof value.type === "string" &&
-    "title" in value &&
-    typeof value.title === "string" &&
-    "status" in value &&
-    typeof value.status === "number" &&
-    "code" in value &&
-    typeof value.code === "string"
-  );
-}
-
-function sendRequest(
-  socketPath: string,
+async function requestApp(
+  app: ReturnType<typeof createApp>,
   path: string,
-  options: { method?: string; headers?: Record<string, string>; body?: string } = {}
-): Promise<HttpResponse> {
-  return new Promise((resolve, reject) => {
-    const clientRequest = request(
-      {
-        socketPath,
-        path,
-        method: options.method ?? "GET",
-        headers: options.headers,
-      },
-      (response) => {
-        let body = "";
-        response.setEncoding("utf8");
-        response.on("data", (chunk: string) => {
-          body += chunk;
-        });
-        response.on("end", () => {
-          resolve({
-            status: response.statusCode ?? 0,
-            headers: response.headers,
-            body,
-          });
-        });
-      }
-    );
-    clientRequest.on("error", reject);
-    clientRequest.end(options.body);
-  });
-}
-
-async function withServer(
-  run: (socketPath: string) => Promise<void>,
-  configure?: Parameters<typeof createApp>[0]
-): Promise<void> {
-  const temporaryDirectory = await mkdtemp(join(tmpdir(), "meridian-app-"));
-  const socketPath = join(temporaryDirectory, "server.sock");
-  const server = createApp(configure).listen(socketPath);
+  init?: RequestInit
+): Promise<{ readonly status: number; readonly contentType: string | null; readonly body: unknown }> {
+  const server = app.listen(0);
   await once(server, "listening");
-
   try {
-    await run(socketPath);
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("test server has no TCP address");
+    const response = await fetch(`http://127.0.0.1:${address.port}${path}`, init);
+    return {
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      body: await response.json(),
+    };
   } finally {
-    server.close();
-    await once(server, "close");
-    await rm(temporaryDirectory, { recursive: true, force: true });
+    await close(server);
   }
 }
 
-function problem(response: HttpResponse) {
-  assert.equal(response.headers["content-type"], "application/problem+json; charset=utf-8");
-  const parsed: unknown = JSON.parse(response.body);
-  assert.ok(isProblemResponse(parsed));
-  return parsed;
+function close(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => (error === undefined ? resolve() : reject(error)));
+  });
 }
 
-void describe("HTTP application boundary", { concurrency: 1 }, () => {
-  void test("returns a stable Problem Details response for unknown routes", async () => {
-    await withServer(async (socketPath) => {
-      const response = await sendRequest(socketPath, "/api/does-not-exist");
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
-      assert.equal(response.status, 404);
-      assert.deepEqual(problem(response), {
-        type: "about:blank",
-        title: "Not Found",
-        status: 404,
-        code: "NOT_FOUND",
-      });
-    });
-  });
-
-  void test("rejects malformed JSON before an API controller can process it", async () => {
-    await withServer(async (socketPath) => {
-      const response = await sendRequest(socketPath, "/api/customers", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: '{"email":',
-      });
-
-      assert.equal(response.status, 400);
-      assert.deepEqual(problem(response), {
-        type: "about:blank",
-        title: "Malformed JSON request body",
-        status: 400,
-        code: "INVALID_JSON",
-      });
-    });
-  });
-
-  void test("does not expose an unhandled error message", async () => {
-    await withServer(
-      async (socketPath) => {
-        const response = await sendRequest(socketPath, "/__test/throws");
-
-        assert.equal(response.status, 500);
-        assert.deepEqual(problem(response), {
-          type: "about:blank",
-          title: "Internal Server Error",
-          status: 500,
-          code: "INTERNAL_ERROR",
-        });
+void describe("HTTP problem-details boundary", () => {
+  void test("maps an async Prisma-shaped not-found failure without leaking its message", async () => {
+    const app = createApp({
+      configure(testApp) {
+        testApp.get(
+          "/test/prisma-not-found",
+          h(async () => {
+            throw Object.assign(new Error("SELECT customer_email FROM private_table"), { code: "P2025" });
+          })
+        );
       },
-      {
-        configure: (app) => {
-          app.get("/__test/throws", () => {
-            throw new Error("database password should never reach the client");
-          });
-        },
-      }
-    );
+    });
+    const response = await requestApp(app, "/test/prisma-not-found");
+    assert.equal(response.status, 404);
+    assert.equal(response.contentType, "application/problem+json; charset=utf-8");
+    assert.deepEqual(response.body, {
+      type: "urn:meridian:problem:not-found",
+      title: "Not Found",
+      status: 404,
+      code: "NOT_FOUND",
+    });
+  });
+
+  void test("maps a typed async conflict to a safe, stable client problem", async () => {
+    const app = createApp({
+      configure(testApp) {
+        testApp.get(
+          "/test/conflict",
+          h(async () => {
+            throw new ConflictError("VERSION_CONFLICT", "The record changed; reload and retry.");
+          })
+        );
+      },
+    });
+    const response = await requestApp(app, "/test/conflict");
+    assert.deepEqual(response.body, {
+      type: "urn:meridian:problem:conflict",
+      title: "Conflict",
+      status: 409,
+      code: "VERSION_CONFLICT",
+      detail: "The record changed; reload and retry.",
+    });
+  });
+
+  void test("keeps unexpected async failures redacted and logs only through the injected sink", async () => {
+    const logged: unknown[] = [];
+    const app = createApp({
+      logError(error) {
+        logged.push(error);
+      },
+      configure(testApp) {
+        testApp.get(
+          "/test/unexpected",
+          h(async () => {
+            throw new Error("token=super-secret-value");
+          })
+        );
+      },
+    });
+    const response = await requestApp(app, "/test/unexpected");
+    assert.equal(response.status, 500);
+    assert.deepEqual(response.body, {
+      type: "urn:meridian:problem:internal-error",
+      title: "Internal Server Error",
+      status: 500,
+      code: "INTERNAL_ERROR",
+    });
+    assert.equal(logged.length, 1);
+    assert.ok(logged[0] instanceof Error);
+    assert.match(logged[0].message, /super-secret-value/);
+    assert.doesNotMatch(JSON.stringify(response.body), /super-secret-value/);
+  });
+
+  void test("preserves the existing request-validation body and handles malformed JSON separately", async () => {
+    const validation = await requestApp(createApp(), "/api/payments", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ customerId: "", amount: 1 }),
+    });
+    assert.equal(validation.status, 400);
+    assert.ok(isRecord(validation.body));
+    assert.deepEqual(Object.keys(validation.body).toSorted(), ["code", "error", "issues"]);
+    assert.equal(validation.body.code, "VALIDATION_ERROR");
+
+    const malformed = await requestApp(createApp(), "/api/payments", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not valid JSON",
+    });
+    assert.equal(malformed.status, 400);
+    assert.deepEqual(malformed.body, {
+      type: "urn:meridian:problem:invalid-json",
+      title: "Malformed JSON request body",
+      status: 400,
+      code: "INVALID_JSON",
+    });
+  });
+
+  void test("returns a stable problem for an unknown route", async () => {
+    const response = await requestApp(createApp(), "/api/no-such-route");
+    assert.equal(response.status, 404);
+    assert.deepEqual(response.body, {
+      type: "urn:meridian:problem:not-found",
+      title: "Not Found",
+      status: 404,
+      code: "NOT_FOUND",
+    });
   });
 });
