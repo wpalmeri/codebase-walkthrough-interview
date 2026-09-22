@@ -46,6 +46,21 @@ requires an explicit currency registry and versioned rounding policy before rela
 
 `20260922020000_order_amount_foundation` adds a nullable `OrderItem.amountDecimal` without a default, constraint validation, or backfill. Deploy the snapshot dual-write before populating existing rows in the same bounded, restartable batches as the other order snapshots; reconcile each order's line-amount sum against its draft invoice before switching reads.
 
+## Payment application reversals
+
+`20260922080000_payment_application_reversals` adds a new append-only compensating-entry
+table. It does not update or scan existing applications: an application must already have its
+exact amount and matching payment/invoice currency facts backfilled before it can be reversed.
+Each reversal records a positive DECIMAL(19,4) amount, reason, explicit open accounting date,
+server-derived actor, and creation timestamp; triggers reject updates, deletes, over-reversal,
+closed-period insertion, and mismatched commercial facts.
+
+The migration also replaces only the invoice status transition trigger so a reversal can move
+`PAID` back to `SENT` when a successful transmission is still evidenced, or `POSTED` otherwise.
+This is a metadata-only trigger change and new-empty-table/index creation; it performs no legacy
+backfill or business-table rewrite. Rehearse the transaction and rollback on a production-sized
+copy, and monitor SQLite writer contention even though the deploy itself has no data scan.
+
 ## Accounting close and accounting dates
 
 `20260922030000_accounting_close` adds a nullable `Invoice.accountingDate` (an explicit
@@ -96,6 +111,36 @@ touching financial rows. Every concrete backfill writes its last successfully co
 key in the same transaction as that batch; dry runs never advance it. Keep checkpoint rows until
 the reconciliation evidence and later contract migration are complete.
 
+## Historical order pricing snapshots
+
+Run `bun run db:backfill:order-pricing` in its default dry-run mode first. The
+`order-pricing-snapshot-v1` job reads only `Order` and `OrderItem.pricingSnapshot`,
+validates/reprices that JSON using the captured product, rate, tier, and discount terms, then fills
+only missing exact and captured fields. It never joins current `Product`, `Rate`, or
+`ComboDiscount` rows, because those rows may have changed after the order was accepted. The job
+is primary-key-bounded, transactionally checkpointed, and throttled between batches; set
+`BACKFILL_DRY_RUN=false` only after reviewing the preview.
+
+It derives an order currency only when every validated item snapshot agrees. Investigate and
+resolve typed `MISSING_PRICING_EVIDENCE`, `INVALID_PRICING_EVIDENCE`,
+`CONFLICTING_PRICING_EVIDENCE`, `CONFLICTING_PERSISTED_EVIDENCE`, or
+`CONFLICTING_SNAPSHOT_CURRENCY` results before retrying; never reconstruct missing history from
+the live catalog or overwrite contradictory records with a best guess.
+
+## Historical invoice identity snapshots
+
+Run `bun run db:backfill:invoice-snapshots` in its default dry-run mode after the order-pricing and
+invoice-Decimal backfills. For finalized invoices, `invoice-snapshot-v1` preserves the already
+snapshotted bill-to identity and fills missing line SKU/unit fields only when each immutable
+invoice line has exactly one description-plus-exact-values match to an immutable captured order
+item. It never uses the current Customer, Product, Rate, or Discount state to invent issued
+invoice history; missing finalized bill-to identity or ambiguous/conflicting line evidence stops
+for manual reconciliation.
+
+An unissued DRAFT invoice may fill a missing bill-to identity from its current customer because
+that invoice is still mutable. The job remains primary-key-bounded, transactionally checkpointed,
+throttled, restart-idempotent, and write-disabled until `BACKFILL_DRY_RUN=false` is explicit.
+
 Run `bun run db:backfill:legacy-financial` first in its default dry-run mode. It processes
 products, rates/tiers, discounts, payments, and payment applications as five independently
 checkpointed primary-key streams, refusing exact/legacy disagreement or unreconciled ownership,
@@ -127,3 +172,14 @@ but changing an amount, party, receipt timestamp/reference, application relation
 captured exact value is rejected. Neither payments nor applications can be deleted. Corrections must be modeled as
 an approved reversal/adjustment workflow in a later additive release, never by mutating ledger
 history.
+
+## Read-only financial reconciliation
+
+Run `bun run db:audit:financial` after every bounded financial backfill and before an accounting
+close. It performs no writes and reports stable machine-readable issue codes for missing exact,
+currency, snapshot, or accounting fields; snapshot-backed order arithmetic; invoice/payment
+application totals; cross-party/currency errors; and lifecycle contradictions. The default scan
+is deterministic primary-key pagination; tune `RECONCILIATION_BATCH_SIZE` and
+`RECONCILIATION_MAX_BATCHES_PER_ENTITY` for a bounded production pass. A nonzero exit means
+violations (or exit code 2 when the configured bound stops before all rows are scanned); never
+use this audit to repair data.

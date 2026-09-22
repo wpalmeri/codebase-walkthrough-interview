@@ -17,6 +17,16 @@ export type CurrencyCode = z.infer<typeof CurrencyCodeSchema>;
 
 export const EmailAddressSchema = z.email();
 
+/** Stable RFC 9457-style error envelope shared by every API surface. */
+export const ProblemDetailsSchema = z.strictObject({
+  type: z.string().min(1),
+  title: z.string().min(1),
+  status: z.number().int().min(400).max(599),
+  code: z.string().regex(/^[A-Z][A-Z0-9_]*$/u),
+  detail: z.string().min(1).optional(),
+});
+export type ProblemDetails = z.infer<typeof ProblemDetailsSchema>;
+
 export const OrderStatusSchema = z.enum(["OPEN", "INVOICED", "CLOSED"]);
 export type OrderStatus = z.infer<typeof OrderStatusSchema>;
 
@@ -172,8 +182,13 @@ export const InvoicePaymentSchema = z.object({
   paymentId: id,
   amount: nonNegativeMoney,
   amountDecimal: MoneyStringSchema.optional(),
+  reversedAmount: nonNegativeMoney.optional(),
+  reversedAmountDecimal: MoneyStringSchema.optional(),
+  netAmount: nonNegativeMoney.optional(),
+  netAmountDecimal: MoneyStringSchema.optional(),
   receivedAt: isoDateTime,
   reference: z.string().nullable(),
+  reversals: z.array(z.lazy(() => PaymentApplicationReversalSchema)).optional(),
 });
 export type InvoicePayment = z.infer<typeof InvoicePaymentSchema>;
 
@@ -211,9 +226,28 @@ export const PaymentApplicationSchema = z.object({
   invoiceNumber: z.string().optional(),
   amount: nonNegativeMoney,
   amountDecimal: MoneyStringSchema.optional(),
+  reversedAmount: nonNegativeMoney.optional(),
+  reversedAmountDecimal: MoneyStringSchema.optional(),
+  netAmount: nonNegativeMoney.optional(),
+  netAmountDecimal: MoneyStringSchema.optional(),
   appliedAt: isoDateTime,
+  reversals: z.array(z.lazy(() => PaymentApplicationReversalSchema)).optional(),
 });
 export type PaymentApplication = z.infer<typeof PaymentApplicationSchema>;
+
+export const PaymentApplicationReversalSchema = z.object({
+  id,
+  paymentApplicationId: id,
+  amount: nonNegativeMoney,
+  amountDecimal: MoneyStringSchema,
+  reason: z.string().min(1).max(1_000),
+  accountingDate: z.iso.date(),
+  actor: z.string().min(1).max(200),
+  createdAt: isoDateTime,
+});
+export type PaymentApplicationReversal = z.infer<
+  typeof PaymentApplicationReversalSchema
+>;
 
 export const PaymentSchema = z.object({
   id,

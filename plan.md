@@ -11,58 +11,83 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - Tests must verify observable behavior, invariants, contracts, interleavings, or failure recovery—not mirror implementation details.
 - Keep existing `/api` clients compatible. Add new contracts/endpoints before deprecating old ones.
 
-## Completed foundation
+## Completed atomic improvements
+
+### Runtime contracts and exact arithmetic
 
 - [x] Adopt Bun, TypeScript 7, Oxlint, CI, and a single workspace lockfile (`2e64b4f`).
 - [x] Report only recognized, materialized invoice revenue and test period/customer aggregation (`109533a`).
 - [x] Replace duplicated API model interfaces with shared Zod schemas and inferred types (`4f1924a`).
 - [x] Add a deterministic bigint-backed decimal pricing engine with boundary/failure tests (`2c59808`).
 - [x] Validate persisted rate tiers with the shared Zod model (`da31669`).
-- [x] Add a legacy migration baseline, additive Decimal/snapshot expansion, lifecycle guards, posted-record immutability, and safe rollout runbook (`776149f`).
-- [x] Validate every existing request path/query/body with strict Zod contracts and structured 400 errors (`02e9cf3`).
-- [x] Validate recipients and record invoice delivery success only after rendering/provider/attachment success (`d57f8b6`).
+- [x] Declare Zod as a direct server runtime dependency (`a6bdb66`).
+- [x] Add canonical Decimal persistence helpers with exact legacy fallback (`92cfd6d`).
+- [x] Add exact decimal-string response contracts and Decimal-first snapshot-backed mappers (`1c5a90b`, `743489c`).
+- [x] Accept exact decimal-string request inputs without breaking legacy numeric clients (`bebafc7`).
+- [x] Render and aggregate exact financial values in the browser (`9b2a193`).
 
-## Next implementation sequence
+### Database, snapshots, and ledgers
 
-1. **Snapshot and Decimal dual-write/read cutover**
-   - Make order creation capture product, rate schedule, discount inputs, quantity, effective prices, currency, and pricing version exactly once.
-   - Make all order reads use snapshots rather than live rates/products.
-   - Make draft invoices copy order snapshots and posted invoices freeze their own line and bill-to snapshots.
-   - Dual-write legacy numeric columns temporarily; expose canonical decimal strings in additive API fields and reconcile old/new calculations before switching.
+- [x] Add the legacy baseline plus additive Decimal/snapshot/lifecycle expansion and rollout runbook (`776149f`).
+- [x] Add currency fields and integrity guards, then enforce the supported USD-only policy (`abed1f9`, `8844845`).
+- [x] Dual-write exact rate and discount values and persist authoritative exact order-line amounts (`6ffbd1d`, `dd4560e`).
+- [x] Capture immutable order-pricing evidence and cut order/invoice reads and writes over to snapshots (`e0e2575`, `349d32c`).
+- [x] Define exact payment-allocation invariants and apply payments with serializable retry/CAS semantics (`9e8f74b`, `ce9cb99`).
+- [x] Freeze captured commercial provenance and make payment receipts/applications immutable and non-deletable (`444f1a8`).
+- [x] Add accounting dates, closed-through control, and closed-period write guards (`d193b11`).
+- [x] Add immutable partial/full payment-application reversals and make reconciliation reversal-aware (`ec77995`, `2c73eaf`).
 
-2. **Atomic order and invoice workflows**
-   - Put order creation/save, draft synchronization, invoice creation, and posting into transaction-safe domain services.
-   - Enforce server state transitions, item ownership, posted-order guards, compare-and-set updates, idempotent posting, and collision-safe identifiers.
-   - Remove delete-and-recreate failure windows for invoice lines.
+### API and observable behavior
 
-3. **Payment ledger integrity**
-   - Apply payments atomically with same-customer, posted-invoice, positive amount, remaining payment, and invoice balance checks.
-   - Prevent duplicate/concurrent overapplication; derive `amountPaid` from immutable applications and model corrections as reversals.
-   - Add behavioral transaction and concurrency tests.
+- [x] Validate every existing request path/query/body with strict Zod contracts (`02e9cf3`).
+- [x] Validate recipients and record invoice delivery only after rendering/provider/attachment success (`d57f8b6`).
+- [x] Extract the Express app boundary and test real HTTP behavior in-process (`a1b578d`).
+- [x] Standardize redacted Problem Details and typed operational 404/409/412/422 failures (`f07d603`, `9919d7a`).
+- [x] Add `/api/v1` and PATCH aliases while preserving the legacy contract (`602dbb9`).
+- [x] Add constant-time production API-key authentication (`e43d63d`).
+- [x] Add durable mutation idempotency with alias-normalized replay scope (`f5f4f03`).
+- [x] Replace the fixed PDF buffer with deterministic, exact, multi-page invoice artifacts (`25b2d20`).
 
-4. **Accounting period close**
-   - Add an accounting-period/closed-through control and block posting, redating, or financial mutation in closed periods.
-   - Store accounting dates as dates, not ambiguous timestamps, and test timezone/month boundaries plus stable report checksums.
+### Migrations, backfills, and test infrastructure
 
-5. **Behavioral test infrastructure**
-   - Export an Express app factory and run API tests in-process.
-   - Add deterministic fixtures and isolated temporary databases; use production migrations for every integration suite.
-   - Add PostgreSQL CI coverage for Decimal precision, constraints, locking, transaction isolation, and interleaving failure cases while retaining SQLite only as a local demo lane.
+- [x] Add the reusable bounded/checkpointed/dry-run-first financial backfill engine (`9b155f8`).
+- [x] Backfill invoice exact values/accounting dates safely (`0f49b3c`).
+- [x] Backfill legacy catalog, tier, discount, payment, and application exact fields safely (`5d6c3db`).
+- [x] Seed a fresh migrated database with fully reconciled exact financial scenarios (`f88bcc7`).
+- [x] Make production migrations the only supported setup/reset path (`20a23f9`).
+- [x] Add pinned PostgreSQL contract coverage for native NUMERIC, constraints, locking, and serializable failure (`07f4318`).
+- [x] Backfill order pricing and invoice identity snapshots only from immutable persisted evidence (`4620816`, `57dd259`).
+- [x] Add a bounded, read-only financial reconciliation gate with deterministic issue contracts (`c59ed50`).
 
-6. **Backfill and reconciliation**
-   - Implement resumable primary-key batches for Decimal and snapshot fields with checkpoints and throttling.
-   - Add dry-run comparison, row/total reconciliation, mismatch stop conditions, and post-run invariant checks before switching reads.
+### Continuous enforcement and supply chain
 
-7. **API compatibility and operational errors**
-   - Map validation/not-found/conflict/precondition/domain failures to stable Problem Details responses without leaking internals.
-   - Add `/api/v1`, PATCH compatibility paths, idempotency keys, versions/ETags, cursor pagination, deprecation headers, and generated OpenAPI/consumer-contract tests.
+- [x] Ratchet architectural integrity against new float-backed finance fields, raw financial coercion, direct ledger mutations, and hand-written API model types (`478ddca`).
+- [x] Upgrade and pin vulnerable runtime/tooling dependencies and verify a zero-finding live audit (`0fce620`).
 
-8. **Hardening and scale**
-   - Add audit events and continuous financial reconciliation.
-   - Add production indexes and SQL-side report aggregation through online PostgreSQL migrations.
-   - Add authentication, authorization, and tenant boundaries before treating the service as internet-facing.
-   - Replace the fixed-buffer mock PDF with deterministic streaming artifacts and golden rendering tests.
-   - Patch audited dependencies and ratchet lint/architecture controls that prohibit floats, raw statuses, unvalidated input, and uncontrolled financial writes.
+## Ranked remaining implementation sequence
+
+1. **P0 — Add real authorization and tenant isolation**
+   - Introduce tenant/user principals, derive ownership scope from authentication, and apply it to every lookup, mutation, idempotency scope, report, and delivery action.
+   - Make the browser authenticate without exposing a long-lived server API key; add cross-tenant negative tests and database defense-in-depth where practical.
+
+2. **P0 — Contract historical financial fields after deployment evidence is clean**
+   - Run the implemented dry-run backfills and bounded reconciliation against each live deployment, route irreducible rows to manual reconciliation, and retain signed operational evidence of a zero-issue full scan.
+   - Only after that gate, ship separate online contract migrations that make authoritative fields required and retire float reads/writes. Never scan or rewrite production rows in deploy migrations.
+
+3. **P1 — Strengthen API evolution and database scale**
+   - Add resource versions and conditional writes with ETags/`If-Match` while retaining current endpoints.
+   - Add cursor pagination, stable ordering, supporting indexes, and SQL-side report aggregation through online PostgreSQL migrations.
+   - Generate OpenAPI from the Zod contracts, generate/validate the client, and add consumer-contract tests so `/api/v1` can evolve independently.
+   - Replace remaining raw lifecycle strings with schema-derived enums at boundaries and explicit database constraints/types where the target database supports them.
+
+4. **P1 — Add auditability and continuous controls**
+   - Record append-only audit events for financial and lifecycle mutations using authenticated actors and correlation/idempotency identifiers.
+   - Schedule reconciliation in read-only bounded batches, export metrics, and alert on drift without automatically rewriting financial history.
+   - Add recipient-correction semantics and systematic PII redaction for delivery/audit logs.
+
+5. **P2 — Operational and architecture hardening**
+   - Extend the existing architecture ratchet to raw lifecycle literals and unvalidated boundary data as the remaining exceptions are removed.
+   - Produce an SBOM, add structured logs/metrics/readiness/graceful shutdown, and document secret rotation and recovery drills.
 
 ## Deferred by agreement
 

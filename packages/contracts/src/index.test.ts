@@ -11,8 +11,10 @@ import {
   OrderItemSchema,
   OrderSchema,
   PaymentApplicationSchema,
+  PaymentApplicationReversalSchema,
   PaymentSchema,
   PercentageStringSchema,
+  ProblemDetailsSchema,
   ProductSchema,
   QuantityStringSchema,
   RateSchema,
@@ -215,5 +217,47 @@ void describe("financial response contracts", () => {
     assert.throws(() => CurrencyCodeSchema.parse("usd"));
     assert.throws(() => CurrencyCodeSchema.parse("US"));
     assert.throws(() => CurrencyCodeSchema.parse("EUR"));
+  });
+});
+
+void describe("problem-details contract", () => {
+  void test("accepts only stable client-safe error envelopes", () => {
+    const valid = {
+      type: "urn:meridian:problem:conflict",
+      title: "Conflict",
+      status: 409,
+      code: "VERSION_CONFLICT",
+    };
+
+    assert.equal(ProblemDetailsSchema.safeParse(valid).success, true);
+    assert.equal(ProblemDetailsSchema.safeParse({ ...valid, status: 200 }).success, false);
+    assert.equal(
+      ProblemDetailsSchema.safeParse({ ...valid, code: "version-conflict" }).success,
+      false
+    );
+    assert.equal(ProblemDetailsSchema.safeParse({ ...valid, debug: "secret" }).success, false);
+  });
+});
+
+void describe("payment reversal contract", () => {
+  void test("requires canonical exact amounts and server audit fields", () => {
+    const reversal = {
+      id: "reversal-1",
+      paymentApplicationId: "application-1",
+      amount: 25,
+      amountDecimal: "25.0000",
+      reason: "Duplicate application",
+      accountingDate: "2026-09-22",
+      actor: "system:meridian-api",
+      createdAt: date,
+    };
+    assert.equal(PaymentApplicationReversalSchema.safeParse(reversal).success, true);
+    assert.equal(
+      PaymentApplicationReversalSchema.safeParse({
+        ...reversal,
+        amountDecimal: "25.00",
+      }).success,
+      false
+    );
   });
 });

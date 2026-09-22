@@ -17,6 +17,12 @@ import {
   type CapturedOrderPricing,
 } from "../domain/orderPricing";
 import { parseRateTiers } from "../domain/rateTier";
+import {
+  ConflictError,
+  DomainInvariantError,
+  NotFoundError,
+  PreconditionError,
+} from "../errors";
 import { OrderModel, toOrderModel } from "../models/order";
 import { syncDraftInvoiceInTransaction } from "./invoiceController";
 
@@ -71,7 +77,10 @@ async function capturedOrderLines(
   if (products.length !== productIds.length) {
     const found = new Set(products.map((product) => product.id));
     const missing = productIds.find((productId) => !found.has(productId));
-    throw new Error(`Product ${missing ?? "unknown"} was not found`);
+    throw new NotFoundError(
+      "PRODUCT_NOT_FOUND",
+      `Product ${missing ?? "unknown"} was not found`
+    );
   }
 
   const productsById = new Map(products.map((product) => [product.id, product]));
@@ -83,7 +92,9 @@ async function capturedOrderLines(
   for (const productId of productIds) {
     if (ratesByProductId.has(productId)) continue;
     const product = productsById.get(productId);
-    if (!product) throw new Error(`Product ${productId} was not found`);
+    if (!product) {
+      throw new NotFoundError("PRODUCT_NOT_FOUND", `Product ${productId} was not found`);
+    }
     const listPriceDecimal = decimalOrLegacy(
       { decimal: product.listPriceDecimal, legacy: product.listPrice },
       { ...moneyFormat, field: `product ${productId} list price` }
@@ -189,7 +200,12 @@ export async function createOrder(input: {
       capturedAt: new Date(),
     });
     const currencies = new Set(lines.map((line) => line.currencyCode));
-    if (currencies.size !== 1) throw new Error("An order cannot contain multiple currencies");
+    if (currencies.size !== 1) {
+      throw new DomainInvariantError(
+        "ORDER_CURRENCY_MISMATCH",
+        "An order cannot contain multiple currencies"
+      );
+    }
 
     await transaction.order.create({
       data: {
@@ -231,18 +247,32 @@ export async function saveOrder(
       input.items !== undefined;
     const invoiceIsFinal = order.invoice !== null && order.invoice.status !== "DRAFT";
     if (invoiceIsFinal && hasFinancialChange) {
-      throw new Error("Orders with finalized invoices cannot be changed");
+      throw new ConflictError(
+        "ORDER_FINALIZED",
+        "Orders with finalized invoices cannot be changed"
+      );
     }
     if (input.customerId !== undefined && input.customerId !== order.customerId) {
-      throw new Error("Changing an order customer requires a new order");
+      throw new DomainInvariantError(
+        "ORDER_CUSTOMER_IMMUTABLE",
+        "Changing an order customer requires a new order"
+      );
     }
 
     const itemsById = new Map(order.items.map((item) => [item.id, item]));
     for (const itemUpdate of input.items ?? []) {
       const item = itemsById.get(itemUpdate.id);
-      if (!item) throw new Error(`Order item ${itemUpdate.id} does not belong to order ${orderId}`);
+      if (!item) {
+        throw new NotFoundError(
+          "ORDER_ITEM_NOT_FOUND",
+          `Order item ${itemUpdate.id} was not found on this order`
+        );
+      }
       if (item.pricingSnapshot === null) {
-        throw new Error(`Order item ${item.id} must be backfilled before its quantity can change`);
+        throw new PreconditionError(
+          "ORDER_PRICING_BACKFILL_REQUIRED",
+          `Order item ${item.id} must be backfilled before its quantity can change`
+        );
       }
       const repriced = repriceOrderPricingSnapshot(item.pricingSnapshot, itemUpdate.quantity);
       await transaction.orderItem.update({

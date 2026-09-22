@@ -226,6 +226,24 @@ model PaymentApplication {
 
   payment Payment @relation(fields: [paymentId], references: [id])
   invoice Invoice @relation(fields: [invoiceId], references: [id])
+  reversals PaymentApplicationReversal[]
+}
+
+// A positive, append-only compensating entry against an immutable application.
+// Reversals never rewrite or delete the original ledger fact.
+model PaymentApplicationReversal {
+  id                   String   @id @default(cuid())
+  paymentApplicationId String
+  amountDecimal        Decimal // DECIMAL(19,4); exact reversal amount, always positive.
+  reason               String
+  accountingDate       String // Explicit UTC-calendar YYYY-MM-DD accounting date.
+  actor                String // Server-derived system principal; never accepted from callers.
+  createdAt            DateTime @default(now())
+
+  paymentApplication PaymentApplication @relation(fields: [paymentApplicationId], references: [id], onDelete: Restrict)
+
+  @@index([paymentApplicationId])
+  @@index([accountingDate])
 }
 
 model Transmission {
