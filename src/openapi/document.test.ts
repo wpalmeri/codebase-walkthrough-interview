@@ -1,24 +1,29 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { describe, test } from "node:test";
+import path from "node:path";
+import type { paths as GeneratedApiPaths } from "../../client/src/generated/meridian-api";
 import { z } from "zod";
 import { createOpenApiV1Document } from "./document";
+import { openApiV1Operations } from "./operations";
 import { customerOperations } from "../views/customersView";
-import { invoiceOperations } from "../views/invoicesView";
-import { orderOperations } from "../views/ordersView";
-import { paymentOperations } from "../views/paymentsView";
-import { productOperations } from "../views/productsView";
-import { rateOperations } from "../views/ratesView";
-import { reportOperations } from "../views/reportsView";
 
-const documentedOperations = [
-  ...customerOperations,
-  ...productOperations,
-  ...rateOperations,
-  ...orderOperations,
-  ...invoiceOperations,
-  ...paymentOperations,
-  ...reportOperations,
-] as const;
+type Assert<T extends true> = T;
+type InvoiceListResponse = GeneratedApiPaths["/invoices"]["get"]["responses"][200]["content"]["application/json"];
+type GeneratedInvoiceListIsCursorPage = Assert<
+  InvoiceListResponse extends {
+    readonly data: readonly {
+      readonly id: string;
+      readonly status: "DRAFT" | "POSTED" | "SENT" | "PAID" | "VOID";
+      readonly totalDecimal?: string;
+    }[];
+    readonly page: { readonly limit: number; readonly nextCursor: string | null };
+  }
+    ? true
+    : false
+>;
+
+const generatedInvoiceListIsCursorPage: GeneratedInvoiceListIsCursorPage = true;
 
 const OperationSchema = z.object({
   operationId: z.string(),
@@ -37,8 +42,9 @@ function operation(document: unknown, path: string, method: string) {
 
 void describe("generated version-one OpenAPI contract", () => {
   void test("is deterministic and inventories the exact mounted catalog, rate, order, invoice, payment, and report operations", () => {
-    const first = createOpenApiV1Document(documentedOperations);
-    const second = createOpenApiV1Document(documentedOperations);
+    assert.equal(generatedInvoiceListIsCursorPage, true);
+    const first = createOpenApiV1Document(openApiV1Operations);
+    const second = createOpenApiV1Document(openApiV1Operations);
     assert.deepEqual(first, second);
 
     const document = z
@@ -83,15 +89,22 @@ void describe("generated version-one OpenAPI contract", () => {
         "put /orders/{id}",
       ].toSorted()
     );
-    assert.doesNotThrow(() => createOpenApiV1Document(documentedOperations));
+    assert.doesNotThrow(() => createOpenApiV1Document(openApiV1Operations));
     assert.throws(
-      () => createOpenApiV1Document([...documentedOperations, customerOperations[0]]),
+      () => createOpenApiV1Document([...openApiV1Operations, customerOperations[0]]),
       /Duplicate OpenAPI operation/u
     );
   });
 
+  void test("publishes the exact generated contract checked into source control", async () => {
+    const published = JSON.parse(
+      await readFile(path.resolve(__dirname, "..", "..", "openapi", "meridian-v1.openapi.json"), "utf8"),
+    ) as unknown;
+    assert.deepEqual(published, createOpenApiV1Document(openApiV1Operations));
+  });
+
   void test("documents tenant bearer security, correlation, replay, and rate conditional headers", () => {
-    const document = createOpenApiV1Document(documentedOperations);
+    const document = createOpenApiV1Document(openApiV1Operations);
     const customers = operation(document, "/customers", "get");
     const products = operation(document, "/products", "get");
     const getRate = operation(document, "/rates/{id}", "get");
@@ -132,7 +145,7 @@ void describe("generated version-one OpenAPI contract", () => {
   });
 
   void test("documents payment pagination, bodies, replay headers, statuses, and public error contracts", () => {
-    const document = createOpenApiV1Document(documentedOperations);
+    const document = createOpenApiV1Document(openApiV1Operations);
     const list = operation(document, "/payments", "get");
     const record = operation(document, "/payments", "post");
     const apply = operation(document, "/payments/{id}/apply", "post");
@@ -208,7 +221,7 @@ void describe("generated version-one OpenAPI contract", () => {
   });
 
   void test("documents Order representations, v1 ETags, conditional writes, invoice creation, and errors", () => {
-    const document = createOpenApiV1Document(documentedOperations);
+    const document = createOpenApiV1Document(openApiV1Operations);
     const list = operation(document, "/orders", "get");
     const get = operation(document, "/orders/{id}", "get");
     const create = operation(document, "/orders", "post");
@@ -288,7 +301,7 @@ void describe("generated version-one OpenAPI contract", () => {
   });
 
   void test("documents only version-one Invoice contracts, exact decimals, delivery boundaries, and conditional writes", () => {
-    const document = createOpenApiV1Document(documentedOperations);
+    const document = createOpenApiV1Document(openApiV1Operations);
     const list = operation(document, "/invoices", "get");
     const get = operation(document, "/invoices/{id}", "get");
     const put = operation(document, "/invoices/{id}", "put");
@@ -375,7 +388,7 @@ void describe("generated version-one OpenAPI contract", () => {
   });
 
   void test("documents tenant-scoped exact-decimal revenue reports and bounded period filters", () => {
-    const document = createOpenApiV1Document(documentedOperations);
+    const document = createOpenApiV1Document(openApiV1Operations);
     const quarter = operation(document, "/reports/revenue-by-quarter", "get");
     const customer = operation(document, "/reports/revenue-by-customer", "get");
     const annual = operation(document, "/reports/annual-revenue", "get");

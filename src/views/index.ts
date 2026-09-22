@@ -1,20 +1,23 @@
 import { Router } from "express";
-import { customersView } from "./customersView";
-import { invoicesView } from "./invoicesView";
-import { ordersView } from "./ordersView";
-import { paymentsView } from "./paymentsView";
-import { productsView } from "./productsView";
-import { ratesView } from "./ratesView";
-import { reportsView } from "./reportsView";
+import { mountOperation } from "../openapi/operation";
+import { customerOperations } from "./customersView";
+import { invoiceOperations } from "./invoicesView";
+import { orderOperations } from "./ordersView";
+import { paymentOperations } from "./paymentsView";
+import { productOperations } from "./productsView";
+import { rateOperations } from "./ratesView";
+import { reportOperations } from "./reportsView";
+
+/** The one inventory used to mount the API and publish its v1 contract. */
+export const apiOperations = [
+  ...customerOperations,
+  ...productOperations,
+  ...rateOperations,
+  ...orderOperations,
+  ...invoiceOperations,
+  ...paymentOperations,
+  ...reportOperations,
+] as const;
 
 export const api = Router();
-
-// Catalog operation descriptors own their complete version-relative paths so
-// the mounted route and generated OpenAPI path cannot disagree about a prefix.
-api.use(customersView);
-api.use(productsView);
-api.use(ratesView);
-api.use(ordersView);
-api.use(invoicesView);
-api.use(paymentsView);
-api.use(reportsView);
+for (const operation of apiOperations) mountOperation(api, operation);
