@@ -237,7 +237,10 @@ resource identity, and enumerated action metadata; it has no generic request,
 error, or payload field. If a request has an idempotency key, persist only its
 SHA-256 fingerprint—not the key itself.
 
-SQLite triggers reject every update and delete. Treat the table as an immutable
+SQLite triggers reject every update and delete, and one insert guard enforces
+the generated enum vocabulary plus valid action/resource pairs. A later action
+can be added by replacing that trigger in an additive migration, without a
+table rebuild or audit-history rewrite. Treat the table as an immutable
 evidence log: correction means append a new action rather than changing history.
 The new indexes are built over an empty table at first deploy; later direct
 index rebuilds or table maintenance must be separately tested for SQLite's

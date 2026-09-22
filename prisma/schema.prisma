@@ -83,12 +83,14 @@ enum IdempotencyRecordState {
 // Audit records use explicit generated enums so controller integrations cannot
 // silently introduce unreviewed lifecycle strings.
 enum AuditAction {
+  COMBO_DISCOUNT_CREATED
   RATE_CREATED
   RATE_UPDATED
   ORDER_CREATED
   ORDER_UPDATED
   ORDER_INVOICED
   INVOICE_CREATED
+  INVOICE_UPDATED
   INVOICE_POSTED
   INVOICE_SENT
   INVOICE_VOIDED
@@ -99,6 +101,7 @@ enum AuditAction {
   PAYMENT_APPLICATION_REVERSED
   TENANT_API_KEY_ISSUED
   TENANT_API_KEY_REVOKED
+  ACCOUNTING_PERIOD_CLOSED
 }
 
 enum AuditPrincipalKind {
@@ -108,6 +111,7 @@ enum AuditPrincipalKind {
 }
 
 enum AuditResourceKind {
+  COMBO_DISCOUNT
   RATE
   ORDER
   INVOICE
@@ -116,6 +120,7 @@ enum AuditResourceKind {
   PAYMENT_APPLICATION
   PAYMENT_APPLICATION_REVERSAL
   TENANT_API_KEY
+  ACCOUNTING_PERIOD_CONTROL
 }
 
 // The API key secret itself is never stored. keyHash is a one-way, versioned

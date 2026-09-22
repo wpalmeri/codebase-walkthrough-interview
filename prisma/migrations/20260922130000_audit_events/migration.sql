@@ -19,34 +19,6 @@ CREATE TABLE "AuditEvent" (
   CONSTRAINT "AuditEvent_tenantId_fkey"
     FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE,
-  CONSTRAINT "AuditEvent_action_check" CHECK ("action" IN (
-    'RATE_CREATED', 'RATE_UPDATED', 'ORDER_CREATED', 'ORDER_UPDATED', 'ORDER_INVOICED',
-    'INVOICE_CREATED', 'INVOICE_POSTED', 'INVOICE_SENT', 'INVOICE_VOIDED',
-    'INVOICE_DELIVERY_REQUESTED', 'INVOICE_DELIVERY_UPDATED', 'PAYMENT_RECORDED',
-    'PAYMENT_APPLIED', 'PAYMENT_APPLICATION_REVERSED', 'TENANT_API_KEY_ISSUED',
-    'TENANT_API_KEY_REVOKED'
-  )),
-  CONSTRAINT "AuditEvent_principal_kind_check" CHECK ("principalKind" IN (
-    'TENANT_API_KEY', 'LEGACY_API_KEY', 'DEVELOPMENT'
-  )),
-  CONSTRAINT "AuditEvent_resource_kind_check" CHECK ("resourceKind" IN (
-    'RATE', 'ORDER', 'INVOICE', 'INVOICE_DELIVERY', 'PAYMENT',
-    'PAYMENT_APPLICATION', 'PAYMENT_APPLICATION_REVERSAL', 'TENANT_API_KEY'
-  )),
-  CONSTRAINT "AuditEvent_action_resource_check" CHECK (
-    ("action" IN ('RATE_CREATED', 'RATE_UPDATED') AND "resourceKind" = 'RATE') OR
-    ("action" IN ('ORDER_CREATED', 'ORDER_UPDATED', 'ORDER_INVOICED') AND "resourceKind" = 'ORDER') OR
-    ("action" IN ('INVOICE_CREATED', 'INVOICE_POSTED', 'INVOICE_SENT', 'INVOICE_VOIDED')
-      AND "resourceKind" = 'INVOICE') OR
-    ("action" IN ('INVOICE_DELIVERY_REQUESTED', 'INVOICE_DELIVERY_UPDATED')
-      AND "resourceKind" = 'INVOICE_DELIVERY') OR
-    ("action" = 'PAYMENT_RECORDED' AND "resourceKind" = 'PAYMENT') OR
-    ("action" = 'PAYMENT_APPLIED' AND "resourceKind" = 'PAYMENT_APPLICATION') OR
-    ("action" = 'PAYMENT_APPLICATION_REVERSED'
-      AND "resourceKind" = 'PAYMENT_APPLICATION_REVERSAL') OR
-    ("action" IN ('TENANT_API_KEY_ISSUED', 'TENANT_API_KEY_REVOKED')
-      AND "resourceKind" = 'TENANT_API_KEY')
-  ),
   CONSTRAINT "AuditEvent_principal_subject_check" CHECK (
     length("principalSubject") BETWEEN 1 AND 191
   ),
@@ -74,6 +46,48 @@ ON "AuditEvent"("tenantId", "occurredAt", "id");
 
 CREATE INDEX "AuditEvent_tenantId_resourceKind_resourceId_occurredAt_idx"
 ON "AuditEvent"("tenantId", "resourceKind", "resourceId", "occurredAt");
+
+-- SQLite cannot expand a table CHECK without rebuilding the table. Keeping the
+-- reviewed enum vocabulary in one insert trigger lets a future additive
+-- migration replace this trigger without scanning or rewriting audit history.
+CREATE TRIGGER "AuditEvent_insert_guard"
+BEFORE INSERT ON "AuditEvent"
+WHEN NEW."action" NOT IN (
+    'COMBO_DISCOUNT_CREATED', 'RATE_CREATED', 'RATE_UPDATED', 'ORDER_CREATED',
+    'ORDER_UPDATED', 'ORDER_INVOICED', 'INVOICE_CREATED', 'INVOICE_UPDATED',
+    'INVOICE_POSTED', 'INVOICE_SENT', 'INVOICE_VOIDED',
+    'INVOICE_DELIVERY_REQUESTED', 'INVOICE_DELIVERY_UPDATED', 'PAYMENT_RECORDED',
+    'PAYMENT_APPLIED', 'PAYMENT_APPLICATION_REVERSED', 'TENANT_API_KEY_ISSUED',
+    'TENANT_API_KEY_REVOKED', 'ACCOUNTING_PERIOD_CLOSED'
+  )
+  OR NEW."principalKind" NOT IN ('TENANT_API_KEY', 'LEGACY_API_KEY', 'DEVELOPMENT')
+  OR NEW."resourceKind" NOT IN (
+    'COMBO_DISCOUNT', 'RATE', 'ORDER', 'INVOICE', 'INVOICE_DELIVERY', 'PAYMENT',
+    'PAYMENT_APPLICATION', 'PAYMENT_APPLICATION_REVERSAL', 'TENANT_API_KEY',
+    'ACCOUNTING_PERIOD_CONTROL'
+  )
+  OR NOT (
+    (NEW."action" = 'COMBO_DISCOUNT_CREATED' AND NEW."resourceKind" = 'COMBO_DISCOUNT') OR
+    (NEW."action" IN ('RATE_CREATED', 'RATE_UPDATED') AND NEW."resourceKind" = 'RATE') OR
+    (NEW."action" IN ('ORDER_CREATED', 'ORDER_UPDATED', 'ORDER_INVOICED')
+      AND NEW."resourceKind" = 'ORDER') OR
+    (NEW."action" IN (
+      'INVOICE_CREATED', 'INVOICE_UPDATED', 'INVOICE_POSTED', 'INVOICE_SENT', 'INVOICE_VOIDED'
+    ) AND NEW."resourceKind" = 'INVOICE') OR
+    (NEW."action" IN ('INVOICE_DELIVERY_REQUESTED', 'INVOICE_DELIVERY_UPDATED')
+      AND NEW."resourceKind" = 'INVOICE_DELIVERY') OR
+    (NEW."action" = 'PAYMENT_RECORDED' AND NEW."resourceKind" = 'PAYMENT') OR
+    (NEW."action" = 'PAYMENT_APPLIED' AND NEW."resourceKind" = 'PAYMENT_APPLICATION') OR
+    (NEW."action" = 'PAYMENT_APPLICATION_REVERSED'
+      AND NEW."resourceKind" = 'PAYMENT_APPLICATION_REVERSAL') OR
+    (NEW."action" IN ('TENANT_API_KEY_ISSUED', 'TENANT_API_KEY_REVOKED')
+      AND NEW."resourceKind" = 'TENANT_API_KEY') OR
+    (NEW."action" = 'ACCOUNTING_PERIOD_CLOSED'
+      AND NEW."resourceKind" = 'ACCOUNTING_PERIOD_CONTROL')
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'AuditEvent action, principal kind, or resource kind is invalid');
+END;
 
 CREATE TRIGGER "AuditEvent_append_only_update_guard"
 BEFORE UPDATE ON "AuditEvent"

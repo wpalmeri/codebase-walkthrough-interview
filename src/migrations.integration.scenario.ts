@@ -76,6 +76,7 @@ async function main(): Promise<void> {
     "Rate_resource_version_business_update_bump",
     "AuditEvent_append_only_update_guard",
     "AuditEvent_append_only_delete_guard",
+    "AuditEvent_insert_guard",
   ];
   const triggers = await prisma.$queryRaw<NamedRow[]>`
     SELECT name

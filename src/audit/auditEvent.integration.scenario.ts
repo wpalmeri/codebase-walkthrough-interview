@@ -71,19 +71,19 @@ async function main(): Promise<void> {
   );
   await assert.rejects(
     rawInsert({ id: "audit-event-invalid-action", tenantId: "audit-tenant", action: "UNREVIEWED_ACTION" }),
-    /AuditEvent_action_check/u
+    /AuditEvent action, principal kind, or resource kind is invalid/u
   );
   await assert.rejects(
     rawInsert({ id: "audit-event-invalid-principal", tenantId: "audit-tenant", principalKind: "ROOT" }),
-    /AuditEvent_principal_kind_check/u
+    /AuditEvent action, principal kind, or resource kind is invalid/u
   );
   await assert.rejects(
     rawInsert({ id: "audit-event-invalid-resource", tenantId: "audit-tenant", resourceKind: "UNREVIEWED_KIND" }),
-    /AuditEvent_resource_kind_check/u
+    /AuditEvent action, principal kind, or resource kind is invalid/u
   );
   await assert.rejects(
     rawInsert({ id: "audit-event-invalid-pair", tenantId: "audit-tenant", action: "PAYMENT_RECORDED", resourceKind: "INVOICE" }),
-    /AuditEvent_action_resource_check/u
+    /AuditEvent action, principal kind, or resource kind is invalid/u
   );
   await assert.rejects(
     rawInsert({ id: "audit-event-invalid-request", tenantId: "audit-tenant", requestId: ".request" }),
@@ -110,11 +110,12 @@ async function main(): Promise<void> {
     WHERE name IN (
       'AuditEvent_tenantId_occurredAt_id_idx',
       'AuditEvent_tenantId_resourceKind_resourceId_occurredAt_idx',
+      'AuditEvent_insert_guard',
       'AuditEvent_append_only_update_guard',
       'AuditEvent_append_only_delete_guard'
     )
   `;
-  assert.equal(installed.length, 4);
+  assert.equal(installed.length, 5);
   await prisma.$disconnect();
 }
 
