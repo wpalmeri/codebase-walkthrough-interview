@@ -9,6 +9,7 @@ import {
   canonicalMoney,
   canonicalQuantity,
   compareDecimal,
+  subtractDecimal,
   type DecimalInput,
 } from "../domain/money";
 import { OrderPricingSnapshotSchema, repriceOrderPricingSnapshot } from "../domain/orderPricing";
@@ -27,6 +28,7 @@ const issueCodes = [
   "INVALID_INVOICE_LIFECYCLE",
   "INVALID_ORDER_LIFECYCLE",
   "INVALID_ORDER_SNAPSHOT",
+  "INVALID_REVERSAL",
   "INVOICE_AMOUNT_PAID_MISMATCH",
   "INVOICE_LIFECYCLE_CONTRADICTION",
   "INVOICE_LINE_TOTAL_MISMATCH",
@@ -41,6 +43,7 @@ const issueCodes = [
   "ORDER_SNAPSHOT_CURRENCY_MISMATCH",
   "ORDER_SNAPSHOT_PROVENANCE_MISMATCH",
   "RATE_PRODUCT_CURRENCY_MISMATCH",
+  "REVERSALS_EXCEED_APPLICATION",
   "UNBOUNDED_PAGE",
   "UNSTABLE_PAGINATION",
 ] as const;
@@ -142,6 +145,13 @@ export interface InvoiceReconciliationSource {
   readonly applications: readonly {
     readonly id: string;
     readonly amountDecimal: DecimalInput | null;
+    readonly reversals: readonly {
+      readonly id: string;
+      readonly amountDecimal: DecimalInput;
+      readonly accountingDate: string;
+      readonly reason: string;
+      readonly actor: string;
+    }[];
     readonly payment: { readonly id: string; readonly customerId: string; readonly currencyCode: string | null };
   }[];
 }
@@ -154,6 +164,13 @@ export interface PaymentReconciliationSource {
   readonly applications: readonly {
     readonly id: string;
     readonly amountDecimal: DecimalInput | null;
+    readonly reversals: readonly {
+      readonly id: string;
+      readonly amountDecimal: DecimalInput;
+      readonly accountingDate: string;
+      readonly reason: string;
+      readonly actor: string;
+    }[];
     readonly invoice: { readonly id: string; readonly customerId: string; readonly currencyCode: string | null };
   }[];
 }
@@ -234,6 +251,79 @@ function requiredCurrency(run: MutableRun, entityType: EntityType, entityId: str
     return null;
   }
   return value;
+}
+
+interface ApplicationWithReversals {
+  readonly id: string;
+  readonly amountDecimal: DecimalInput | null;
+  readonly reversals: readonly {
+    readonly id: string;
+    readonly amountDecimal: DecimalInput;
+    readonly accountingDate: string;
+    readonly reason: string;
+    readonly actor: string;
+  }[];
+}
+
+function netApplicationAmount(
+  run: MutableRun,
+  entityType: "INVOICE" | "PAYMENT",
+  entityId: string,
+  application: ApplicationWithReversals
+): string | null {
+  const gross = exactMoney(
+    run,
+    entityType,
+    entityId,
+    `application ${application.id} amount`,
+    application.amountDecimal
+  );
+  if (gross === null) return null;
+
+  let reversed = zeroMoney;
+  let valid = true;
+  for (const reversal of application.reversals.toSorted((left, right) =>
+    left.id.localeCompare(right.id)
+  )) {
+    try {
+      const amount = canonicalMoney(
+        reversal.amountDecimal,
+        `reversal ${reversal.id} amount`
+      );
+      if (compareDecimal(amount, zeroMoney, moneyFormat) <= 0) {
+        throw new Error(`reversal ${reversal.id} amount must be positive`);
+      }
+      parseAccountingDate(reversal.accountingDate);
+      if (reversal.reason.trim().length === 0 || reversal.reason.length > 1_000) {
+        throw new Error(`reversal ${reversal.id} reason is invalid`);
+      }
+      if (reversal.actor.trim().length === 0 || reversal.actor.length > 200) {
+        throw new Error(`reversal ${reversal.id} actor is invalid`);
+      }
+      reversed = addDecimal(reversed, amount, moneyFormat);
+    } catch (error) {
+      valid = false;
+      issue(
+        run,
+        entityType,
+        entityId,
+        "INVALID_REVERSAL",
+        error instanceof Error ? error.message : `reversal ${reversal.id} is invalid`
+      );
+    }
+  }
+  if (!valid) return null;
+  if (compareDecimal(reversed, gross, moneyFormat) > 0) {
+    issue(
+      run,
+      entityType,
+      entityId,
+      "REVERSALS_EXCEED_APPLICATION",
+      `application ${application.id} reversals ${reversed} exceed gross amount ${gross}`
+    );
+    return null;
+  }
+  return subtractDecimal(gross, reversed, moneyFormat);
 }
 
 function checkProducts(run: MutableRun, product: ProductReconciliationSource): void {
@@ -354,7 +444,12 @@ function checkInvoices(run: MutableRun, invoice: InvoiceReconciliationSource): v
   let applicationTotal = zeroMoney;
   let applicationValuesComplete = true;
   for (const application of invoice.applications.toSorted((left, right) => left.id.localeCompare(right.id))) {
-    const applicationAmount = exactMoney(run, "INVOICE", invoice.id, `application ${application.id} amount`, application.amountDecimal);
+    const applicationAmount = netApplicationAmount(
+      run,
+      "INVOICE",
+      invoice.id,
+      application
+    );
     if (applicationAmount === null) applicationValuesComplete = false;
     else applicationTotal = addDecimal(applicationTotal, applicationAmount, moneyFormat);
     if (application.payment.customerId !== invoice.customerId) {
@@ -381,7 +476,12 @@ function checkPayments(run: MutableRun, payment: PaymentReconciliationSource): v
   let applicationTotal = zeroMoney;
   let applicationValuesComplete = true;
   for (const application of payment.applications.toSorted((left, right) => left.id.localeCompare(right.id))) {
-    const applicationAmount = exactMoney(run, "PAYMENT", payment.id, `application ${application.id} amount`, application.amountDecimal);
+    const applicationAmount = netApplicationAmount(
+      run,
+      "PAYMENT",
+      payment.id,
+      application
+    );
     if (applicationAmount === null) applicationValuesComplete = false;
     else applicationTotal = addDecimal(applicationTotal, applicationAmount, moneyFormat);
     if (application.invoice.customerId !== payment.customerId) {
@@ -487,13 +587,18 @@ export function createPrismaFinancialReconciliationRepository(): FinancialReconc
     fetchInvoices(afterId, limit) {
       return prisma.invoice.findMany({
         where: afterId === null ? undefined : { id: { gt: afterId } }, orderBy: { id: "asc" }, take: limit,
-        include: { lines: true, applications: { include: { payment: true } } },
+        include: {
+          lines: true,
+          applications: { include: { payment: true, reversals: true } },
+        },
       });
     },
     fetchPayments(afterId, limit) {
       return prisma.payment.findMany({
         where: afterId === null ? undefined : { id: { gt: afterId } }, orderBy: { id: "asc" }, take: limit,
-        include: { applications: { include: { invoice: true } } },
+        include: {
+          applications: { include: { invoice: true, reversals: true } },
+        },
       });
     },
   };

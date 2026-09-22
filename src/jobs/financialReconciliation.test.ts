@@ -36,6 +36,7 @@ function fixture(): Fixture {
   const application = {
     id: "application-1",
     amountDecimal: pricing.amountDecimal,
+    reversals: [],
     payment: { id: "payment-1", customerId: "customer-1", currencyCode: "USD" },
   };
   return {
@@ -63,7 +64,7 @@ function fixture(): Fixture {
     }],
     payments: [{
       id: "payment-1", customerId: "customer-1", currencyCode: "USD", amountDecimal: pricing.amountDecimal,
-      applications: [{ id: application.id, amountDecimal: application.amountDecimal, invoice: { id: "invoice-1", customerId: "customer-1", currencyCode: "USD" } }],
+      applications: [{ id: application.id, amountDecimal: application.amountDecimal, reversals: [], invoice: { id: "invoice-1", customerId: "customer-1", currencyCode: "USD" } }],
     }],
   };
 }
@@ -138,5 +139,65 @@ void describe("financial reconciliation", () => {
     assert.equal(result.cursors.products, "product-1");
     assert.equal(result.scanned.products, 1);
     assert.equal(result.state, "INCOMPLETE");
+  });
+
+  void test("reconciles net application amounts and rejects malformed or excessive reversals", async () => {
+    const corrected = fixture();
+    const reversal = {
+      id: "reversal-1",
+      amountDecimal: "1.0000",
+      accountingDate: "2026-01-17",
+      reason: "Correct duplicate application",
+      actor: "system:meridian-api",
+    };
+    const invoice = corrected.invoices[0];
+    const payment = corrected.payments[0];
+    corrected.invoices[0] = {
+      ...invoice,
+      status: "POSTED",
+      amountPaidDecimal: "8.0000",
+      applications: invoice.applications.map((application) => ({
+        ...application,
+        reversals: [reversal],
+      })),
+    };
+    corrected.payments[0] = {
+      ...payment,
+      applications: payment.applications.map((application) => ({
+        ...application,
+        reversals: [reversal],
+      })),
+    };
+
+    const clean = await runFinancialReconciliation(
+      {},
+      { repository: repository(corrected) }
+    );
+    assert.equal(clean.state, "CLEAN");
+    assert.deepEqual(clean.issues, []);
+
+    const corrupt = fixture();
+    const excessive = { ...reversal, amountDecimal: "10.0000" };
+    corrupt.invoices[0] = {
+      ...corrupt.invoices[0],
+      applications: corrupt.invoices[0].applications.map((application) => ({
+        ...application,
+        reversals: [excessive],
+      })),
+    };
+    corrupt.payments[0] = {
+      ...corrupt.payments[0],
+      applications: corrupt.payments[0].applications.map((application) => ({
+        ...application,
+        reversals: [{ ...excessive, accountingDate: "2026-02-30" }],
+      })),
+    };
+    const violations = await runFinancialReconciliation(
+      {},
+      { repository: repository(corrupt) }
+    );
+    const codes = new Set(violations.issues.map((entry) => entry.code));
+    assert.ok(codes.has("REVERSALS_EXCEED_APPLICATION"));
+    assert.ok(codes.has("INVALID_REVERSAL"));
   });
 });
