@@ -4,6 +4,7 @@ import type { Server } from "node:http";
 import express from "express";
 import { describe, test } from "node:test";
 import { createApp } from "./app";
+import type { Principal } from "./auth/principal";
 import {
   createIdempotencyMiddleware,
   type IdempotencyRecord,
@@ -55,16 +56,34 @@ function close(server: Server): Promise<void> {
   });
 }
 
-function mutation(key: string, body: unknown, client = "test-client"): RequestInit {
+function mutation(key: string, body: unknown, client = "test-client", token?: string): RequestInit {
   return {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "idempotency-key": key,
       "idempotency-client": client,
+      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
     },
     body: JSON.stringify(body),
   };
+}
+
+const directTestPrincipal: Principal = {
+  tenantId: "tenant-direct-test",
+  subjectId: "tenant:tenant-direct-test",
+  credentialId: "credential-direct-test",
+  kind: "TENANT_API_KEY",
+  role: "BILLING",
+};
+
+function attachDirectTestPrincipal(
+  request: express.Request,
+  _response: express.Response,
+  next: express.NextFunction
+): void {
+  request.principal = directTestPrincipal;
+  next();
 }
 
 void describe("durable idempotency HTTP boundary", () => {
@@ -208,6 +227,52 @@ void describe("durable idempotency HTTP boundary", () => {
     });
   });
 
+  void test("isolates a reused key by the authenticated tenant and principal", async () => {
+    const store = new InMemoryIdempotencyStore();
+    let applies = 0;
+    const app = createApp({
+      idempotencyStore: store,
+      principalResolver: {
+        async resolve(token) {
+          if (token !== "tenant-a-key" && token !== "tenant-b-key") return null;
+          const tenantId = token === "tenant-a-key" ? "tenant-a" : "tenant-b";
+          return {
+            tenantId,
+            subjectId: `tenant:${tenantId}`,
+            credentialId: `credential:${tenantId}`,
+            kind: "TENANT_API_KEY",
+            role: "BILLING",
+          };
+        },
+      },
+      configure(testApp) {
+        testApp.post("/api/tenant-idempotency-test", (_request, response) => {
+          applies += 1;
+          response.status(201).json({ applies });
+        });
+      },
+    });
+
+    await withServer(app, async (baseUrl) => {
+      const firstA = await fetch(
+        `${baseUrl}/api/tenant-idempotency-test`,
+        mutation("same-key", { amount: "1.0000" }, "shared-client", "tenant-a-key")
+      );
+      const firstB = await fetch(
+        `${baseUrl}/api/tenant-idempotency-test`,
+        mutation("same-key", { amount: "1.0000" }, "shared-client", "tenant-b-key")
+      );
+      const replayA = await fetch(
+        `${baseUrl}/api/v1/tenant-idempotency-test`,
+        mutation("same-key", { amount: "1.0000" }, "shared-client", "tenant-a-key")
+      );
+      assert.deepEqual(await firstA.json(), { applies: 1 });
+      assert.deepEqual(await firstB.json(), { applies: 2 });
+      assert.deepEqual(await replayA.json(), { applies: 1 });
+      assert.equal(applies, 2);
+    });
+  });
+
   void test("shares replay scope across the legacy and v1 aliases", async () => {
     const store = new InMemoryIdempotencyStore();
     const app = express();
@@ -218,8 +283,8 @@ void describe("durable idempotency HTTP boundary", () => {
       applies += 1;
       response.status(201).json({ applies });
     };
-    app.post("/api/alias-test", idempotency, handler);
-    app.post("/api/v1/alias-test", idempotency, handler);
+    app.post("/api/alias-test", attachDirectTestPrincipal, idempotency, handler);
+    app.post("/api/v1/alias-test", attachDirectTestPrincipal, idempotency, handler);
 
     await withServer(app, async (baseUrl) => {
       const legacy = await fetch(

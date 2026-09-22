@@ -288,7 +288,7 @@ void describe("HTTP problem-details boundary", () => {
   void test("refuses to start production without an API key", () => {
     assert.throws(
       () => createApp({ environment: "production", apiKey: "" }),
-      /MERIDIAN_API_KEY is required/
+      /MERIDIAN_API_KEY or MERIDIAN_API_KEY_PEPPER is required/
     );
   });
 });

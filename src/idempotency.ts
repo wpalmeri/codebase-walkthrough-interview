@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Request, RequestHandler, Response } from "express";
 import { z } from "zod";
+import { PrincipalSchema, TenantIdSchema } from "./auth/principal";
 import { prisma } from "./db";
 import { ApplicationError, ConflictError } from "./errors";
 
@@ -23,6 +24,7 @@ export const IdempotencyResponseSchema = z.object({
 export type IdempotencyResponse = z.infer<typeof IdempotencyResponseSchema>;
 
 export const IdempotencyRecordSchema = z.object({
+  tenantId: TenantIdSchema,
   clientScope: z.string().length(64),
   method: z.enum(["POST", "PUT", "PATCH", "DELETE"]),
   route: z.string().min(1).max(512),
@@ -47,7 +49,7 @@ class IdempotencyHeaderError extends ApplicationError {
     code:
       | "INVALID_IDEMPOTENCY_KEY"
       | "INVALID_IDEMPOTENCY_CLIENT"
-      | "IDEMPOTENCY_CLIENT_REQUIRED",
+      | "IDEMPOTENCY_PRINCIPAL_REQUIRED",
     detail: string
   ) {
     super({
@@ -104,14 +106,7 @@ function recordFor(request: Request): IdempotencyRecord | null {
     throw new IdempotencyHeaderError("INVALID_IDEMPOTENCY_KEY", "Idempotency-Key must be a 1-128 character printable ASCII value");
   }
 
-  const authorization = request.get("authorization");
   const suppliedClient = request.get("idempotency-client");
-  if (authorization === undefined && suppliedClient === undefined) {
-    throw new IdempotencyHeaderError(
-      "IDEMPOTENCY_CLIENT_REQUIRED",
-      "Idempotency-Key requires Authorization or Idempotency-Client to isolate clients"
-    );
-  }
   const parsedClient = suppliedClient === undefined ? undefined : IdempotencyClientSchema.safeParse(suppliedClient);
   if (parsedClient !== undefined && !parsedClient.success) {
     throw new IdempotencyHeaderError(
@@ -120,15 +115,29 @@ function recordFor(request: Request): IdempotencyRecord | null {
     );
   }
 
+  const principal = PrincipalSchema.safeParse(request.principal);
+  if (!principal.success) {
+    throw new IdempotencyHeaderError(
+      "IDEMPOTENCY_PRINCIPAL_REQUIRED",
+      "Idempotency-Key requires a server-authenticated principal"
+    );
+  }
+
   const route = routeFor(request);
   return IdempotencyRecordSchema.parse({
-    // Never persist even a hash derived from the bearer secret. A supplied
-    // stable client ID survives credential rotation; the current single-key
-    // deployment otherwise has one stable authenticated scope.
+    tenantId: principal.data.tenantId,
+    // Never persist a bearer credential, its secret, or a hash derived from
+    // it. Replay is isolated by the verified tenant and credential identity;
+    // Idempotency-Client can only make that scope narrower.
     clientScope: hash(
-      parsedClient?.data === undefined
-        ? "authenticated:meridian-api"
-        : `client:${parsedClient.data}`
+      canonicalJson({
+        tenantId: principal.data.tenantId,
+        subjectId: principal.data.subjectId,
+        credentialId: principal.data.credentialId,
+        kind: principal.data.kind,
+        role: principal.data.role,
+        ...(parsedClient?.data === undefined ? {} : { client: parsedClient.data }),
+      })
     ),
     method: request.method,
     route,

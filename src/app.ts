@@ -1,7 +1,11 @@
 import express from "express";
-import { timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
-import { AuthenticationError, problemFromError, type ProblemDetails } from "./errors";
+import { problemFromError, type ProblemDetails } from "./errors";
+import {
+  createAuthenticationMiddleware,
+  createPrismaTenantPrincipalResolver,
+  type TenantPrincipalResolver,
+} from "./auth/tenantPrincipal";
 import { createIdempotencyMiddleware, createPrismaIdempotencyStore, type IdempotencyStore } from "./idempotency";
 import { prisma } from "./db";
 import {
@@ -12,7 +16,7 @@ import {
 } from "./runtime/health";
 import { api } from "./views";
 
-type AppOptions = {
+export type AppOptions = {
   /**
    * Allows an embedding application to register additional routes before the
    * shared terminal error handlers. It also keeps HTTP-boundary tests fully
@@ -23,6 +27,12 @@ type AppOptions = {
   logError?: (error: unknown, request: Request) => void;
   /** Overrides environment configuration for embedding and tests. */
   apiKey?: string | null;
+  /** Optional tenant ID for the temporary legacy API-key bridge. */
+  legacyTenantId?: string;
+  /** HMAC pepper for database-backed tenant API keys. */
+  apiKeyPepper?: string | null;
+  /** Replaces database tenant-key resolution in embedding and boundary tests. */
+  principalResolver?: TenantPrincipalResolver;
   environment?: string;
   /** Replaces durable idempotency persistence for isolated HTTP-boundary tests. */
   idempotencyStore?: IdempotencyStore;
@@ -41,25 +51,15 @@ function isMalformedJson(error: unknown): boolean {
   return parserError.status === 400 || parserError.type === "entity.parse.failed";
 }
 
-function bearerToken(request: Request): string | null {
-  const authorization = request.get("authorization");
-  if (authorization === undefined) return null;
-  const match = /^Bearer ([^\s]+)$/u.exec(authorization);
-  return match?.[1] ?? null;
-}
-
-function tokensMatch(supplied: string | null, expected: string): boolean {
-  if (supplied === null) return false;
-  const suppliedBytes = Buffer.from(supplied);
-  const expectedBytes = Buffer.from(expected);
-  return suppliedBytes.length === expectedBytes.length && timingSafeEqual(suppliedBytes, expectedBytes);
-}
-
 export function createApp(options: AppOptions = {}): express.Express {
   const configuredApiKey = options.apiKey ?? process.env.MERIDIAN_API_KEY?.trim() ?? "";
+  const configuredApiKeyPepper = options.apiKeyPepper ?? process.env.MERIDIAN_API_KEY_PEPPER?.trim() ?? "";
   const environment = options.environment ?? process.env.NODE_ENV ?? "development";
-  if (environment === "production" && configuredApiKey.length === 0) {
-    throw new Error("MERIDIAN_API_KEY is required in production");
+  const principalResolver =
+    options.principalResolver ??
+    (configuredApiKeyPepper.length === 0 ? undefined : createPrismaTenantPrincipalResolver(configuredApiKeyPepper));
+  if (environment === "production" && configuredApiKey.length === 0 && principalResolver === undefined) {
+    throw new Error("MERIDIAN_API_KEY or MERIDIAN_API_KEY_PEPPER is required in production");
   }
   const app = express();
   app.disable("x-powered-by");
@@ -77,14 +77,12 @@ export function createApp(options: AppOptions = {}): express.Express {
     response.status(result.status === "ready" ? 200 : 503).json(result);
   });
 
-  const authenticate = (request: Request, response: Response, next: NextFunction) => {
-    if (configuredApiKey.length === 0 || tokensMatch(bearerToken(request), configuredApiKey)) {
-      next();
-      return;
-    }
-    response.set("WWW-Authenticate", 'Bearer realm="meridian-api"');
-    sendProblem(response, new AuthenticationError().problem);
-  };
+  const authenticate = createAuthenticationMiddleware({
+    environment,
+    legacyApiKey: configuredApiKey,
+    legacyTenantId: options.legacyTenantId ?? process.env.MERIDIAN_LEGACY_TENANT_ID?.trim() ?? undefined,
+    principalResolver,
+  });
 
   app.use("/api/v1", authenticate, idempotency, api);
   app.use(
