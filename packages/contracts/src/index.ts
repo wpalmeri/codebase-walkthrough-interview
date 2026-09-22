@@ -6,6 +6,39 @@ const isoDateTime = z.iso.datetime({ offset: true });
 const money = z.number().finite();
 const nonNegativeMoney = money.nonnegative();
 
+/** A nonnegative JSON decimal without a sign, exponent, or ambiguous leading zero. */
+export const DecimalStringSchema = z.string().regex(/^(?:0|[1-9]\d*)(?:\.\d+)?$/);
+export type DecimalString = z.infer<typeof DecimalStringSchema>;
+
+function fixedDecimalString(precision: number, scale: number) {
+  const integerDigits = precision - scale;
+  return z
+    .string()
+    .regex(new RegExp(`^(?:0|[1-9]\\d{0,${integerDigits - 1}})\\.\\d{${scale}}$`));
+}
+
+/** Canonical DECIMAL(19,4) monetary JSON value. */
+export const MoneyStringSchema = fixedDecimalString(19, 4);
+export type MoneyString = z.infer<typeof MoneyStringSchema>;
+
+/** Canonical DECIMAL(19,6) quantity JSON value. */
+export const QuantityStringSchema = fixedDecimalString(19, 6);
+export type QuantityString = z.infer<typeof QuantityStringSchema>;
+
+/** Canonical DECIMAL(7,4) percentage JSON value from 0 through 100 inclusive. */
+export const PercentageStringSchema = fixedDecimalString(7, 4).refine(
+  (value) => {
+    const coefficient = value.replace(".", "");
+    return /^\d+$/.test(coefficient) && BigInt(coefficient) <= 1_000_000n;
+  },
+  "percentage must not exceed 100.0000"
+);
+export type PercentageString = z.infer<typeof PercentageStringSchema>;
+
+/** ISO 4217 storage code syntax; membership is enforced by the application code list. */
+export const CurrencyCodeSchema = z.string().regex(/^[A-Z]{3}$/);
+export type CurrencyCode = z.infer<typeof CurrencyCodeSchema>;
+
 export const EmailAddressSchema = z.email();
 
 export const OrderStatusSchema = z.enum(["OPEN", "INVOICED", "CLOSED"]);
@@ -42,6 +75,8 @@ export const ProductSchema = z.object({
   name: z.string(),
   unit: z.string(),
   listPrice: nonNegativeMoney,
+  listPriceDecimal: MoneyStringSchema.optional(),
+  currencyCode: CurrencyCodeSchema.optional(),
 });
 export type Product = z.infer<typeof ProductSchema>;
 
@@ -53,6 +88,14 @@ export const RateTierSchema = z.object({
 });
 export type RateTier = z.infer<typeof RateTierSchema>;
 
+export const ExactRateTierSchema = z.object({
+  upTo: QuantityStringSchema.nullable(),
+  unitPrice: MoneyStringSchema,
+  floor: MoneyStringSchema.nullish(),
+  ceiling: MoneyStringSchema.nullish(),
+});
+export type ExactRateTier = z.infer<typeof ExactRateTierSchema>;
+
 export const RateSchema = z.object({
   id,
   customerId: id,
@@ -60,7 +103,10 @@ export const RateSchema = z.object({
   productSku: z.string().optional(),
   productName: z.string().optional(),
   unitPrice: nonNegativeMoney,
+  unitPriceDecimal: MoneyStringSchema.optional(),
+  currencyCode: CurrencyCodeSchema.optional(),
   tiers: z.array(RateTierSchema),
+  tiersDecimal: z.array(ExactRateTierSchema).optional(),
   effectiveDate: isoDateTime,
 });
 export type Rate = z.infer<typeof RateSchema>;
@@ -71,6 +117,7 @@ export const ComboDiscountSchema = z.object({
   name: z.string(),
   products: z.array(z.object({ id, sku: z.string(), name: z.string() })),
   percentOff: z.number().min(0).max(100),
+  percentOffDecimal: PercentageStringSchema.optional(),
 });
 export type ComboDiscount = z.infer<typeof ComboDiscountSchema>;
 
@@ -83,6 +130,10 @@ export const OrderItemSchema = z.object({
   quantity: z.number().positive(),
   unitPrice: nonNegativeMoney,
   amount: nonNegativeMoney,
+  quantityDecimal: QuantityStringSchema.optional(),
+  baseUnitPriceDecimal: MoneyStringSchema.optional(),
+  effectiveUnitPriceDecimal: MoneyStringSchema.optional(),
+  amountDecimal: MoneyStringSchema.optional(),
 });
 export type OrderItem = z.infer<typeof OrderItemSchema>;
 
@@ -105,6 +156,8 @@ export const OrderSchema = z.object({
   status: OrderStatusSchema,
   shipTo: z.string().nullable(),
   notes: z.string().nullable(),
+  currencyCode: CurrencyCodeSchema.optional(),
+  totalDecimal: MoneyStringSchema.optional(),
   items: z.array(OrderItemSchema),
   comments: z.array(OrderCommentSchema),
   total: nonNegativeMoney,
@@ -132,6 +185,9 @@ export const InvoiceLineSchema = z.object({
   quantity: z.number().positive(),
   unitPrice: nonNegativeMoney,
   amount: nonNegativeMoney,
+  quantityDecimal: QuantityStringSchema.optional(),
+  unitPriceDecimal: MoneyStringSchema.optional(),
+  amountDecimal: MoneyStringSchema.optional(),
 });
 export type InvoiceLine = z.infer<typeof InvoiceLineSchema>;
 
@@ -139,6 +195,7 @@ export const InvoicePaymentSchema = z.object({
   id,
   paymentId: id,
   amount: nonNegativeMoney,
+  amountDecimal: MoneyStringSchema.optional(),
   receivedAt: isoDateTime,
   reference: z.string().nullable(),
 });
@@ -158,7 +215,11 @@ export const InvoiceSchema = z.object({
   dueDate: isoDateTime,
   total: nonNegativeMoney,
   amountPaid: nonNegativeMoney,
+  totalDecimal: MoneyStringSchema.optional(),
+  amountPaidDecimal: MoneyStringSchema.optional(),
+  currencyCode: CurrencyCodeSchema.optional(),
   balance: money,
+  balanceDecimal: MoneyStringSchema.optional(),
   postedAt: isoDateTime.nullable(),
   lines: z.array(InvoiceLineSchema),
   payments: z.array(InvoicePaymentSchema),
@@ -172,6 +233,7 @@ export const PaymentApplicationSchema = z.object({
   invoiceId: id,
   invoiceNumber: z.string().optional(),
   amount: nonNegativeMoney,
+  amountDecimal: MoneyStringSchema.optional(),
   appliedAt: isoDateTime,
 });
 export type PaymentApplication = z.infer<typeof PaymentApplicationSchema>;
@@ -181,10 +243,14 @@ export const PaymentSchema = z.object({
   customerId: id,
   customerName: z.string().optional(),
   amount: nonNegativeMoney,
+  amountDecimal: MoneyStringSchema.optional(),
+  currencyCode: CurrencyCodeSchema.optional(),
   receivedAt: isoDateTime,
   reference: z.string().nullable(),
   applied: nonNegativeMoney,
   unapplied: nonNegativeMoney,
+  appliedDecimal: MoneyStringSchema.optional(),
+  unappliedDecimal: MoneyStringSchema.optional(),
   applications: z.array(PaymentApplicationSchema),
 });
 export type Payment = z.infer<typeof PaymentSchema>;
