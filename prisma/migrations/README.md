@@ -79,6 +79,18 @@ existing null dates during rollout. Do not bulk-update historical closed dates t
 application credentials; handle an accounting correction through an auditable, separately
 approved procedure.
 
+`20260922210000_accounting_close_hardening` is a trigger-only follow-up for the
+singleton global control. It blocks deletion of the close fact, finalized
+invoice insert/post/redate without accounting-date evidence, and payment-
+application reversals in a closed period. Existing historical rows are not
+scanned or rewritten when the migration is installed.
+
+SQLite serializes writes. The close readiness lookup inspects finalized invoice
+rows rather than claiming a covering index; rehearse on a production-sized copy
+and record lock duration and busy retries.
+Deploy in a low-write window and retain a backup/rollback plan. Do not run global reconciliation
+inside the close transaction; use the separate bounded reconciliation workflow beforehand.
+
 ## SQLite limitations and production path
 
 SQLite permits `DECIMAL(19,4)` declarations but applies numeric affinity rather than enforcing
@@ -157,6 +169,192 @@ closed when a process dies after mutating data but before recording the response
 must investigate stale `IN_PROGRESS` rows rather than deleting or replaying them automatically.
 Retain completed rows for at least the published client retry window, then archive or purge them
 in bounded primary-key batches under an explicit retention policy.
+
+## Operator API-key foundation
+
+`20260922090000_operator_api_key_foundation` creates the empty global
+`OperatorApiKey` table. It stores a one-way server-generated digest and a
+non-secret prefix, never a credential plaintext, and it does not read, rewrite,
+or add ownership metadata to financial data. Customers remain bill-to entities.
+
+After all migrations are applied, create the first internal administrator with
+`MERIDIAN_API_KEY_PEPPER=<32+ byte secret> bun run operator:key:bootstrap -- --name "initial admin"`.
+The command works only when no active operator key exists, emits the plaintext
+credential once on its directly invoked terminal, and writes an immutable audit
+event. Issue and revoke later credentials through the authenticated ADMIN API;
+there is no unauthenticated recovery bypass once an active key exists.
+
+## Resource versions and conditional writes
+
+`20260922100000_resource_versions` is an expand-only optimistic-concurrency
+foundation. It adds nullable integer `resourceVersion` columns to mutable root
+resources only: customer, product, rate, combo discount, order, and invoice.
+There is no default, backfill, table rebuild, or version-only index—the future
+compare-and-swap write predicates use each table's existing primary-key index.
+
+Deploy this before enabling any endpoint's `ETag` and `If-Match` behavior. A
+bounded, restartable backfill may initialize legacy null versions in a later
+release; the installed triggers accept that null-to-integer transition and then
+reject non-integers, negative values, clearing, and decreases. Endpoint rollout
+must atomically predicate on both resource ID and version, increment the stored
+version in the same transaction, and return the new strong ETag. Do not accept
+wildcard, weak, or multi-value `If-Match` headers for a mutation that needs a
+single-resource compare-and-swap contract.
+
+### Rate conditional writes and ETag replay
+
+`20260922110000_rate_conditional_writes` adds only a nullable response-ETag
+column to the empty idempotency table plus SQLite triggers on new and updated
+Rate rows. It does not scan, rebuild, or rewrite existing rates. New rates are
+initialized at version 1 after insertion; an older null rate remains logically
+version 0 until its first business update or conditional write. The trigger
+advances versions for legacy/direct business updates, while a versioned API
+write advances its value in the compare-and-swap statement and therefore does
+not double-increment.
+
+Deploy this migration before exposing `/api/v1/rates/:id` ETags. Test it on a
+production-sized copy because SQLite writers are serialized; although this
+deploy itself is metadata plus triggers, high-rate direct catalog writes will
+now perform one small additional row update. Keep the legacy `/api` write path
+available during client migration. Retried idempotent writes store and replay
+the exact response ETag, and their fingerprints include `If-Match`, so a stale
+precondition can never silently replay a response for a different revision.
+
+### Order conditional writes and aggregate ETags
+
+`20260922140000_order_conditional_writes` adds SQLite triggers only. It does
+not scan, backfill, rebuild, or rewrite Order, OrderItem, OrderComment, or
+Invoice rows. New Orders initialize a version; historical null versions remain
+logical version zero until a direct, legacy, or conditional business write.
+The triggers invalidate the Order version for root fields, item/comment changes,
+and invoice identity/status changes because all are represented by `GET
+/api/v1/orders/:id`.
+
+Apply this migration before exposing Order ETags. SQLite serializes writers and
+each aggregate mutation performs one small parent-row version update, so deploy
+in a low-write window and rehearse on a production-sized copy. Keep headerless
+legacy `/api/orders/:id` writes during client migration. `/api/v1` requires a
+single exact strong `If-Match`; keyed retries include that header in their
+fingerprint and replay the persisted response ETag.
+
+### Invoice conditional writes and aggregate ETags
+
+`20260922160000_invoice_conditional_writes` is trigger-only and expand-only:
+it performs no table rebuild, scan, default fill, or historical backfill. New
+Invoices initialize a version while pre-existing null rows remain logical
+version zero until their first write. Root Invoice changes and observable
+aggregate evidence—lines, payment applications/reversals, and transmissions—
+advance the parent version so an ETag never remains valid for a changed invoice
+representation.
+
+Apply before enabling `/api/v1/invoices/:id` conditional reads/writes. SQLite
+serializes writers and each evidence mutation performs one small parent update;
+rehearse timing on a production-sized copy and deploy in a low-write window.
+Keep headerless legacy invoice updates during client migration. Idempotency
+already fingerprints `If-Match` and persists/replays the exact response ETag,
+so a retry cannot reuse a response for a different invoice revision.
+
+### Payment cursor pagination
+
+`20260922120000_payment_cursor_pagination` adds one keyset index on
+`Payment(receivedAt DESC, id DESC)`; it neither alters rows nor
+rewrites table data. SQLite implements `CREATE INDEX` by scanning the table and
+serializes writers while DDL runs, so schedule it in a controlled low-write
+window, test duration against a production-sized copy, and monitor the writer
+queue. Do not treat this migration as online/concurrent index creation.
+
+After the index is deployed, `/api/v1/payments` may use its additive cursor
+envelope. It reads `limit + 1` in descending `(receivedAt, id)` order and only
+uses a public customer-filter fingerprint and ordering tuple. Legacy
+`/api/payments` remains its existing first-100 array during client migration.
+
+### Catalog cursor pagination
+
+`20260922170000_catalog_cursor_pagination` adds two keyset indexes:
+`Customer(name, id)` and `Product(sku, id)`. It does not alter,
+backfill, or rebuild business rows, but SQLite must scan each existing table while
+building an index and serializes all writers during DDL. Rehearse against a
+production-sized copy, deploy during a controlled low-write window, and monitor
+writer contention; SQLite has no concurrent-index equivalent.
+
+After deploy, `/api/v1/customers` and `/api/v1/products` use additive bounded
+cursor pages ordered by their catalog key then id. Their legacy `/api` routes
+remain bare arrays with their existing behavior. Cursors are bound to a resource
+and a fingerprint including normalized filters.
+
+### Order cursor pagination
+
+`20260922180000_order_cursor_pagination` adds one keyset index on
+`Order(orderDate DESC, id DESC)`. It does not alter, backfill, or
+rewrite business rows. SQLite scans the existing table while building the index
+and serializes writers during DDL, so rehearse on a production-sized copy and
+deploy in a controlled low-write window; SQLite has no concurrent-index mode.
+
+After deployment, `/api/v1/orders` uses an additive bounded cursor envelope in
+descending `(orderDate, id)` order. Its legacy `/api/orders` route remains the
+existing bare array. Cursors are bound to the `orders` resource and normalized
+public filters.
+
+### Invoice cursor pagination
+
+`20260922190000_invoice_cursor_pagination` adds one keyset index on
+`Invoice(issueDate DESC, id DESC)`. It does not alter, backfill, or
+rewrite business rows. SQLite scans the existing table to build this index and
+blocks writers during DDL, so time it against a production-sized copy and apply
+it in a controlled low-write window; SQLite has no concurrent-index mode.
+
+After deployment, `/api/v1/invoices` uses an additive bounded cursor envelope
+in descending `(issueDate, id)` order. Its legacy `/api/invoices` route remains
+the existing bare array. Cursors are bound to the `invoices` resource and
+normalized public filters.
+
+### Operator API-key administrator lockout guard
+
+`20260922200000_operator_api_key_admin_guard` installs two row-scoped triggers
+that prevent an update or delete from removing the system's final active ADMIN
+credential. The migration is expand-only and performs no deployment-time scan,
+rewrite, backfill, index build, or table rebuild; the small indexed existence
+check runs only when an active ADMIN key is revoked, demoted, moved, or deleted.
+
+Deploy this guard before exposing authenticated key administration. The API
+also rejects self-revocation, while the database trigger is the concurrency and
+direct-SQL backstop. Existing installations without an active ADMIN are not blocked
+from unrelated writes, but must be reconciled through the explicit bootstrap
+procedure before they can use the authenticated administration endpoints.
+
+### Append-only audit events
+
+`20260922130000_audit_events` creates a new empty `AuditEvent` table and two
+global lookup indexes. It does not scan, rewrite, or alter existing
+business rows, so it is safe to deploy before controller integrations begin.
+The table contains only server-derived principal identity, request correlation,
+resource identity, and enumerated action metadata; it has no generic request,
+error, or payload field. If a request has an idempotency key, persist only its
+SHA-256 fingerprint—not the key itself.
+
+SQLite triggers reject every update and delete, and one insert guard enforces
+the generated enum vocabulary plus valid action/resource pairs. A later action
+can be added by replacing that trigger in an additive migration, without a
+table rebuild or audit-history rewrite. Treat the table as an immutable
+evidence log: correction means append a new action rather than changing history.
+The new indexes are built over an empty table at first deploy; later direct
+index rebuilds or table maintenance must be separately tested for SQLite's
+serialized-writer behavior.
+
+### Customer email delivery guard
+
+`20260922150000_customer_email_guard` installs insert and email-update triggers
+only; it does not scan, rewrite, rebuild, or reject untouched Customer rows.
+The guard is a database backstop for obvious undeliverable structure: bounded
+length, one nonempty `@` boundary, a bounded local part, a dotted domain, and no
+spaces, CR/LF, tabs, or leading/trailing/consecutive dots. The shared Zod email
+contract remains authoritative at API and delivery boundaries.
+
+Reconcile any historical invalid addresses separately before attempting to
+change their email column. Unrelated updates remain possible during that work,
+which keeps this deploy expand-only and avoids coupling a table scan or data
+cleanup to application startup.
+
 
 ## Captured pricing and payment ledger immutability
 

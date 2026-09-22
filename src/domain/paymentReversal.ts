@@ -17,6 +17,12 @@ const moneyFormat = {
   field: "payment reversal amount",
 } as const;
 const id = z.string().min(1);
+const invoiceStatus = InvoiceStatusSchema.enum;
+const reversibleInvoiceStatuses = new Set<string>([
+  invoiceStatus.POSTED,
+  invoiceStatus.SENT,
+  invoiceStatus.PAID,
+]);
 
 export const PaymentReversalPlanRequestSchema = z.strictObject({
   requestedPaymentId: id,
@@ -48,7 +54,11 @@ export const PaymentReversalPlanSchema = z.strictObject({
   applicationRemainingAfter: MoneyStringSchema,
   invoiceAmountPaidBefore: MoneyStringSchema,
   invoiceAmountPaidAfter: MoneyStringSchema,
-  invoiceStatusAfter: z.enum(["POSTED", "SENT", "PAID"]),
+  invoiceStatusAfter: z.union([
+    z.literal(invoiceStatus.POSTED),
+    z.literal(invoiceStatus.SENT),
+    z.literal(invoiceStatus.PAID),
+  ]),
 });
 export type PaymentReversalPlan = z.infer<typeof PaymentReversalPlanSchema>;
 
@@ -67,7 +77,7 @@ export function planPaymentApplicationReversal(input: unknown): PaymentReversalP
   if (request.application.paymentCurrencyCode !== request.application.invoiceCurrencyCode) {
     throw new Error("payment and invoice currencies do not match");
   }
-  if (!new Set(["POSTED", "SENT", "PAID"]).has(request.invoice.status)) {
+  if (!reversibleInvoiceStatuses.has(request.invoice.status)) {
     throw new Error("payment application invoice is not reversible");
   }
 
@@ -117,10 +127,10 @@ export function planPaymentApplicationReversal(input: unknown): PaymentReversalP
   );
   const invoiceStatusAfter =
     compareDecimal(invoiceAmountPaidAfter, request.invoice.total, moneyFormat) === 0
-      ? "PAID"
+      ? invoiceStatus.PAID
       : request.invoice.hasSuccessfulDelivery
-        ? "SENT"
-        : "POSTED";
+        ? invoiceStatus.SENT
+        : invoiceStatus.POSTED;
 
   return PaymentReversalPlanSchema.parse({
     applicationRemainingBefore,

@@ -19,14 +19,18 @@
     "db:backfill:order-pricing": "tsx src/jobs/runOrderPricingSnapshotBackfill.ts",
     "db:backfill:invoice-snapshots": "tsx src/jobs/runInvoiceSnapshotBackfill.ts",
     "db:audit:financial": "tsx src/jobs/runFinancialReconciliation.ts",
+    "operator:key": "tsx src/auth/runOperatorApiKeyLifecycle.ts",
+    "operator:key:bootstrap": "tsx src/auth/runOperatorApiKeyLifecycle.ts bootstrap",
     "db:reset": "prisma migrate reset --force",
     "db:validate": "prisma validate",
     "test": "bun test",
     "lint": "oxlint .",
     "guard:architecture": "bun scripts/architectureIntegrity.ts",
+    "api:generate": "node --no-warnings --import ./scripts/openapiTypescriptRegister.mjs --import tsx ./scripts/openapiArtifacts.mts",
+    "api:check": "node --no-warnings --import ./scripts/openapiTypescriptRegister.mjs --import tsx ./scripts/openapiArtifacts.mts --check",
     "typecheck": "bun run typecheck:server && bun run --cwd client typecheck",
     "typecheck:server": "tsc --noEmit",
-    "check": "bun run lint && bun run typecheck && bun run guard:architecture",
+    "check": "bun run lint && bun run typecheck && bun run guard:architecture && bun run api:check",
     "setup": "bun install --frozen-lockfile && bun run db:migrate && bun run db:seed"
   },
   "dependencies": {
@@ -36,16 +40,16 @@
     "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@asteasolutions/zod-to-openapi": "9.1.0",
     "@types/express": "^4.17.21",
     "@types/node": "^22.13.0",
+    "openapi-typescript": "7.13.0",
     "oxlint": "^1.83.0",
     "oxlint-tsgolint": "^7.0.2002",
     "prisma": "^6.5.0",
     "tsx": "4.23.15",
-    "typescript": "^7.0.2"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "typescript": "^7.0.2",
+    "typescript-openapi-codegen": "npm:typescript@5.9.3"
   },
   "overrides": {
     "deepmerge-ts": "8.0.2",

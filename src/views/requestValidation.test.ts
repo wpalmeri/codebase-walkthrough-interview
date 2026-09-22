@@ -6,6 +6,7 @@ import {
   ReversePaymentApplicationRequestSchema,
   RevenueReportRequestSchema,
   SendInvoiceRequestSchema,
+  OrderConditionalRequestHeadersSchema,
   UpdateRateRequestSchema,
 } from "@meridian/contracts";
 import assert from "node:assert/strict";
@@ -15,6 +16,12 @@ import { RequestValidationError, validationErrorBody } from "./helpers";
 const emptyRequest = { params: {}, query: {}, body: undefined };
 
 void describe("request contracts", () => {
+  void test("defines an additive v1 Order If-Match header contract", () => {
+    assert.equal(OrderConditionalRequestHeadersSchema.safeParse({ "If-Match": "\"rv1_value\"" }).success, true);
+    assert.equal(OrderConditionalRequestHeadersSchema.safeParse({}).success, false);
+    assert.equal(OrderConditionalRequestHeadersSchema.safeParse({ "If-Match": "etag", extra: "no" }).success, false);
+  });
+
   void test("accepts a valid order and rejects unknown fields", () => {
     const valid = {
       params: {},

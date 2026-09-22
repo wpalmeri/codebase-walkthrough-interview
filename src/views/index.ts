@@ -1,18 +1,27 @@
 import { Router } from "express";
-import { customersView } from "./customersView";
-import { invoicesView } from "./invoicesView";
-import { ordersView } from "./ordersView";
-import { paymentsView } from "./paymentsView";
-import { productsView } from "./productsView";
-import { ratesView } from "./ratesView";
-import { reportsView } from "./reportsView";
+import { mountOperation } from "../openapi/operation";
+import { customerOperations } from "./customersView";
+import { invoiceOperations } from "./invoicesView";
+import { orderOperations } from "./ordersView";
+import { paymentOperations } from "./paymentsView";
+import { productOperations } from "./productsView";
+import { rateOperations } from "./ratesView";
+import { reportOperations } from "./reportsView";
+import { operatorApiKeyOperations } from "./operatorApiKeysView";
+import { accountingPeriodOperations } from "./accountingPeriodsView";
+
+/** The one inventory used to mount the API and publish its v1 contract. */
+export const apiOperations = [
+  ...customerOperations,
+  ...productOperations,
+  ...rateOperations,
+  ...orderOperations,
+  ...invoiceOperations,
+  ...paymentOperations,
+  ...reportOperations,
+  ...operatorApiKeyOperations,
+  ...accountingPeriodOperations,
+] as const;
 
 export const api = Router();
-
-api.use("/customers", customersView);
-api.use("/products", productsView);
-api.use("/rates", ratesView);
-api.use("/orders", ordersView);
-api.use("/invoices", invoicesView);
-api.use("/payments", paymentsView);
-api.use("/reports", reportsView);
+for (const operation of apiOperations) mountOperation(api, operation);

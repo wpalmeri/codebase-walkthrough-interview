@@ -42,6 +42,18 @@ export class AuthenticationError extends ApplicationError {
   }
 }
 
+export class AuthorizationError extends ApplicationError {
+  constructor() {
+    super({
+      type: "urn:meridian:problem:forbidden",
+      title: "Forbidden",
+      status: 403,
+      code: "FORBIDDEN",
+    });
+    this.name = "AuthorizationError";
+  }
+}
+
 export class ConflictError extends ApplicationError {
   constructor(code = "CONFLICT", detail?: string) {
     super({

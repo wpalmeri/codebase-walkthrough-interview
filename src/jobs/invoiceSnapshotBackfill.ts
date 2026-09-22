@@ -19,7 +19,13 @@ import {
 } from "./financialBackfill";
 
 export const INVOICE_SNAPSHOT_BACKFILL_JOB = "invoice-snapshot-v1";
-const finalizedStatuses = new Set<InvoiceStatus>(["POSTED", "SENT", "PAID", "VOID"]);
+const invoiceStatus = InvoiceStatusSchema.enum;
+const finalizedStatuses = new Set<InvoiceStatus>([
+  invoiceStatus.POSTED,
+  invoiceStatus.SENT,
+  invoiceStatus.PAID,
+  invoiceStatus.VOID,
+]);
 const zeroMoney = canonicalMoney("0");
 
 export const InvoiceSnapshotBackfillUnsafeCodeSchema = z.enum([

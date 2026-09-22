@@ -112,6 +112,10 @@ async function requireEmptyDatabase(): Promise<void> {
     prisma.order.count(),
     prisma.invoice.count(),
     prisma.payment.count(),
+    prisma.rate.count(),
+    prisma.comboDiscount.count(),
+    prisma.idempotencyRecord.count(),
+    prisma.accountingPeriodControl.count(),
     prisma.backfillCheckpoint.count(),
   ]);
   if (counts.some((count) => count !== 0)) {
@@ -323,7 +327,6 @@ async function createPayment(input: {
 
 async function main(): Promise<void> {
   await requireEmptyDatabase();
-
   await prisma.customer.createMany({
     data: [
       { id: "cust_acme", name: "Acme Logistics", email: "ap@acmelogistics.com", billingAddress: "1 Freight Way, Reno, NV", portalAccount: "ACME-AP-291", clearinghouseId: "TP-ACME-01" },

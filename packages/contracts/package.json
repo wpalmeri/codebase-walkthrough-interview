@@ -4,7 +4,12 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "browser": "./src/index.ts",
+      "default": "./src/server.ts"
+    },
+    "./pagination": "./src/pagination.ts",
+    "./pagination-schemas": "./src/paginationSchemas.ts"
   },
   "dependencies": {
     "zod": "^4.1.11"

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createApp } from "./app";
+import type { Principal } from "./auth/principal";
 import { prisma } from "./db";
 
 void (async () => {
@@ -13,7 +14,24 @@ void (async () => {
     slowRequestStarted = resolve;
   });
   let slowApplies = 0;
+  const operatorA: Principal = {
+    subjectId: "operator:idempotency-a",
+    credentialId: "credential-idempotency-a",
+    kind: "OPERATOR_API_KEY",
+    role: "BILLING",
+  };
+  const operatorB: Principal = {
+    subjectId: "operator:idempotency-b",
+    credentialId: "credential-idempotency-b",
+    kind: "OPERATOR_API_KEY",
+    role: "BILLING",
+  };
   const app = createApp({
+    principalResolver: {
+      async resolve(token) {
+        return token === "operator-a-test-token" ? operatorA : token === "operator-b-test-token" ? operatorB : null;
+      },
+    },
     configure(testApp) {
       let applies = 0;
       testApp.post("/api/durable-idempotency-scenario", (_request, response) => {
@@ -35,30 +53,38 @@ void (async () => {
     const address = server.address();
     if (address === null || typeof address === "string") throw new Error("test server has no TCP address");
     const baseUrl = `http://127.0.0.1:${address.port}`;
-    const request = () =>
+    const request = (token = "operator-a-test-token") =>
       fetch(`${baseUrl}/api/durable-idempotency-scenario`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "idempotency-key": "durable-receipt-1",
           "idempotency-client": "database-integration-test",
+          authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ amount: "12.3400" }),
       });
 
     const first = await request();
     const second = await request();
+    const otherOperator = await request("operator-b-test-token");
     assert.equal(first.status, 201);
     assert.equal(second.status, 201);
     assert.equal(await first.text(), '{"applies":1}');
     assert.equal(await second.text(), '{"applies":1}');
+    assert.equal(otherOperator.status, 201);
+    assert.equal(await otherOperator.text(), '{"applies":2}');
 
-    const records = await prisma.idempotencyRecord.findMany();
-    assert.equal(records.length, 1);
-    assert.equal(records[0]?.state, "COMPLETED");
-    assert.equal(records[0]?.responseStatus, 201);
-    assert.equal(records[0]?.responseContentType, "application/vnd.meridian.receipt+json; charset=utf-8");
+    const records = await prisma.idempotencyRecord.findMany({ orderBy: { createdAt: "asc" } });
+    assert.equal(records.length, 2);
+    assert.equal(new Set(records.map((record) => record.clientScope)).size, 2, "operator credentials have independent replay scopes");
+    for (const record of records) {
+      assert.equal(record.state, "COMPLETED");
+      assert.equal(record.responseStatus, 201);
+      assert.equal(record.responseContentType, "application/vnd.meridian.receipt+json; charset=utf-8");
+    }
     assert.equal(records[0]?.responseBodyBase64, Buffer.from('{"applies":1}').toString("base64"));
+    assert.equal(records[1]?.responseBodyBase64, Buffer.from('{"applies":2}').toString("base64"));
 
     const slowRequest = () =>
       fetch(`${baseUrl}/api/durable-idempotency-race`, {
@@ -67,6 +93,7 @@ void (async () => {
           "content-type": "application/json",
           "idempotency-key": "durable-race-1",
           "idempotency-client": "database-integration-test",
+          authorization: "Bearer operator-a-test-token",
         },
         body: JSON.stringify({ amount: "5.0000" }),
       });

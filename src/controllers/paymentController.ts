@@ -1,4 +1,21 @@
 import { randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
+import {
+  InvoiceStatusSchema,
+  PaymentPageSchema,
+  fingerprintPaginationFilters,
+  formatPaginationCursor,
+  parsePaginationCursor,
+  TransmissionMethodSchema,
+  TransmissionStatusSchema,
+  type InvoiceStatus,
+  type ListPaymentsV1Request,
+  type PaymentPage,
+  type PaginationCursorFailureCode,
+  type TransmissionMethod,
+  type TransmissionStatus,
+} from "@meridian/contracts";
+import { z } from "zod";
 import { prisma } from "../db";
 import {
   assertAccountingDateOpen,
@@ -34,6 +51,12 @@ import {
   toPaymentModel,
   type PaymentApplicationReversalModel,
 } from "../models/payment";
+import {
+  appendRequestAuditEvent,
+  type RequestAuditAppender,
+  type RequestAuditMetadata,
+} from "../audit/requestAudit";
+import type { AuditEventRepository } from "../audit/auditEvent";
 
 const paymentInclude = {
   customer: true,
@@ -45,6 +68,13 @@ const paymentInclude = {
 const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "amount" } as const;
 const zeroMoney = canonicalMoney("0");
 const SERIALIZATION_ATTEMPTS = 3;
+const invoiceStatus = InvoiceStatusSchema.enum;
+const transmissionMethod = TransmissionMethodSchema.enum;
+const transmissionStatus = TransmissionStatusSchema.enum;
+type PaymentInvoiceStatus =
+  | typeof invoiceStatus.POSTED
+  | typeof invoiceStatus.SENT
+  | typeof invoiceStatus.PAID;
 
 /** Existing clients have no currency field; their explicit temporary default is USD. */
 export const DEFAULT_PAYMENT_CURRENCY = "USD";
@@ -67,7 +97,7 @@ export interface InvoiceLedgerSnapshot {
   readonly id: string;
   readonly customerId: string;
   readonly currencyCode: string | null;
-  readonly status: string;
+  readonly status: InvoiceStatus;
   readonly total: number;
   readonly totalDecimal: DecimalInput | null;
   readonly amountPaid: number;
@@ -76,6 +106,7 @@ export interface InvoiceLedgerSnapshot {
 }
 
 export interface PaymentApplicationWrite {
+  readonly id: string;
   readonly paymentId: string;
   readonly invoiceId: string;
   readonly amount: number;
@@ -88,7 +119,7 @@ export interface InvoiceBalanceWrite {
   readonly expectedAmountPaidDecimal: CanonicalDecimal | null;
   readonly amountPaid: number;
   readonly amountPaidDecimal: CanonicalDecimal;
-  readonly status: "POSTED" | "SENT" | "PAID";
+  readonly status: PaymentInvoiceStatus;
 }
 
 export interface PaymentAllocationTransaction {
@@ -99,6 +130,8 @@ export interface PaymentAllocationTransaction {
     readonly applications: readonly PaymentApplicationWrite[];
     readonly invoiceBalances: readonly InvoiceBalanceWrite[];
   }): Promise<boolean>;
+  /** Runs after a successful write set, still inside the caller's transaction. */
+  appendAudit?(applications: readonly PaymentApplicationWrite[]): Promise<void>;
 }
 
 export interface PaymentAllocationDependencies {
@@ -222,7 +255,7 @@ export interface PaymentReversalSnapshot {
     readonly id: string;
     readonly customerId: string;
     readonly currencyCode: string | null;
-    readonly status: string;
+    readonly status: InvoiceStatus;
     readonly total: number;
     readonly totalDecimal: DecimalInput | null;
     readonly amountPaid: number;
@@ -230,7 +263,10 @@ export interface PaymentReversalSnapshot {
     readonly applications: readonly (LedgerAmount & {
       readonly reversals: readonly ExactReversalAmount[];
     })[];
-    readonly transmissions: readonly { readonly method: string; readonly status: string }[];
+    readonly transmissions: readonly {
+      readonly method: TransmissionMethod;
+      readonly status: TransmissionStatus;
+    }[];
   };
   readonly closedThroughDate: string | null;
 }
@@ -249,10 +285,10 @@ export interface PaymentReversalInvoiceWrite {
   readonly invoiceId: string;
   readonly expectedAmountPaid: number;
   readonly expectedAmountPaidDecimal: CanonicalDecimal;
-  readonly expectedStatus: string;
+  readonly expectedStatus: InvoiceStatus;
   readonly amountPaid: number;
   readonly amountPaidDecimal: CanonicalDecimal;
-  readonly status: "POSTED" | "SENT" | "PAID";
+  readonly status: PaymentInvoiceStatus;
 }
 
 export interface PaymentReversalTransaction {
@@ -262,11 +298,25 @@ export interface PaymentReversalTransaction {
     readonly reversal: PaymentReversalWrite;
     readonly invoice: PaymentReversalInvoiceWrite;
   }): Promise<boolean>;
+  /** Runs after a successful reversal and invoice CAS, inside the same transaction. */
+  appendAudit?(reversal: PaymentReversalWrite): Promise<void>;
 }
 
 export interface PaymentReversalDependencies {
   transaction<T>(operation: (transaction: PaymentReversalTransaction) => Promise<T>): Promise<T>;
 }
+
+/** Request-derived context required to append payment mutation evidence. */
+export interface PaymentMutationAudit {
+  readonly metadata: RequestAuditMetadata;
+  /** Injectable only to prove that audit failures roll back business writes. */
+  readonly append?: RequestAuditAppender;
+}
+
+type PaymentAuditTransaction = Pick<
+  Prisma.TransactionClient,
+  "payment" | "paymentApplication" | "paymentApplicationReversal" | "invoice" | "auditEvent"
+>;
 
 export interface ReversePaymentApplicationInput {
   readonly amount: DecimalInput;
@@ -303,9 +353,9 @@ function successfulDelivery(
 ): boolean {
   return transmissions.some(
     ({ method, status }) =>
-      (method === "EMAIL" && status === "SENT") ||
-      (method === "PORTAL" && status === "DELIVERED") ||
-      (method === "API" && status === "ACCEPTED")
+      (method === transmissionMethod.EMAIL && status === transmissionStatus.SENT) ||
+      (method === transmissionMethod.PORTAL && status === transmissionStatus.DELIVERED) ||
+      (method === transmissionMethod.API && status === transmissionStatus.ACCEPTED)
   );
 }
 
@@ -498,6 +548,7 @@ export async function reversePaymentApplicationWithDependencies(
       },
     });
     if (!persisted) throw new PaymentReversalConflictError();
+    await transaction.appendAudit?.(reversal);
     return planned;
   });
 
@@ -574,6 +625,7 @@ function prepareAllocation(
   }
 
   const applicationWrites = plan.applications.map((application) => ({
+    id: randomUUID(),
     paymentId: payment.id,
     invoiceId: application.invoiceId,
     amount: legacyNumber(application.amount, moneyFormat),
@@ -600,10 +652,10 @@ function prepareAllocation(
       amountPaidDecimal,
       status:
         compareDecimal(amountPaidDecimal, existing.total, moneyFormat) === 0
-          ? "PAID"
-          : existing.invoice.status === "SENT"
-            ? "SENT"
-            : "POSTED",
+          ? invoiceStatus.PAID
+          : existing.invoice.status === invoiceStatus.SENT
+            ? invoiceStatus.SENT
+            : invoiceStatus.POSTED,
     };
   });
   return { plan, applications: applicationWrites, invoiceBalances: invoiceBalanceWrites };
@@ -619,6 +671,7 @@ export async function applyPaymentWithDependencies(
     const invoices = await transaction.loadInvoices(applications.map((application) => application.invoiceId));
     const prepared = prepareAllocation(payment, invoices, applications);
     if (!(await transaction.persistAllocation(prepared))) throw new PaymentAllocationConflictError();
+    await transaction.appendAudit?.(prepared.applications);
     return prepared.plan;
   });
 }
@@ -638,41 +691,160 @@ export async function createPaymentWithDependencies(
 }
 
 export async function listPayments(): Promise<PaymentModel[]> {
-  const rows = await prisma.payment.findMany({ include: paymentInclude, orderBy: { receivedAt: "desc" }, take: 100 });
+  const rows = await prisma.payment.findMany({
+    include: paymentInclude,
+    orderBy: { receivedAt: "desc" },
+    take: 100,
+  });
   return rows.map(toPaymentModel);
 }
 
+const PaymentCursorOrderingSchema = z.tuple([
+  z.iso.datetime({ offset: true }),
+  z.string().min(1).max(1_024),
+]);
+
+export type PaymentPageResult =
+  | { readonly ok: true; readonly page: PaymentPage }
+  | { readonly ok: false; readonly code: PaginationCursorFailureCode };
+
+/**
+ * Lists a v1 payment page with a customer-filtered keyset predicate.
+ */
+export async function listPaymentsPage(
+  query: ListPaymentsV1Request["query"]
+): Promise<PaymentPageResult> {
+  const filterFingerprint = fingerprintPaginationFilters({
+    customerId: query.customerId,
+  });
+  const parsedCursor = query.cursor === undefined
+    ? undefined
+    : parsePaginationCursor(query.cursor, { resource: "payments", filterFingerprint });
+  if (parsedCursor !== undefined && !parsedCursor.ok) return parsedCursor;
+
+  const ordering = parsedCursor === undefined
+    ? undefined
+    : PaymentCursorOrderingSchema.safeParse(parsedCursor.ordering);
+  if (ordering !== undefined && !ordering.success) {
+    return { ok: false, code: "CURSOR_MALFORMED" };
+  }
+
+  const [receivedAt, id] = ordering === undefined ? [] : ordering.data;
+  const rows = await prisma.payment.findMany({
+    where: {
+      ...(query.customerId === undefined ? {} : { customerId: query.customerId }),
+      ...(receivedAt === undefined || id === undefined
+        ? {}
+        : {
+            OR: [
+              { receivedAt: { lt: new Date(receivedAt) } },
+              { receivedAt: new Date(receivedAt), id: { lt: id } },
+            ],
+          }),
+    },
+    include: paymentInclude,
+    orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
+    take: query.limit + 1,
+  });
+  const pageRows = rows.slice(0, query.limit);
+  const lastRow = pageRows.at(-1);
+  const nextCursor = rows.length > query.limit && lastRow !== undefined
+    ? formatPaginationCursor({
+        resource: "payments",
+        filterFingerprint,
+        ordering: [lastRow.receivedAt.toISOString(), lastRow.id],
+      })
+    : null;
+  return {
+    ok: true,
+    page: PaymentPageSchema.parse({
+      data: pageRows.map(toPaymentModel),
+      page: { limit: query.limit, nextCursor },
+    }),
+  };
+}
+
 export async function getPayment(paymentId: string): Promise<PaymentModel> {
-  const row = await prisma.payment.findUniqueOrThrow({ where: { id: paymentId }, include: paymentInclude });
+  const row = await prisma.payment.findFirst({
+    where: { id: paymentId },
+    include: paymentInclude,
+  });
+  if (row === null) {
+    throw new NotFoundError("PAYMENT_NOT_FOUND", "The payment was not found");
+  }
   return toPaymentModel(row);
 }
 
-export async function recordPayment(input: RecordPaymentInput): Promise<PaymentModel> {
-  const payment = await createPaymentWithDependencies(input, {
-    createPayment: (data) => prisma.payment.create({ data }),
+export async function recordPayment(
+  input: RecordPaymentInput,
+  audit: PaymentMutationAudit
+): Promise<PaymentModel> {
+  assertPaymentAudit(audit);
+  const payment = await prisma.$transaction(async (transaction) => {
+    const customer = await transaction.customer.findUnique({
+      where: { id: input.customerId },
+      select: { id: true },
+    });
+    if (customer === null) {
+      throw new NotFoundError("PAYMENT_CUSTOMER_NOT_FOUND", "The payment customer was not found");
+    }
+    const created = await createPaymentWithDependencies(input, {
+      createPayment: (data) => transaction.payment.create({ data }),
+    });
+    await appendPaymentAudit(transaction, audit, {
+      action: "PAYMENT_RECORDED",
+      resourceKind: "PAYMENT",
+      resourceId: created.id,
+    });
+    return created;
   });
   return getPayment(payment.id);
 }
 
-function prismaAllocationDependencies(): PaymentAllocationDependencies {
+function prismaAllocationDependencies(audit: PaymentMutationAudit): PaymentAllocationDependencies {
   return {
     transaction: (operation) =>
       prisma.$transaction(
         async (transaction) =>
           operation({
-            loadPayment: (paymentId) => transaction.payment.findUniqueOrThrow({ where: { id: paymentId }, include: { applications: { include: { reversals: true } } } }),
+            async loadPayment(paymentId) {
+              const payment = await transaction.payment.findFirst({
+                where: { id: paymentId },
+                include: { applications: { include: { reversals: true } } },
+              });
+              if (payment === null) {
+                throw new NotFoundError("PAYMENT_NOT_FOUND", "The payment was not found");
+              }
+              return payment;
+            },
             loadInvoices: (invoiceIds) =>
-              transaction.invoice.findMany({ where: { id: { in: [...invoiceIds] } }, include: { applications: { include: { reversals: true } } } }),
+              transaction.invoice.findMany({
+                where: { id: { in: [...invoiceIds] } },
+                include: { applications: { include: { reversals: true } } },
+              }),
             persistAllocation: async ({ applications, invoiceBalances }) => {
               await transaction.paymentApplication.createMany({ data: [...applications] });
               for (const invoice of invoiceBalances) {
                 const updated = await transaction.invoice.updateMany({
-                  where: { id: invoice.invoiceId, amountPaid: invoice.expectedAmountPaid, amountPaidDecimal: invoice.expectedAmountPaidDecimal },
+                  where: {
+                    id: invoice.invoiceId,
+                    amountPaid: invoice.expectedAmountPaid,
+                    amountPaidDecimal: invoice.expectedAmountPaidDecimal,
+                  },
                   data: { amountPaid: invoice.amountPaid, amountPaidDecimal: invoice.amountPaidDecimal, status: invoice.status },
                 });
                 if (updated.count !== 1) return false;
               }
               return true;
+            },
+            async appendAudit(applications) {
+              for (const application of applications) {
+                await appendPaymentAudit(transaction, audit, {
+                  action: "PAYMENT_APPLIED",
+                  resourceKind: "PAYMENT_APPLICATION",
+                  resourceId: application.id,
+                });
+              }
             },
           }),
         { isolationLevel: "Serializable" }
@@ -682,13 +854,15 @@ function prismaAllocationDependencies(): PaymentAllocationDependencies {
 
 export async function applyPayment(
   paymentId: string,
-  applications: readonly { invoiceId: string; amount: DecimalInput }[]
+  applications: readonly { invoiceId: string; amount: DecimalInput }[],
+  audit: PaymentMutationAudit
 ): Promise<PaymentModel> {
-  await applyPaymentWithDependencies(paymentId, applications, prismaAllocationDependencies());
+  assertPaymentAudit(audit);
+  await applyPaymentWithDependencies(paymentId, applications, prismaAllocationDependencies(audit));
   return getPayment(paymentId);
 }
 
-function prismaReversalDependencies(): PaymentReversalDependencies {
+function prismaReversalDependencies(audit: PaymentMutationAudit): PaymentReversalDependencies {
   return {
     transaction: (operation) =>
       prisma.$transaction(
@@ -696,7 +870,7 @@ function prismaReversalDependencies(): PaymentReversalDependencies {
           operation({
             async loadApplication(applicationId) {
               const [application, control] = await Promise.all([
-                transaction.paymentApplication.findUnique({
+                transaction.paymentApplication.findFirst({
                   where: { id: applicationId },
                   include: {
                     payment: true,
@@ -736,7 +910,15 @@ function prismaReversalDependencies(): PaymentReversalDependencies {
                   status: invoice.status,
                 },
               });
-              return updated.count === 1;
+              if (updated.count !== 1) return false;
+              return true;
+            },
+            async appendAudit(reversal) {
+              await appendPaymentAudit(transaction, audit, {
+                action: "PAYMENT_APPLICATION_REVERSED",
+                resourceKind: "PAYMENT_APPLICATION_REVERSAL",
+                resourceId: reversal.id,
+              });
             },
           }),
         { isolationLevel: "Serializable" }
@@ -747,16 +929,46 @@ function prismaReversalDependencies(): PaymentReversalDependencies {
 export async function reversePaymentApplication(
   paymentId: string,
   applicationId: string,
-  input: ReversePaymentApplicationInput
+  input: ReversePaymentApplicationInput,
+  audit: PaymentMutationAudit
 ): Promise<PaymentApplicationReversalModel> {
+  assertPaymentAudit(audit);
   const { reversalId } = await reversePaymentApplicationWithDependencies(
     paymentId,
     applicationId,
     input,
-    prismaReversalDependencies()
+    prismaReversalDependencies(audit)
   );
-  const row = await prisma.paymentApplicationReversal.findUniqueOrThrow({
+  const row = await prisma.paymentApplicationReversal.findFirst({
     where: { id: reversalId },
   });
+  if (row === null) throw new NotFoundError("PAYMENT_APPLICATION_NOT_FOUND", "The payment application was not found on this payment");
   return toPaymentApplicationReversalModel(row);
+}
+
+function assertPaymentAudit(audit: PaymentMutationAudit): void {
+  if (!audit.metadata) throw new Error("payment audit metadata is required");
+}
+
+async function appendPaymentAudit(
+  transaction: PaymentAuditTransaction,
+  audit: PaymentMutationAudit,
+  event: Parameters<RequestAuditAppender>[2]
+): Promise<void> {
+  await (audit.append ?? appendRequestAuditEvent)(
+    auditEventRepository(transaction),
+    audit.metadata,
+    event
+  );
+}
+
+/** Adapts exactly the audited Prisma delegate instead of casting a broad transaction. */
+function auditEventRepository(
+  transaction: Pick<Prisma.TransactionClient, "auditEvent">
+): AuditEventRepository {
+  return {
+    auditEvent: {
+      create: ({ data }) => transaction.auditEvent.create({ data }),
+    },
+  };
 }

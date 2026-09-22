@@ -8,7 +8,7 @@ import {
   PreconditionError,
   ProblemDetailsSchema,
 } from "./errors";
-import { createApp } from "./app";
+import { JSON_BODY_LIMIT_BYTES, createApp } from "./app";
 import { h } from "./views/helpers";
 
 async function requestApp(
@@ -19,6 +19,8 @@ async function requestApp(
   readonly status: number;
   readonly contentType: string | null;
   readonly link: string | null;
+  readonly requestId: string | null;
+  readonly wwwAuthenticate: string | null;
   readonly body: unknown;
 }> {
   const server = app.listen(0);
@@ -31,6 +33,8 @@ async function requestApp(
       status: response.status,
       contentType: response.headers.get("content-type"),
       link: response.headers.get("link"),
+      requestId: response.headers.get("x-request-id"),
+      wwwAuthenticate: response.headers.get("www-authenticate"),
       body: await response.json(),
     };
   } finally {
@@ -46,6 +50,13 @@ function close(server: Server): Promise<void> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function jsonBodyWithByteLength(byteLength: number, secret: string): string {
+  const envelope = `{"secret":"${secret}"}`;
+  const fillerLength = byteLength - Buffer.byteLength(envelope);
+  if (fillerLength < 0) throw new Error("requested JSON body is smaller than its envelope");
+  return `{"secret":"${secret}${"x".repeat(fillerLength)}"}`;
 }
 
 void describe("HTTP problem-details boundary", () => {
@@ -202,6 +213,92 @@ void describe("HTTP problem-details boundary", () => {
     assert.doesNotMatch(JSON.stringify(response.body), /super-secret-value/);
   });
 
+  void test("propagates a valid correlation ID and generates one before public or protected routes", async () => {
+    const supplied = await requestApp(createApp(), "/health/live", {
+      headers: { "x-request-id": "edge-gateway_9.4" },
+    });
+    const generated = await requestApp(createApp({ apiKey: "test-api-key" }), "/api/payments", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-api-key",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ customerId: "", amount: 1 }),
+    });
+
+    assert.equal(supplied.status, 200);
+    assert.equal(supplied.requestId, "edge-gateway_9.4");
+    assert.equal(generated.status, 400);
+    assert.match(generated.requestId ?? "", /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu);
+  });
+
+  void test("rejects malformed correlation IDs without reflecting their contents", async () => {
+    const maliciousId = "credential leaked in request id";
+    const response = await requestApp(createApp(), "/health/live", {
+      headers: { "x-request-id": maliciousId },
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(response.body, {
+      type: "urn:meridian:problem:invalid-request-id",
+      title: "Invalid Request ID",
+      status: 400,
+      code: "INVALID_REQUEST_ID",
+    });
+    assert.notEqual(response.requestId, maliciousId);
+    assert.match(response.requestId ?? "", /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu);
+    assert.doesNotMatch(JSON.stringify(response.body), /credential|leaked/i);
+  });
+
+  void test("emits a redacted, correlated private event for unexpected failures", async () => {
+    const events: unknown[] = [];
+    const secret = "do-not-log-this-secret";
+    const app = createApp({
+      privateErrorLogSink(event) {
+        events.push(event);
+      },
+      configure(testApp) {
+        testApp.post(
+          "/test/unexpected-private-log",
+          h(async () => {
+            throw new Error(`database password=${secret}`);
+          })
+        );
+      },
+    });
+
+    const response = await requestApp(app, `/test/unexpected-private-log?email=person@example.com`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer credential-that-must-not-appear",
+        cookie: "session=not-for-logs",
+        "content-type": "application/json",
+        "x-request-id": "correlated-failure-1",
+      },
+      body: JSON.stringify({ password: secret, email: "person@example.com" }),
+    });
+
+    assert.equal(response.status, 500);
+    assert.equal(response.requestId, "correlated-failure-1");
+    assert.equal(events.length, 1);
+    const event = events[0];
+    if (!isRecord(event)) throw new Error("private error logger emitted a non-object event");
+    assert.deepEqual(event, {
+      timestamp: event.timestamp,
+      level: "error",
+      requestId: "correlated-failure-1",
+      method: "POST",
+      path: "/test/unexpected-private-log",
+      status: 500,
+      code: "INTERNAL_ERROR",
+      stage: "UNHANDLED",
+    });
+    assert.doesNotMatch(
+      JSON.stringify(event),
+      /do-not-log|credential-that-must-not-appear|not-for-logs|person@example\.com|password/i
+    );
+  });
+
   void test("preserves the existing request-validation body and handles malformed JSON separately", async () => {
     const validation = await requestApp(createApp(), "/api/payments", {
       method: "POST",
@@ -225,6 +322,51 @@ void describe("HTTP problem-details boundary", () => {
       status: 400,
       code: "INVALID_JSON",
     });
+  });
+
+  void test("rejects a limit-plus-one JSON body as a redacted 413 without unexpected-error logging", async () => {
+    const rawErrors: unknown[] = [];
+    const privateEvents: unknown[] = [];
+    const secret = "body-secret-that-must-not-leak";
+    const body = jsonBodyWithByteLength(JSON_BODY_LIMIT_BYTES + 1, secret);
+    assert.equal(Buffer.byteLength(body), JSON_BODY_LIMIT_BYTES + 1);
+
+    const acceptedBoundary = await requestApp(createApp(), "/api/v1/payments", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: jsonBodyWithByteLength(JSON_BODY_LIMIT_BYTES, secret),
+    });
+    assert.notEqual(acceptedBoundary.status, 413, "the documented byte limit is inclusive");
+    assert.doesNotMatch(JSON.stringify(acceptedBoundary.body), /body-secret|must-not-leak/i);
+
+    const response = await requestApp(createApp({
+      logError(error) {
+        rawErrors.push(error);
+      },
+      privateErrorLogSink(event) {
+        privateEvents.push(event);
+      },
+    }), "/api/v1/payments", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-request-id": "oversized-json-body-1",
+      },
+      body,
+    });
+
+    assert.equal(response.status, 413);
+    assert.equal(response.contentType, "application/problem+json; charset=utf-8");
+    assert.equal(response.requestId, "oversized-json-body-1");
+    assert.deepEqual(response.body, {
+      type: "urn:meridian:problem:payload-too-large",
+      title: "Request body too large",
+      status: 413,
+      code: "PAYLOAD_TOO_LARGE",
+    });
+    assert.equal(rawErrors.length, 0);
+    assert.equal(privateEvents.length, 0);
+    assert.doesNotMatch(JSON.stringify(response.body), /body-secret|must-not-leak/i);
   });
 
   void test("returns a stable problem for an unknown route", async () => {
@@ -273,6 +415,8 @@ void describe("HTTP problem-details boundary", () => {
 
     for (const response of [missing, wrong]) {
       assert.equal(response.status, 401);
+      assert.equal(response.wwwAuthenticate, 'Bearer realm="meridian-api"');
+      assert.match(response.requestId ?? "", /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu);
       assert.deepEqual(response.body, {
         type: "urn:meridian:problem:unauthorized",
         title: "Unauthorized",
@@ -288,7 +432,7 @@ void describe("HTTP problem-details boundary", () => {
   void test("refuses to start production without an API key", () => {
     assert.throws(
       () => createApp({ environment: "production", apiKey: "" }),
-      /MERIDIAN_API_KEY is required/
+      /MERIDIAN_API_KEY or MERIDIAN_API_KEY_PEPPER is required/
     );
   });
 });

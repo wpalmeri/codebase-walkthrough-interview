@@ -4,7 +4,8 @@ import {
   PercentageStringSchema,
   QuantityStringSchema,
 } from "./decimal.js";
-import { TransmissionMethodSchema } from "./requests.js";
+import { PageEnvelopeSchema } from "./paginationSchemas.js";
+import { OperatorApiKeyRoleSchema, TransmissionMethodSchema } from "./requests.js";
 
 const id = z.string().min(1);
 const isoDateTime = z.iso.datetime({ offset: true });
@@ -15,7 +16,8 @@ const nonNegativeMoney = money.nonnegative();
 export const CurrencyCodeSchema = z.literal("USD");
 export type CurrencyCode = z.infer<typeof CurrencyCodeSchema>;
 
-export const EmailAddressSchema = z.email();
+/** Bounded mailbox syntax shared by persisted customer data and delivery inputs. */
+export const EmailAddressSchema = z.email().max(254);
 
 /** Stable RFC 9457-style error envelope shared by every API surface. */
 export const ProblemDetailsSchema = z.strictObject({
@@ -55,6 +57,10 @@ export const CustomerSchema = z.object({
 });
 export type Customer = z.infer<typeof CustomerSchema>;
 
+/** Additive v1 envelope; legacy customer lists remain bare arrays. */
+export const CustomerPageSchema = PageEnvelopeSchema(CustomerSchema);
+export type CustomerPage = z.infer<typeof CustomerPageSchema>;
+
 export const ProductSchema = z.object({
   id,
   sku: z.string(),
@@ -65,6 +71,10 @@ export const ProductSchema = z.object({
   currencyCode: CurrencyCodeSchema.optional(),
 });
 export type Product = z.infer<typeof ProductSchema>;
+
+/** Additive v1 envelope; legacy product lists remain bare arrays. */
+export const ProductPageSchema = PageEnvelopeSchema(ProductSchema);
+export type ProductPage = z.infer<typeof ProductPageSchema>;
 
 export const RateTierSchema = z.object({
   upTo: z.number().positive().nullable(),
@@ -153,6 +163,10 @@ export const OrderSchema = z.object({
 });
 export type Order = z.infer<typeof OrderSchema>;
 
+/** Additive v1 envelope; legacy order lists remain bare arrays. */
+export const OrderPageSchema = PageEnvelopeSchema(OrderSchema);
+export type OrderPage = z.infer<typeof OrderPageSchema>;
+
 export const TransmissionSchema = z.object({
   id,
   invoiceId: id,
@@ -220,6 +234,47 @@ export const InvoiceSchema = z.object({
 });
 export type Invoice = z.infer<typeof InvoiceSchema>;
 
+/** Additive v1 envelope; legacy invoice lists remain bare arrays. */
+export const InvoicePageSchema = PageEnvelopeSchema(InvoiceSchema);
+export type InvoicePage = z.infer<typeof InvoicePageSchema>;
+
+/** Public metadata for an opaque internal operator API key; neither its secret nor digest is exposed. */
+export { OperatorApiKeyRoleSchema } from "./requests.js";
+export type { OperatorApiKeyRole } from "./requests.js";
+
+export const OperatorApiKeySchema = z.strictObject({
+  id,
+  name: z.string().min(1).max(160),
+  role: OperatorApiKeyRoleSchema,
+  keyPrefix: z.string().regex(/^mrd_[A-Za-z0-9]{8,32}$/u),
+  createdAt: isoDateTime,
+});
+export type OperatorApiKey = z.infer<typeof OperatorApiKeySchema>;
+
+/** The token is returned at issue time only and must never be persisted for replay. */
+export const IssueOperatorApiKeyResponseSchema = z.strictObject({
+  key: OperatorApiKeySchema,
+  token: z.string().regex(/^mrd_[A-Za-z0-9]{8,32}_[A-Za-z0-9-]{32,128}$/u),
+});
+export type IssueOperatorApiKeyResponse = z.infer<typeof IssueOperatorApiKeyResponseSchema>;
+
+export const RevokeOperatorApiKeyResponseSchema = z.strictObject({
+  key: z.strictObject({
+    id,
+    keyPrefix: z.string().regex(/^mrd_[A-Za-z0-9]{8,32}$/u),
+    state: z.enum(["REVOKED", "ALREADY_REVOKED"]),
+    revokedAt: isoDateTime,
+  }),
+});
+export type RevokeOperatorApiKeyResponse = z.infer<typeof RevokeOperatorApiKeyResponseSchema>;
+
+/** Result of a monotonic, company-wide accounting-period close. */
+export const CloseAccountingPeriodResponseSchema = z.strictObject({
+  state: z.enum(["CLOSED", "ALREADY_CLOSED"]),
+  closedThroughDate: z.iso.date(),
+});
+export type CloseAccountingPeriodResponse = z.infer<typeof CloseAccountingPeriodResponseSchema>;
+
 export const PaymentApplicationSchema = z.object({
   id,
   invoiceId: id,
@@ -266,6 +321,10 @@ export const PaymentSchema = z.object({
 });
 export type Payment = z.infer<typeof PaymentSchema>;
 
+/** Additive v1 envelope; the legacy payment-list representation stays an array. */
+export const PaymentPageSchema = PageEnvelopeSchema(PaymentSchema);
+export type PaymentPage = z.infer<typeof PaymentPageSchema>;
+
 export const QuarterRevenueSchema = z.object({
   quarter: z.string(),
   invoiceCount: z.number().int().nonnegative(),
@@ -293,3 +352,4 @@ export type AnnualRevenue = z.infer<typeof AnnualRevenueSchema>;
 
 export * from "./requests.js";
 export * from "./decimal.js";
+export * from "./paginationSchemas.js";

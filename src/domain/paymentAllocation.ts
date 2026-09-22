@@ -23,7 +23,12 @@ const zeroMoney = canonicalMoney("0");
 
 const identifier = z.string().min(1);
 
-export const EligibleInvoiceStatusSchema = z.enum(["POSTED", "SENT"]);
+const invoiceStatus = InvoiceStatusSchema.enum;
+
+export const EligibleInvoiceStatusSchema = z.union([
+  z.literal(invoiceStatus.POSTED),
+  z.literal(invoiceStatus.SENT),
+]);
 export type EligibleInvoiceStatus = z.infer<typeof EligibleInvoiceStatusSchema>;
 
 export const PaymentAllocationRequestSchema = z.strictObject({

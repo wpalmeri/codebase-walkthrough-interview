@@ -4,6 +4,7 @@ import {
   PercentageInputStringSchema,
   QuantityInputStringSchema,
 } from "./decimal.js";
+import { PaginationQuerySchema } from "./paginationSchemas.js";
 
 export const TransmissionMethodSchema = z.enum(["EMAIL", "PORTAL", "API"]);
 
@@ -74,6 +75,12 @@ export const PercentageInputSchema = z.union([
 const EmptyParamsSchema = EmptyObjectSchema;
 const EmptyQuerySchema = EmptyObjectSchema;
 const IdParamsSchema = z.strictObject({ id: IdentifierSchema });
+const OperatorApiKeyPrefixSchema = z.string().regex(/^mrd_[A-Za-z0-9]{8,32}$/u);
+/** Prisma uses a 191-character identifier ceiling for persisted operator credentials. */
+export const OperatorApiKeyIdSchema = z.string().min(1).max(191);
+/** Shared wire vocabulary for internal operator credentials and their administration requests. */
+export const OperatorApiKeyRoleSchema = z.enum(["ADMIN", "BILLING", "VIEWER"]);
+export type OperatorApiKeyRole = z.infer<typeof OperatorApiKeyRoleSchema>;
 const PaymentApplicationParamsSchema = z.strictObject({
   id: IdentifierSchema,
   applicationId: IdentifierSchema,
@@ -168,8 +175,24 @@ function uniqueBy<T>(
 export const ListCustomersRequestSchema = EmptyRequestSchema;
 export type ListCustomersRequest = z.infer<typeof ListCustomersRequestSchema>;
 
+/** Pagination is additive on `/api/v1`; legacy `/api/customers` stays an array. */
+export const ListCustomersV1RequestSchema = requestSchema(
+  EmptyParamsSchema,
+  PaginationQuerySchema,
+  NoBodySchema
+);
+export type ListCustomersV1Request = z.infer<typeof ListCustomersV1RequestSchema>;
+
 export const ListProductsRequestSchema = EmptyRequestSchema;
 export type ListProductsRequest = z.infer<typeof ListProductsRequestSchema>;
+
+/** Pagination is additive on `/api/v1`; legacy `/api/products` stays an array. */
+export const ListProductsV1RequestSchema = requestSchema(
+  EmptyParamsSchema,
+  PaginationQuerySchema,
+  NoBodySchema
+);
+export type ListProductsV1Request = z.infer<typeof ListProductsV1RequestSchema>;
 
 export const ListRatesRequestSchema = requestSchema(
   EmptyParamsSchema,
@@ -180,6 +203,13 @@ export type ListRatesRequest = z.infer<typeof ListRatesRequestSchema>;
 
 export const ListComboDiscountsRequestSchema = ListRatesRequestSchema;
 export type ListComboDiscountsRequest = z.infer<typeof ListComboDiscountsRequestSchema>;
+
+export const GetRateRequestSchema = requestSchema(
+  IdParamsSchema,
+  EmptyQuerySchema,
+  NoBodySchema
+);
+export type GetRateRequest = z.infer<typeof GetRateRequestSchema>;
 
 export const CreateComboDiscountRequestSchema = requestSchema(
   EmptyParamsSchema,
@@ -211,6 +241,14 @@ export type UpdateRateRequest = z.infer<typeof UpdateRateRequestSchema>;
 
 export const ListOrdersRequestSchema = EmptyRequestSchema;
 export type ListOrdersRequest = z.infer<typeof ListOrdersRequestSchema>;
+
+/** Pagination is additive on `/api/v1`; legacy `/api/orders` stays an array. */
+export const ListOrdersV1RequestSchema = requestSchema(
+  EmptyParamsSchema,
+  PaginationQuerySchema,
+  NoBodySchema
+);
+export type ListOrdersV1Request = z.infer<typeof ListOrdersV1RequestSchema>;
 
 export const GetOrderRequestSchema = requestSchema(
   IdParamsSchema,
@@ -268,6 +306,12 @@ export const UpdateOrderRequestSchema = requestSchema(
 );
 export type UpdateOrderRequest = z.infer<typeof UpdateOrderRequestSchema>;
 
+/** v1 Order writes require one strong resource ETag; legacy routes omit it. */
+export const OrderConditionalRequestHeadersSchema = z.strictObject({
+  "If-Match": z.string().min(1).max(2048),
+});
+export type OrderConditionalRequestHeaders = z.infer<typeof OrderConditionalRequestHeadersSchema>;
+
 export const CreateInvoiceForOrderRequestSchema = requestSchema(
   IdParamsSchema,
   EmptyQuerySchema,
@@ -279,6 +323,50 @@ export type CreateInvoiceForOrderRequest = z.infer<
 
 export const ListInvoicesRequestSchema = EmptyRequestSchema;
 export type ListInvoicesRequest = z.infer<typeof ListInvoicesRequestSchema>;
+
+/** Pagination is additive on `/api/v1`; legacy `/api/invoices` stays an array. */
+export const ListInvoicesV1RequestSchema = requestSchema(
+  EmptyParamsSchema,
+  PaginationQuerySchema,
+  NoBodySchema
+);
+export type ListInvoicesV1Request = z.infer<typeof ListInvoicesV1RequestSchema>;
+
+/** An active ADMIN operator credential authorizes issuing another operator key. */
+export const IssueOperatorApiKeyRequestSchema = requestSchema(
+  EmptyParamsSchema,
+  EmptyQuerySchema,
+  z.strictObject({
+    name: z.string().trim().min(1).max(160),
+    role: OperatorApiKeyRoleSchema,
+  })
+);
+export type IssueOperatorApiKeyRequest = z.infer<typeof IssueOperatorApiKeyRequestSchema>;
+
+/** Exactly one opaque operator-facing identifier is accepted for revocation. */
+export const RevokeOperatorApiKeyRequestSchema = requestSchema(
+  EmptyParamsSchema,
+  EmptyQuerySchema,
+  z
+    .strictObject({ keyId: OperatorApiKeyIdSchema.optional(), keyPrefix: OperatorApiKeyPrefixSchema.optional() })
+    .superRefine((value, context) => {
+      if ((value.keyId === undefined) === (value.keyPrefix === undefined)) {
+        context.addIssue({ code: "custom", message: "provide exactly one of keyId or keyPrefix" });
+      }
+    })
+);
+export type RevokeOperatorApiKeyRequest = z.infer<typeof RevokeOperatorApiKeyRequestSchema>;
+
+/** An authorized operator chooses an explicit inclusive UTC close date. */
+export const CloseAccountingPeriodBodySchema = z.strictObject({ closedThroughDate: z.iso.date() });
+export type CloseAccountingPeriodBody = z.infer<typeof CloseAccountingPeriodBodySchema>;
+
+export const CloseAccountingPeriodRequestSchema = requestSchema(
+  EmptyParamsSchema,
+  EmptyQuerySchema,
+  CloseAccountingPeriodBodySchema
+);
+export type CloseAccountingPeriodRequest = z.infer<typeof CloseAccountingPeriodRequestSchema>;
 
 export const GetInvoiceRequestSchema = requestSchema(
   IdParamsSchema,
@@ -335,6 +423,14 @@ export type RefreshTransmissionRequest = z.infer<
 
 export const ListPaymentsRequestSchema = EmptyRequestSchema;
 export type ListPaymentsRequest = z.infer<typeof ListPaymentsRequestSchema>;
+
+/** Additive v1 query contract; legacy `/api/payments` remains an array endpoint. */
+export const ListPaymentsV1RequestSchema = requestSchema(
+  EmptyParamsSchema,
+  PaginationQuerySchema.extend({ customerId: IdentifierSchema.optional() }),
+  NoBodySchema
+);
+export type ListPaymentsV1Request = z.infer<typeof ListPaymentsV1RequestSchema>;
 
 export const GetPaymentRequestSchema = requestSchema(
   IdParamsSchema,

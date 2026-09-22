@@ -7,8 +7,123 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Meridian owns one billing database. Customer is the bill-to entity; it is
+// not an authentication or data-isolation boundary. Operator credentials are
+// global internal credentials with narrowly scoped roles.
+enum OperatorApiKeyRole {
+  ADMIN
+  BILLING
+  VIEWER
+}
+
+// SQLite stores Prisma enums as TEXT, so this is an additive generated-client
+// typing improvement over the existing database representation. The database
+// lifecycle guards remain the runtime authority for legacy and direct-SQL writes.
+enum OrderStatus {
+  OPEN
+  INVOICED
+  CLOSED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  POSTED
+  SENT
+  PAID
+  VOID
+}
+
+enum TransmissionMethod {
+  EMAIL
+  PORTAL
+  API
+}
+
+enum TransmissionStatus {
+  QUEUED
+  UPLOADING
+  DELIVERED
+  SENT
+  ACCEPTED
+  FAILED
+}
+
+enum IdempotencyHttpMethod {
+  POST
+  PUT
+  PATCH
+  DELETE
+}
+
+enum IdempotencyRecordState {
+  IN_PROGRESS
+  COMPLETED
+}
+
+// Audit records use explicit generated enums so controller integrations cannot
+// silently introduce unreviewed lifecycle strings.
+enum AuditAction {
+  COMBO_DISCOUNT_CREATED
+  RATE_CREATED
+  RATE_UPDATED
+  ORDER_CREATED
+  ORDER_UPDATED
+  ORDER_INVOICED
+  INVOICE_CREATED
+  INVOICE_UPDATED
+  INVOICE_POSTED
+  INVOICE_SENT
+  INVOICE_VOIDED
+  INVOICE_DELIVERY_REQUESTED
+  INVOICE_DELIVERY_UPDATED
+  PAYMENT_RECORDED
+  PAYMENT_APPLIED
+  PAYMENT_APPLICATION_REVERSED
+  OPERATOR_API_KEY_ISSUED
+  OPERATOR_API_KEY_REVOKED
+  ACCOUNTING_PERIOD_CLOSED
+}
+
+enum AuditPrincipalKind {
+  OPERATOR_API_KEY
+  LEGACY_API_KEY
+  DEVELOPMENT
+}
+
+enum AuditResourceKind {
+  COMBO_DISCOUNT
+  RATE
+  ORDER
+  INVOICE
+  INVOICE_DELIVERY
+  PAYMENT
+  PAYMENT_APPLICATION
+  PAYMENT_APPLICATION_REVERSAL
+  OPERATOR_API_KEY
+  ACCOUNTING_PERIOD_CONTROL
+}
+
+// The API key secret itself is never stored. keyHash is a one-way, versioned
+// server-generated digest; keyPrefix is only an operator-facing identifier.
+model OperatorApiKey {
+  id         String     @id @default(cuid())
+  name       String
+  role       OperatorApiKeyRole @default(BILLING)
+  keyPrefix  String     @unique
+  keyHash    String     @unique
+  createdAt  DateTime   @default(now())
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+
+  @@unique([name])
+  @@index([revokedAt])
+}
+
 model Customer {
   id              String   @id @default(cuid())
+  // Nullable during the expand/backfill rollout. Conditional-write endpoints
+  // will atomically advance this monotonically increasing value once adopted.
+  resourceVersion Int?
   name            String
   email           String
   billingAddress  String?
@@ -21,10 +136,12 @@ model Customer {
   orders         Order[]
   invoices       Invoice[]
   payments       Payment[]
+  @@index([name, id])
 }
 
 model Product {
   id               String   @id @default(cuid())
+  resourceVersion  Int?
   sku              String   @unique
   name             String
   unit             String // "seat", "GB", "1k calls", ...
@@ -35,11 +152,13 @@ model Product {
   rates      Rate[]
   orderItems OrderItem[]
   combos     ComboDiscount[]
+  @@index([sku, id])
 }
 
 // One rate per customer+product. Edits update this row with the new price.
 model Rate {
   id               String   @id @default(cuid())
+  resourceVersion  Int?
   customerId       String
   productId        String
   unitPrice        Float // Legacy compatibility column; retire after the decimal cutover.
@@ -60,6 +179,7 @@ model Rate {
 // by percentOff. Scoped to one customer, or global when customerId is null.
 model ComboDiscount {
   id                String   @id @default(cuid())
+  resourceVersion   Int?
   customerId        String?
   name              String
   percentOff        Float // Legacy compatibility column; retire after the decimal cutover.
@@ -70,19 +190,21 @@ model ComboDiscount {
 }
 
 model Order {
-  id         String   @id @default(cuid())
-  reference  String? // sales order number, e.g. SO-0042
-  customerId String // immutable after any order item captures pricing
-  orderDate  DateTime @default(now())
-  status     String   @default("OPEN") // OPEN | INVOICED | CLOSED
-  shipTo     String? // receiving party / delivery address
-  notes      String?
-  currencyCode String? // Supported order-pricing currency; immutable after capture and nullable only during rollout.
+  id              String      @id @default(cuid())
+  resourceVersion Int?
+  reference       String? // sales order number, e.g. SO-0042
+  customerId      String // immutable after any order item captures pricing
+  orderDate       DateTime    @default(now())
+  status          OrderStatus @default(OPEN)
+  shipTo          String? // receiving party / delivery address
+  notes           String?
+  currencyCode    String? // Supported order-pricing currency; immutable after capture and nullable only during rollout.
 
   customer Customer       @relation(fields: [customerId], references: [id])
   items    OrderItem[]
   invoice  Invoice?
   comments OrderComment[]
+  @@index([orderDate(sort: Desc), id(sort: Desc)])
 }
 
 model OrderComment {
@@ -122,15 +244,16 @@ model OrderItem {
 }
 
 model Invoice {
-  id                     String    @id @default(cuid())
-  number                 String    @unique
+  id                     String        @id @default(cuid())
+  resourceVersion        Int?
+  number                 String        @unique
   customerId             String
-  orderId                String    @unique
-  status                 String    @default("DRAFT") // DRAFT | POSTED | SENT | PAID | VOID
-  issueDate              DateTime  @default(now())
+  orderId                String        @unique
+  status                 InvoiceStatus @default(DRAFT)
+  issueDate              DateTime      @default(now())
   dueDate                DateTime
-  total                  Float     @default(0) // Legacy compatibility column.
-  amountPaid             Float     @default(0) // Legacy compatibility column.
+  total                  Float         @default(0) // Legacy compatibility column.
+  amountPaid             Float         @default(0) // Legacy compatibility column.
   totalDecimal           Decimal? // DECIMAL(19,4) in the migration.
   amountPaidDecimal      Decimal? // DECIMAL(19,4) in the migration.
   customerNameSnapshot   String?
@@ -147,6 +270,7 @@ model Invoice {
   lines         InvoiceLine[]
   applications  PaymentApplication[]
   transmissions Transmission[]
+  @@index([issueDate(sort: Desc), id(sort: Desc)])
 }
 
 // This table has exactly one permitted row (id = 1). Its nullable close date
@@ -167,19 +291,19 @@ model BackfillCheckpoint {
 // Durable request-replay state. State is constrained by the additive migration;
 // the runtime schema below is intentionally the source of its typed boundary.
 model IdempotencyRecord {
-  id                 String    @id @default(cuid())
-  clientScope        String
-  method             String
-  route              String
-  idempotencyKey     String
-  requestFingerprint String
-  state              String    @default("IN_PROGRESS") // IN_PROGRESS | COMPLETED
-  responseStatus     Int?
+  id                  String                 @id @default(cuid())
+  clientScope         String
+  method              IdempotencyHttpMethod
+  route               String
+  idempotencyKey      String
+  requestFingerprint  String
+  state               IdempotencyRecordState @default(IN_PROGRESS)
+  responseStatus      Int?
   responseContentType String?
-  responseBodyBase64 String?
-  createdAt          DateTime  @default(now())
-  completedAt        DateTime?
-
+  responseBodyBase64  String?
+  responseEtag        String?
+  createdAt           DateTime               @default(now())
+  completedAt         DateTime?
   @@unique([clientScope, method, route, idempotencyKey])
   @@index([createdAt])
 }
@@ -214,6 +338,25 @@ model Payment {
 
   customer     Customer             @relation(fields: [customerId], references: [id])
   applications PaymentApplication[]
+  @@index([receivedAt(sort: Desc), id(sort: Desc)])
+}
+
+// Immutable security/accounting metadata. Deliberately no generic payload:
+// request bodies, errors, credentials, and PII do not belong in this table.
+model AuditEvent {
+  id                        String             @id
+  action                    AuditAction
+  principalKind             AuditPrincipalKind
+  principalSubject          String
+  principalCredentialId     String
+  requestId                 String
+  idempotencyKeyFingerprint String?
+  resourceKind              AuditResourceKind
+  resourceId                String
+  occurredAt                DateTime
+
+  @@index([occurredAt, id])
+  @@index([resourceKind, resourceId, occurredAt])
 }
 
 model PaymentApplication {
@@ -224,8 +367,8 @@ model PaymentApplication {
   amountDecimal Decimal? // DECIMAL(19,4); append-only except a null backfill.
   appliedAt     DateTime @default(now())
 
-  payment Payment @relation(fields: [paymentId], references: [id])
-  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  payment   Payment                      @relation(fields: [paymentId], references: [id])
+  invoice   Invoice                      @relation(fields: [invoiceId], references: [id])
   reversals PaymentApplicationReversal[]
 }
 
@@ -247,14 +390,14 @@ model PaymentApplicationReversal {
 }
 
 model Transmission {
-  id            String   @id @default(cuid())
+  id            String             @id @default(cuid())
   invoiceId     String
-  method        String // EMAIL | PORTAL | API
-  status        String // EMAIL: SENT; PORTAL: QUEUED|UPLOADING|DELIVERED; API: ACCEPTED
+  method        TransmissionMethod
+  status        TransmissionStatus
   externalJobId String?
   detail        String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 }

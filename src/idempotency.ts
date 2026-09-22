@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import { IdempotencyRecordState } from "@prisma/client";
 import type { Request, RequestHandler, Response } from "express";
 import { z } from "zod";
+import { PrincipalSchema } from "./auth/principal";
 import { prisma } from "./db";
 import { ApplicationError, ConflictError } from "./errors";
 
@@ -19,6 +21,7 @@ export const IdempotencyResponseSchema = z.object({
   status: z.number().int().min(100).max(599),
   contentType: z.string().min(1).max(255).nullable(),
   bodyBase64: z.string(),
+  etag: z.string().min(1).max(2048).nullable(),
 });
 export type IdempotencyResponse = z.infer<typeof IdempotencyResponseSchema>;
 
@@ -30,6 +33,8 @@ export const IdempotencyRecordSchema = z.object({
   requestFingerprint: z.string().length(64),
 });
 export type IdempotencyRecord = z.infer<typeof IdempotencyRecordSchema>;
+const idempotencyHttpMethod = IdempotencyRecordSchema.shape.method.enum;
+const idempotencyWriteMethods = new Set<string>(Object.values(idempotencyHttpMethod));
 
 export type IdempotencyReservation =
   | { readonly kind: "reserved"; readonly id: string }
@@ -42,12 +47,15 @@ export interface IdempotencyStore {
   complete(id: string, response: IdempotencyResponse): Promise<void>;
 }
 
+export type IdempotencyPersistenceErrorHandler = (error: unknown, request: Request) => void;
+
 class IdempotencyHeaderError extends ApplicationError {
   constructor(
     code:
       | "INVALID_IDEMPOTENCY_KEY"
       | "INVALID_IDEMPOTENCY_CLIENT"
-      | "IDEMPOTENCY_CLIENT_REQUIRED",
+      | "IDEMPOTENCY_PRINCIPAL_REQUIRED"
+      | "IDEMPOTENCY_NOT_SUPPORTED",
     detail: string
   ) {
     super({
@@ -95,7 +103,7 @@ function routeFor(request: Request): string {
 }
 
 function recordFor(request: Request): IdempotencyRecord | null {
-  if (!new Set(["POST", "PUT", "PATCH", "DELETE"]).has(request.method)) return null;
+  if (!idempotencyWriteMethods.has(request.method)) return null;
 
   const suppliedKey = request.get("idempotency-key");
   if (suppliedKey === undefined) return null;
@@ -104,14 +112,18 @@ function recordFor(request: Request): IdempotencyRecord | null {
     throw new IdempotencyHeaderError("INVALID_IDEMPOTENCY_KEY", "Idempotency-Key must be a 1-128 character printable ASCII value");
   }
 
-  const authorization = request.get("authorization");
-  const suppliedClient = request.get("idempotency-client");
-  if (authorization === undefined && suppliedClient === undefined) {
+  // This endpoint returns a one-time plaintext credential. Capturing its
+  // response would retain the secret in IdempotencyRecord, so reject the
+  // header before any reservation is attempted.
+  const route = routeFor(request);
+  if (request.method === idempotencyHttpMethod.POST && route === "/api/operator-api-keys") {
     throw new IdempotencyHeaderError(
-      "IDEMPOTENCY_CLIENT_REQUIRED",
-      "Idempotency-Key requires Authorization or Idempotency-Client to isolate clients"
+      "IDEMPOTENCY_NOT_SUPPORTED",
+      "Idempotency-Key is not supported when issuing one-time credentials"
     );
   }
+
+  const suppliedClient = request.get("idempotency-client");
   const parsedClient = suppliedClient === undefined ? undefined : IdempotencyClientSchema.safeParse(suppliedClient);
   if (parsedClient !== undefined && !parsedClient.success) {
     throw new IdempotencyHeaderError(
@@ -120,15 +132,26 @@ function recordFor(request: Request): IdempotencyRecord | null {
     );
   }
 
-  const route = routeFor(request);
+  const principal = PrincipalSchema.safeParse(request.principal);
+  if (!principal.success) {
+    throw new IdempotencyHeaderError(
+      "IDEMPOTENCY_PRINCIPAL_REQUIRED",
+      "Idempotency-Key requires a server-authenticated principal"
+    );
+  }
+
   return IdempotencyRecordSchema.parse({
-    // Never persist even a hash derived from the bearer secret. A supplied
-    // stable client ID survives credential rotation; the current single-key
-    // deployment otherwise has one stable authenticated scope.
+    // Never persist a bearer credential, its secret, or a hash derived from
+    // it. Replay is isolated by the verified operator credential identity;
+    // Idempotency-Client can only make that scope narrower.
     clientScope: hash(
-      parsedClient?.data === undefined
-        ? "authenticated:meridian-api"
-        : `client:${parsedClient.data}`
+      canonicalJson({
+        subjectId: principal.data.subjectId,
+        credentialId: principal.data.credentialId,
+        kind: principal.data.kind,
+        role: principal.data.role,
+        ...(parsedClient?.data === undefined ? {} : { client: parsedClient.data }),
+      })
     ),
     method: request.method,
     route,
@@ -140,6 +163,7 @@ function recordFor(request: Request): IdempotencyRecord | null {
         query: request.query,
         body: request.body,
         contentType: request.get("content-type") ?? null,
+        ifMatch: request.get("if-match") ?? null,
       })
     ),
   });
@@ -172,7 +196,7 @@ export function createPrismaIdempotencyStore(): IdempotencyStore {
       // A raced insert may not yet be observable on a replica; fail closed rather than execute twice.
       if (existing === null) return { kind: "in-progress" };
       if (existing.requestFingerprint !== record.requestFingerprint) return { kind: "fingerprint-mismatch" };
-      if (existing.state === "IN_PROGRESS") return { kind: "in-progress" };
+      if (existing.state === IdempotencyRecordState.IN_PROGRESS) return { kind: "in-progress" };
 
       return {
         kind: "completed",
@@ -180,6 +204,7 @@ export function createPrismaIdempotencyStore(): IdempotencyStore {
           status: existing.responseStatus,
           contentType: existing.responseContentType,
           bodyBase64: existing.responseBodyBase64,
+          etag: existing.responseEtag,
         }),
       };
     },
@@ -187,10 +212,11 @@ export function createPrismaIdempotencyStore(): IdempotencyStore {
       await prisma.idempotencyRecord.update({
         where: { id },
         data: {
-          state: "COMPLETED",
+          state: IdempotencyRecordState.COMPLETED,
           responseStatus: response.status,
           responseContentType: response.contentType,
           responseBodyBase64: response.bodyBase64,
+          responseEtag: response.etag,
           completedAt: new Date(),
         },
       });
@@ -203,9 +229,15 @@ function contentType(response: Response): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function etag(response: Response): string | null {
+  const value = response.getHeader("etag");
+  return typeof value === "string" ? value : null;
+}
+
 function replay(response: Response, stored: IdempotencyResponse): void {
   response.status(stored.status);
   if (stored.contentType !== null) response.setHeader("content-type", stored.contentType);
+  if (stored.etag !== null) response.setHeader("etag", stored.etag);
   response.end(Buffer.from(stored.bodyBase64, "base64"));
 }
 
@@ -223,7 +255,10 @@ const INTERNAL_ERROR_BODY = Buffer.from(
  * response before it is released to the caller. An interrupted reservation stays
  * in progress and fails closed, which is preferable to applying a charge twice.
  */
-export function createIdempotencyMiddleware(store: IdempotencyStore): RequestHandler {
+export function createIdempotencyMiddleware(
+  store: IdempotencyStore,
+  onPersistenceError?: IdempotencyPersistenceErrorHandler
+): RequestHandler {
   return (request, response, next) => {
     let record: IdempotencyRecord | null;
     try {
@@ -256,7 +291,7 @@ export function createIdempotencyMiddleware(store: IdempotencyStore): RequestHan
           );
           return;
         }
-        captureAndPersistResponse(response, store, reservation.id);
+        captureAndPersistResponse(request, response, store, reservation.id, onPersistenceError);
         next();
       },
       next
@@ -264,7 +299,13 @@ export function createIdempotencyMiddleware(store: IdempotencyStore): RequestHan
   };
 }
 
-function captureAndPersistResponse(response: Response, store: IdempotencyStore, recordId: string): void {
+function captureAndPersistResponse(
+  request: Request,
+  response: Response,
+  store: IdempotencyStore,
+  recordId: string,
+  onPersistenceError?: IdempotencyPersistenceErrorHandler
+): void {
   const originalEnd = response.end.bind(response);
   const callbacks: (() => void)[] = [];
   const chunks: Buffer[] = [];
@@ -295,13 +336,27 @@ function captureAndPersistResponse(response: Response, store: IdempotencyStore, 
         status: response.statusCode,
         contentType: contentType(response),
         bodyBase64: body.toString("base64"),
+        etag: etag(response),
       });
       void store.complete(recordId, stored).then(
         () => {
           originalEnd(body, () => callbacks.forEach((done) => done()));
         },
-        () => {
+        (error) => {
+          // Observability is best-effort at this terminal boundary. A broken
+          // user-provided sink must never prevent the fail-closed response.
+          try {
+            onPersistenceError?.(error, request);
+          } catch {
+            // The persistence failure remains the primary event; do not expose
+            // either it or a secondary logging failure to the caller.
+          }
           response.statusCode = 500;
+          response.removeHeader("etag");
+          response.removeHeader("content-length");
+          response.removeHeader("content-encoding");
+          response.removeHeader("last-modified");
+          response.setHeader("cache-control", "no-store");
           response.setHeader("content-type", "application/problem+json");
           originalEnd(INTERNAL_ERROR_BODY, () => callbacks.forEach((done) => done()));
         }

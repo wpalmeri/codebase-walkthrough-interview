@@ -1,4 +1,8 @@
-import { CurrencyCodeSchema } from "@meridian/contracts";
+import {
+  CurrencyCodeSchema,
+  InvoiceStatusSchema,
+  OrderStatusSchema,
+} from "@meridian/contracts";
 import { z } from "zod";
 import { prisma } from "../db";
 import { parseAccountingDate } from "../domain/accountingPeriod";
@@ -16,6 +20,15 @@ import { OrderPricingSnapshotSchema, repriceOrderPricingSnapshot } from "../doma
 
 const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "reconciliation amount" } as const;
 const zeroMoney = canonicalMoney("0");
+const invoiceStatus = InvoiceStatusSchema.enum;
+const orderStatus = OrderStatusSchema.enum;
+const validOrderStatuses = new Set<string>(Object.values(orderStatus));
+const validInvoiceStatuses = new Set<string>(Object.values(invoiceStatus));
+const postedInvoiceStatuses = new Set<string>([
+  invoiceStatus.POSTED,
+  invoiceStatus.SENT,
+  invoiceStatus.PAID,
+]);
 const entityTypes = ["PRODUCT", "RATE", "ORDER", "INVOICE", "PAYMENT"] as const;
 const issueCodes = [
   "APPLICATIONS_EXCEED_INVOICE",
@@ -347,7 +360,7 @@ function missingSnapshot(run: MutableRun, order: OrderReconciliationSource, item
 
 function checkOrders(run: MutableRun, order: OrderReconciliationSource): void {
   const currency = requiredCurrency(run, "ORDER", order.id, `order ${order.id} currency`, order.currencyCode);
-  if (!["OPEN", "INVOICED", "CLOSED"].includes(order.status)) {
+  if (!validOrderStatuses.has(order.status)) {
     issue(run, "ORDER", order.id, "INVALID_ORDER_LIFECYCLE", `order ${order.id} has unknown status ${order.status}`);
   }
   if (order.items.length === 0) {
@@ -414,14 +427,14 @@ function checkInvoices(run: MutableRun, invoice: InvoiceReconciliationSource): v
   // The database permits DRAFT -> VOID without posting, so a voided draft is
   // not itself contradictory. Posted, sent, and paid invoices do require the
   // posting timestamp that records the transition out of draft.
-  const postedLifecycle = ["POSTED", "SENT", "PAID"].includes(invoice.status);
-  if (!["DRAFT", "POSTED", "SENT", "PAID", "VOID"].includes(invoice.status)) {
+  const postedLifecycle = postedInvoiceStatuses.has(invoice.status);
+  if (!validInvoiceStatuses.has(invoice.status)) {
     issue(run, "INVOICE", invoice.id, "INVALID_INVOICE_LIFECYCLE", `invoice ${invoice.id} has unknown status ${invoice.status}`);
   }
   if (postedLifecycle && invoice.postedAt === null) {
     issue(run, "INVOICE", invoice.id, "INVOICE_LIFECYCLE_CONTRADICTION", `finalized invoice ${invoice.id} has no postedAt timestamp`);
   }
-  if (invoice.status === "DRAFT" && invoice.postedAt !== null) {
+  if (invoice.status === invoiceStatus.DRAFT && invoice.postedAt !== null) {
     issue(run, "INVOICE", invoice.id, "INVOICE_LIFECYCLE_CONTRADICTION", `draft invoice ${invoice.id} has a postedAt timestamp`);
   }
 
@@ -465,7 +478,7 @@ function checkInvoices(run: MutableRun, invoice: InvoiceReconciliationSource): v
   if (applicationValuesComplete && total !== null && compareDecimal(applicationTotal, total, moneyFormat) > 0) {
     issue(run, "INVOICE", invoice.id, "APPLICATIONS_EXCEED_INVOICE", `invoice ${invoice.id} applications exceed total`);
   }
-  if (invoice.status === "PAID" && total !== null && paid !== null && compareDecimal(paid, total, moneyFormat) !== 0) {
+  if (invoice.status === invoiceStatus.PAID && total !== null && paid !== null && compareDecimal(paid, total, moneyFormat) !== 0) {
     issue(run, "INVOICE", invoice.id, "INVOICE_LIFECYCLE_CONTRADICTION", `paid invoice ${invoice.id} does not have a zero balance`);
   }
 }

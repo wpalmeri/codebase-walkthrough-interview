@@ -1,19 +1,27 @@
 import assert from "node:assert/strict";
+import type { InvoiceStatus } from "@meridian/contracts";
+import { Prisma } from "@prisma/client";
 import { describe, it } from "node:test";
 import {
+  createRevenueAggregateRepository,
+  revenueByCustomer,
+  revenueByQuarter,
   summarizeAnnualRevenue,
   summarizeRevenueByCustomer,
   summarizeRevenueByQuarter,
   toRecognizedRevenueRows,
   type ReportableInvoice,
+  type RevenueAggregateRepository,
+  type RevenueInput,
 } from "./reportController";
 
 function invoice(
-  status: string,
+  status: InvoiceStatus,
   total: number,
   issueDate = new Date(2026, 0, 15),
   customerId = "customer-1",
-  customerName = "Acme"
+  customerName = "Acme",
+  customerNameSnapshot: string | null = customerName
 ): ReportableInvoice {
   return {
     status,
@@ -22,7 +30,20 @@ function invoice(
     issueDate,
     accountingDate: issueDate.toISOString().slice(0, 10),
     customerId,
+    customerNameSnapshot,
     customer: { name: customerName },
+  };
+}
+
+function revenueInput(id: string, amount: string): RevenueInput {
+  return {
+    id,
+    customerId: "customer-1",
+    customerName: "Acme",
+    accountingDate: "2026-01-15",
+    quarter: "2026-Q1",
+    year: 2026,
+    revenueDecimal: amount,
   };
 }
 
@@ -61,6 +82,36 @@ void describe("revenue reports", () => {
         revenueDecimal: "125.0000",
       },
     ]);
+  });
+
+  void it("uses captured invoice identity and limits live customer names to legacy fallback", () => {
+    const captured = invoice(
+      "POSTED",
+      25,
+      new Date("2026-01-15T00:00:00.000Z"),
+      "customer-1",
+      "Renamed live customer",
+      "Name captured when invoiced"
+    );
+    const legacy = invoice(
+      "POSTED",
+      10,
+      new Date("2026-01-16T00:00:00.000Z"),
+      "customer-2",
+      "Legacy live fallback",
+      null
+    );
+
+    assert.deepEqual(
+      toRecognizedRevenueRows([captured, legacy]).map(({ customerId, customerName }) => ({
+        customerId,
+        customerName,
+      })),
+      [
+        { customerId: "customer-1", customerName: "Name captured when invoiced" },
+        { customerId: "customer-2", customerName: "Legacy live fallback" },
+      ]
+    );
   });
 
   void it("groups recognized totals and emits empty quarters inside the requested period", () => {
@@ -149,6 +200,90 @@ void describe("revenue reports", () => {
           revenueDecimal: "0.3000",
         },
       ]
+    );
+  });
+
+  void it("uses a capped, parameterized keyset page with SQL-discovered buckets", async () => {
+    const queries: Prisma.Sql[] = [];
+    const repository = createRevenueAggregateRepository({
+      async $queryRaw(query: Prisma.Sql): Promise<unknown[]> {
+        queries.push(query);
+        return [];
+      },
+    });
+
+    assert.deepEqual(
+      await revenueByCustomer({ from: "2026-01-01", to: "2026-12-31" }, repository),
+      []
+    );
+    assert.equal(queries.length, 1);
+    const query = queries[0];
+    assert.ok(query);
+    const sql = query.strings.join("?");
+    assert.match(sql, /AS "quarter"/u);
+    assert.match(sql, /AS "year"/u);
+    assert.match(sql, /COALESCE\("Invoice"\."customerNameSnapshot", "Customer"\."name"\)/u);
+    assert.match(sql, /ORDER BY "Invoice"\."id" ASC/u);
+    assert.match(sql, /LIMIT \?/u);
+    assert.doesNotMatch(sql, /json_group_array|GROUP BY|OFFSET/u);
+    assert.doesNotMatch(sql, /SELECT\s+"Invoice"\.\*/u);
+    assert.deepEqual(query.values.slice(0, 5), ["POSTED", "SENT", "PAID", "2026-01-01", "2026-12-31"]);
+    assert.deepEqual(
+      query.values.slice(5).map((value) => (value instanceof Date ? value.toISOString() : value)),
+      ["2026-01-01T00:00:00.000Z", "2026-12-31T23:59:59.999Z", 250]
+    );
+  });
+
+  void it("traverses deterministic keyset pages without duplicate or skipped exact inputs", async () => {
+    const pages = new Map<string, readonly RevenueInput[]>([
+      ["", [revenueInput("invoice-a", "0.1000"), revenueInput("invoice-b", "0.2000")]],
+      ["invoice-b", [revenueInput("invoice-c", "0.3000")]],
+      ["invoice-c", []],
+    ]);
+    const cursors: (string | null)[] = [];
+    const repository: RevenueAggregateRepository = {
+      async page(_period, afterId) {
+        cursors.push(afterId);
+        return pages.get(afterId ?? "") ?? [];
+      },
+    };
+
+    assert.deepEqual(
+      await revenueByQuarter({ from: "2026-01-01", to: "2026-03-31" }, repository),
+      [{ quarter: "2026-Q1", invoiceCount: 3, revenue: 0.6, revenueDecimal: "0.6000" }]
+    );
+    assert.deepEqual(cursors, [null, "invoice-b", "invoice-c"]);
+  });
+
+  void it("rejects a repository page that fails to advance its invoice-id cursor", async () => {
+    const repository: RevenueAggregateRepository = {
+      async page(_period, afterId) {
+        if (afterId === null) {
+          return [{
+            id: "invoice-a",
+            customerId: "customer-1",
+            customerName: "Acme",
+            accountingDate: "2026-01-15",
+            quarter: "2026-Q1",
+            year: 2026,
+            revenueDecimal: "1.0000",
+          }];
+        }
+        return [{
+          id: "invoice-a",
+          customerId: "customer-1",
+          customerName: "Acme",
+          accountingDate: "2026-01-15",
+          quarter: "2026-Q1",
+          year: 2026,
+          revenueDecimal: "1.0000",
+        }];
+      },
+    };
+
+    await assert.rejects(
+      revenueByCustomer({ from: "2026-01-01", to: "2026-01-31" }, repository),
+      /keyset order must advance/u
     );
   });
 });

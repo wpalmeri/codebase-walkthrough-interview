@@ -19,12 +19,12 @@ These items are intentionally deferred while core financial correctness, transac
 ## Customer webhooks
 
 - Let customers register versioned HTTPS webhook endpoints for events such as `invoice.ready`, `invoice.posted`, `invoice.delivery_changed`, `invoice.due_soon`, and `payment.applied`.
-- Provide scoped signing secrets with rotation, HMAC signatures, timestamps/replay protection, endpoint verification, per-endpoint event filters, and tenant isolation.
+- Provide scoped signing secrets with rotation, HMAC signatures, timestamps/replay protection, endpoint verification, per-endpoint event filters, and customer-safe payload boundaries.
 - Deliver customer events through the same durable outbox pattern with idempotent event IDs, retry/backoff, delivery logs, replay tooling, and automatic disabling of persistently failing endpoints.
 - Publish versioned event schemas and compatibility guarantees; never include secrets or unrelated customer data in webhook payloads.
 
 ## Reminders and dunning
 
-- Add tenant-configurable reminder policies for pre-due, due, and overdue invoices, respecting business calendars, customer time zones, disputes, partial payments, and communication preferences.
+- Add operator-configurable reminder policies for pre-due, due, and overdue invoices, respecting business calendars, customer time zones, disputes, partial payments, and communication preferences.
 - Re-evaluate eligibility transactionally before every reminder so paid, voided, disputed, or already-notified invoices are not contacted.
 - Record reminder attempts as auditable delivery resources and feed bounce/failure outcomes back into recipient health and operations alerts.

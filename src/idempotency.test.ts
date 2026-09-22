@@ -4,6 +4,8 @@ import type { Server } from "node:http";
 import express from "express";
 import { describe, test } from "node:test";
 import { createApp } from "./app";
+import type { Principal } from "./auth/principal";
+import { PrivateErrorLogSchema } from "./runtime/requestContext";
 import {
   createIdempotencyMiddleware,
   type IdempotencyRecord,
@@ -34,6 +36,12 @@ class InMemoryIdempotencyStore implements IdempotencyStore {
   }
 }
 
+class FailingCompleteIdempotencyStore extends InMemoryIdempotencyStore {
+  override async complete(_id: string, _response: IdempotencyResponse): Promise<void> {
+    throw new Error("private idempotency persistence failure");
+  }
+}
+
 async function withServer<T>(
   app: ReturnType<typeof createApp>,
   operation: (baseUrl: string) => Promise<T>
@@ -55,16 +63,33 @@ function close(server: Server): Promise<void> {
   });
 }
 
-function mutation(key: string, body: unknown, client = "test-client"): RequestInit {
+function mutation(key: string, body: unknown, client = "test-client", token?: string): RequestInit {
   return {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "idempotency-key": key,
       "idempotency-client": client,
+      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
     },
     body: JSON.stringify(body),
   };
+}
+
+const directTestPrincipal: Principal = {
+  subjectId: "operator:direct-test",
+  credentialId: "credential-direct-test",
+  kind: "OPERATOR_API_KEY",
+  role: "BILLING",
+};
+
+function attachDirectTestPrincipal(
+  request: express.Request,
+  _response: express.Response,
+  next: express.NextFunction
+): void {
+  request.principal = directTestPrincipal;
+  next();
 }
 
 void describe("durable idempotency HTTP boundary", () => {
@@ -76,6 +101,7 @@ void describe("durable idempotency HTTP boundary", () => {
       configure(testApp) {
         testApp.post("/api/idempotency-test", (_request, response) => {
           applies += 1;
+          response.setHeader("etag", '"receipt-r-1"');
           response.status(201).type("application/vnd.meridian.receipt+json").send('{"receipt":"r-1"}');
         });
       },
@@ -89,9 +115,59 @@ void describe("durable idempotency HTTP boundary", () => {
       assert.equal(second.status, 201);
       assert.equal(first.headers.get("content-type"), "application/vnd.meridian.receipt+json; charset=utf-8");
       assert.equal(second.headers.get("content-type"), first.headers.get("content-type"));
+      assert.equal(first.headers.get("etag"), '"receipt-r-1"');
+      assert.equal(second.headers.get("etag"), first.headers.get("etag"));
+      assert.match(first.headers.get("x-request-id") ?? "", /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu);
+      assert.match(second.headers.get("x-request-id") ?? "", /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu);
+      assert.notEqual(second.headers.get("x-request-id"), first.headers.get("x-request-id"));
       assert.equal(await second.text(), await first.text());
       assert.equal(applies, 1);
     });
+  });
+
+  void test("fails closed and logs redacted evidence when response persistence fails", async () => {
+    const rawErrors: unknown[] = [];
+    const privateEvents: unknown[] = [];
+    const app = createApp({
+      idempotencyStore: new FailingCompleteIdempotencyStore(),
+      logError(error) {
+        rawErrors.push(error);
+      },
+      privateErrorLogSink(event) {
+        privateEvents.push(event);
+        throw new Error("private logger failure must not block the response");
+      },
+      configure(testApp) {
+        testApp.post("/api/idempotency-persistence-failure", (_request, response) => {
+          response.setHeader("etag", '"must-not-survive"');
+          response.status(201).json({ secret: "handler-body-must-not-survive" });
+        });
+      },
+    });
+
+    await withServer(app, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/idempotency-persistence-failure`,
+        mutation("persistence-failure", { amount: "1.0000" })
+      );
+      assert.equal(response.status, 500);
+      assert.equal(response.headers.get("etag"), null);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal(response.headers.get("content-type"), "application/problem+json");
+      const body = await response.json();
+      assert.deepEqual(body, {
+        type: "urn:meridian:problem:internal-error",
+        title: "Internal Server Error",
+        status: 500,
+        code: "INTERNAL_ERROR",
+      });
+      assert.doesNotMatch(JSON.stringify(body), /handler-body|persistence failure/u);
+    });
+
+    assert.equal(rawErrors.length, 1);
+    assert.equal(privateEvents.length, 1);
+    assert.equal(JSON.stringify(privateEvents).includes("persistence failure"), false);
+    assert.equal(PrivateErrorLogSchema.parse(privateEvents[0]).stage, "IDEMPOTENCY_PERSISTENCE");
   });
 
   void test("rejects a changed request for the same scoped key, while routes and clients remain isolated", async () => {
@@ -208,6 +284,51 @@ void describe("durable idempotency HTTP boundary", () => {
     });
   });
 
+  void test("isolates a reused key by the authenticated operator credential", async () => {
+    const store = new InMemoryIdempotencyStore();
+    let applies = 0;
+    const app = createApp({
+      idempotencyStore: store,
+      principalResolver: {
+        async resolve(token) {
+          if (token !== "operator-a-key" && token !== "operator-b-key") return null;
+          const operatorId = token === "operator-a-key" ? "operator-a" : "operator-b";
+          return {
+            subjectId: `operator:${operatorId}`,
+            credentialId: `credential:${operatorId}`,
+            kind: "OPERATOR_API_KEY",
+            role: "BILLING",
+          };
+        },
+      },
+      configure(testApp) {
+        testApp.post("/api/operator-idempotency-test", (_request, response) => {
+          applies += 1;
+          response.status(201).json({ applies });
+        });
+      },
+    });
+
+    await withServer(app, async (baseUrl) => {
+      const firstA = await fetch(
+        `${baseUrl}/api/operator-idempotency-test`,
+        mutation("same-key", { amount: "1.0000" }, "shared-client", "operator-a-key")
+      );
+      const firstB = await fetch(
+        `${baseUrl}/api/operator-idempotency-test`,
+        mutation("same-key", { amount: "1.0000" }, "shared-client", "operator-b-key")
+      );
+      const replayA = await fetch(
+        `${baseUrl}/api/v1/operator-idempotency-test`,
+        mutation("same-key", { amount: "1.0000" }, "shared-client", "operator-a-key")
+      );
+      assert.deepEqual(await firstA.json(), { applies: 1 });
+      assert.deepEqual(await firstB.json(), { applies: 2 });
+      assert.deepEqual(await replayA.json(), { applies: 1 });
+      assert.equal(applies, 2);
+    });
+  });
+
   void test("shares replay scope across the legacy and v1 aliases", async () => {
     const store = new InMemoryIdempotencyStore();
     const app = express();
@@ -218,8 +339,8 @@ void describe("durable idempotency HTTP boundary", () => {
       applies += 1;
       response.status(201).json({ applies });
     };
-    app.post("/api/alias-test", idempotency, handler);
-    app.post("/api/v1/alias-test", idempotency, handler);
+    app.post("/api/alias-test", attachDirectTestPrincipal, idempotency, handler);
+    app.post("/api/v1/alias-test", attachDirectTestPrincipal, idempotency, handler);
 
     await withServer(app, async (baseUrl) => {
       const legacy = await fetch(

@@ -18,15 +18,40 @@ import {
 } from "../domain/orderPricing";
 import { parseRateTiers } from "../domain/rateTier";
 import {
+  ApplicationError,
   ConflictError,
   DomainInvariantError,
   NotFoundError,
   PreconditionError,
 } from "../errors";
+import {
+  formatResourceEtag,
+  verifyResourceIfMatch,
+  type ResourceVersionPreconditionFailure,
+} from "../http/resourceVersion";
 import { OrderModel, toOrderModel } from "../models/order";
+import {
+  appendRequestAuditEvent,
+  type RequestAuditAppender,
+  type RequestAuditMetadata,
+  RequestAuditMetadataSchema,
+} from "../audit/requestAudit";
+import type { AuditEventRepository } from "../audit/auditEvent";
 import { syncDraftInvoiceInTransaction } from "./invoiceController";
+import {
+  fingerprintPaginationFilters,
+  formatPaginationCursor,
+  InvoiceStatusSchema,
+  OrderPageSchema,
+  parsePaginationCursor,
+  type ListOrdersV1Request,
+  type OrderPage,
+  type PaginationCursorFailureCode,
+} from "@meridian/contracts";
+import { z } from "zod";
 
 const DEFAULT_BILLING_CURRENCY = "USD";
+const invoiceStatus = InvoiceStatusSchema.enum;
 const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "amount" } as const;
 const quantityFormat = {
   scale: QUANTITY_SCALE,
@@ -53,15 +78,100 @@ export async function listOrders(): Promise<OrderModel[]> {
   return rows.map(toOrderModel);
 }
 
+const OrderCursorOrderingSchema = z.tuple([
+  z.iso.datetime({ offset: true }),
+  z.string().min(1).max(1_024),
+]);
+
+export type OrderPageResult =
+  | { readonly ok: true; readonly page: OrderPage }
+  | { readonly ok: false; readonly code: PaginationCursorFailureCode };
+
+/**
+ * Lists a v1 company-wide order page in descending `(orderDate, id)` order.
+ * The explicit id tie-breaker makes traversal deterministic for tied dates and
+ * prevents an insert before the cursor boundary from duplicating later rows.
+ */
+export async function listOrdersPage(
+  query: ListOrdersV1Request["query"]
+): Promise<OrderPageResult> {
+  const filterFingerprint = fingerprintPaginationFilters({});
+  const parsedCursor = query.cursor === undefined
+    ? undefined
+    : parsePaginationCursor(query.cursor, { resource: "orders", filterFingerprint });
+  if (parsedCursor !== undefined && !parsedCursor.ok) return parsedCursor;
+
+  const ordering = parsedCursor === undefined
+    ? undefined
+    : OrderCursorOrderingSchema.safeParse(parsedCursor.ordering);
+  if (ordering !== undefined && !ordering.success) {
+    return { ok: false, code: "CURSOR_MALFORMED" };
+  }
+
+  const [orderDate, id] = ordering === undefined ? [] : ordering.data;
+  const rows = await prisma.order.findMany({
+    where: orderDate === undefined || id === undefined
+      ? {}
+      : {
+          OR: [
+            { orderDate: { lt: new Date(orderDate) } },
+            { orderDate: new Date(orderDate), id: { lt: id } },
+          ],
+        },
+    include: orderInclude,
+    orderBy: [{ orderDate: "desc" }, { id: "desc" }],
+    take: query.limit + 1,
+  });
+  const pageRows = rows.slice(0, query.limit);
+  const lastRow = pageRows.at(-1);
+  const nextCursor = rows.length > query.limit && lastRow !== undefined
+    ? formatPaginationCursor({
+        resource: "orders",
+        filterFingerprint,
+        ordering: [lastRow.orderDate.toISOString(), lastRow.id],
+      })
+    : null;
+  return {
+    ok: true,
+    page: OrderPageSchema.parse({
+      data: pageRows.map(toOrderModel),
+      page: { limit: query.limit, nextCursor },
+    }),
+  };
+}
+
 export async function getOrder(orderId: string): Promise<OrderModel> {
-  const row = await prisma.order.findUniqueOrThrow({
+  const row = await prisma.order.findFirstOrThrow({
     where: { id: orderId },
     include: orderInclude,
   });
   return toOrderModel(row);
 }
 
+/** Legacy null versions are deliberately exposed as logical version zero. */
+export async function getVersionedOrder(orderId: string): Promise<VersionedOrder> {
+  const order = await findOrder(prisma, orderId);
+  if (order === null) throw new NotFoundError();
+  return {
+    order: toOrderModel(order),
+    etag: formatResourceEtag({ kind: "order", id: order.id, version: logicalResourceVersion(order.resourceVersion) }),
+  };
+}
+
 type PricingTransaction = Prisma.TransactionClient;
+type OrderAuditTransaction = Pick<Prisma.TransactionClient, "auditEvent">;
+type OrderMutationInput = {
+  customerId?: string;
+  orderDate?: string;
+  notes?: string;
+  items?: { id: string; quantity: string | number }[];
+  comment?: { author?: string; body: string };
+};
+
+export interface VersionedOrder {
+  readonly order: OrderModel;
+  readonly etag: string;
+}
 
 async function capturedOrderLines(
   transaction: PricingTransaction,
@@ -71,21 +181,23 @@ async function capturedOrderLines(
     capturedAt: Date;
   }
 ): Promise<CapturedOrderPricing[]> {
-  await transaction.customer.findUniqueOrThrow({ where: { id: input.customerId } });
+  await transaction.customer.findUniqueOrThrow({
+    where: { id: input.customerId },
+  });
   const productIds = input.items.map((item) => item.productId);
-  const products = await transaction.product.findMany({ where: { id: { in: productIds } } });
+  const products = await transaction.product.findMany({
+    where: { id: { in: productIds } },
+  });
   if (products.length !== productIds.length) {
-    const found = new Set(products.map((product) => product.id));
-    const missing = productIds.find((productId) => !found.has(productId));
-    throw new NotFoundError(
-      "PRODUCT_NOT_FOUND",
-      `Product ${missing ?? "unknown"} was not found`
-    );
+    throw new NotFoundError();
   }
 
   const productsById = new Map(products.map((product) => [product.id, product]));
   const existingRates = await transaction.rate.findMany({
-    where: { customerId: input.customerId, productId: { in: productIds } },
+    where: {
+      customerId: input.customerId,
+      productId: { in: productIds },
+    },
   });
   const ratesByProductId = new Map(existingRates.map((rate) => [rate.productId, rate]));
 
@@ -93,7 +205,7 @@ async function capturedOrderLines(
     if (ratesByProductId.has(productId)) continue;
     const product = productsById.get(productId);
     if (!product) {
-      throw new NotFoundError("PRODUCT_NOT_FOUND", `Product ${productId} was not found`);
+      throw new NotFoundError();
     }
     const listPriceDecimal = decimalOrLegacy(
       { decimal: product.listPriceDecimal, legacy: product.listPrice },
@@ -112,7 +224,9 @@ async function capturedOrderLines(
   }
 
   const discounts = await transaction.comboDiscount.findMany({
-    where: { OR: [{ customerId: input.customerId }, { customerId: null }] },
+    where: {
+      OR: [{ customerId: input.customerId }, { customerId: null }],
+    },
     include: { products: true },
   });
   const productIdSet = new Set(productIds);
@@ -191,7 +305,8 @@ export async function createOrder(input: {
   customerId: string;
   items: { productId: string; quantity: string | number }[];
   notes?: string;
-}): Promise<OrderModel> {
+}, audit: RequestAuditMetadata, appendAudit: RequestAuditAppender = appendRequestAuditEvent): Promise<OrderModel> {
+  const auditMetadata = requireOrderAudit(audit);
   const orderId = randomUUID();
   await prisma.$transaction(async (transaction) => {
     const lines = await capturedOrderLines(transaction, {
@@ -219,6 +334,7 @@ export async function createOrder(input: {
     await transaction.orderItem.createMany({
       data: lines.map((line) => orderItemCreateData(orderId, line)),
     });
+    await appendOrderAudit(transaction, auditMetadata, appendAudit, "ORDER_CREATED", orderId);
   });
   return getOrder(orderId);
 }
@@ -227,25 +343,35 @@ export async function createOrder(input: {
 // changing the customer would require an explicit re-contracting workflow.
 export async function saveOrder(
   orderId: string,
-  input: {
-    customerId?: string;
-    orderDate?: string;
-    notes?: string;
-    items?: { id: string; quantity: string | number }[];
-    comment?: { author?: string; body: string };
-  }
+  input: OrderMutationInput,
+  audit: RequestAuditMetadata,
+  appendAudit: RequestAuditAppender = appendRequestAuditEvent
 ): Promise<OrderModel> {
+  const auditMetadata = requireOrderAudit(audit);
   await prisma.$transaction(async (transaction) => {
-    const order = await transaction.order.findUniqueOrThrow({
+    await saveOrderInTransaction(transaction, orderId, input, auditMetadata, appendAudit);
+  });
+  return getOrder(orderId);
+}
+
+async function saveOrderInTransaction(
+  transaction: Prisma.TransactionClient,
+  orderId: string,
+  input: OrderMutationInput,
+  auditMetadata: RequestAuditMetadata,
+  appendAudit: RequestAuditAppender
+): Promise<void> {
+    const order = await transaction.order.findFirst({
       where: { id: orderId },
       include: { items: true, invoice: true },
     });
+    if (order === null) throw new NotFoundError();
     const hasFinancialChange =
       input.customerId !== undefined ||
       input.orderDate !== undefined ||
       input.notes !== undefined ||
       input.items !== undefined;
-    const invoiceIsFinal = order.invoice !== null && order.invoice.status !== "DRAFT";
+    const invoiceIsFinal = order.invoice !== null && order.invoice.status !== invoiceStatus.DRAFT;
     if (invoiceIsFinal && hasFinancialChange) {
       throw new ConflictError(
         "ORDER_FINALIZED",
@@ -306,6 +432,113 @@ export async function saveOrder(
       });
     }
     await syncDraftInvoiceInTransaction(transaction, orderId);
+    await appendOrderAudit(transaction, auditMetadata, appendAudit, "ORDER_UPDATED", order.id);
+}
+
+/**
+ * Acquires the aggregate Order version before any child write, then reads the
+ * final version in the same transaction because item/comment/invoice triggers
+ * may advance it further while producing the representation.
+ */
+export async function saveOrderConditionally(
+  orderId: string,
+  input: OrderMutationInput,
+  ifMatch: string | undefined,
+  audit: RequestAuditMetadata,
+  appendAudit: RequestAuditAppender = appendRequestAuditEvent
+): Promise<VersionedOrder> {
+  const auditMetadata = requireOrderAudit(audit);
+  return prisma.$transaction(async (transaction) => {
+    const existing = await findOrder(transaction, orderId);
+    if (existing === null) throw new NotFoundError();
+
+    const currentVersion = logicalResourceVersion(existing.resourceVersion);
+    const precondition = verifyResourceIfMatch(ifMatch, { kind: "order", id: existing.id }, currentVersion);
+    if (!precondition.ok) throwPrecondition(precondition);
+    if (precondition.version === Number.MAX_SAFE_INTEGER) {
+      throw new PreconditionError("RESOURCE_VERSION_EXHAUSTED", "This resource version cannot be advanced safely");
+    }
+
+    const acquired = await transaction.order.updateMany({
+      where: {
+        id: existing.id,
+        ...(existing.resourceVersion === null
+          ? { resourceVersion: null }
+          : { resourceVersion: precondition.version }),
+      },
+      data: { resourceVersion: precondition.version + 1 },
+    });
+    if (acquired.count !== 1) {
+      const stillVisible = await findOrder(transaction, orderId);
+      if (stillVisible === null) throw new NotFoundError();
+      throw new PreconditionError("ETAG_VERSION_MISMATCH", "If-Match does not match the current resource version");
+    }
+
+    await saveOrderInTransaction(transaction, orderId, input, auditMetadata, appendAudit);
+    const updated = await findOrder(transaction, orderId);
+    if (updated === null) throw new NotFoundError();
+    return {
+      order: toOrderModel(updated),
+      etag: formatResourceEtag({
+        kind: "order",
+        id: updated.id,
+        version: logicalResourceVersion(updated.resourceVersion),
+      }),
+    };
   });
-  return getOrder(orderId);
+}
+
+function logicalResourceVersion(value: number | null): number {
+  return value ?? 0;
+}
+
+function throwPrecondition(failure: ResourceVersionPreconditionFailure): never {
+  if (failure.status === 412) throw new PreconditionError(failure.code, failure.detail);
+  throw new ApplicationError({
+    type:
+      failure.status === 428
+        ? "urn:meridian:problem:precondition-required"
+        : "urn:meridian:problem:invalid-if-match",
+    title: failure.status === 428 ? "Precondition Required" : "Bad Request",
+    status: failure.status,
+    code: failure.code,
+    detail: failure.detail,
+  });
+}
+
+async function findOrder(
+  database: Pick<Prisma.TransactionClient, "order">,
+  orderId: string
+) {
+  return database.order.findFirst({
+    where: { id: orderId },
+    include: orderInclude,
+  });
+}
+
+async function appendOrderAudit(
+  transaction: OrderAuditTransaction,
+  metadata: RequestAuditMetadata,
+  appendAudit: RequestAuditAppender,
+  action: "ORDER_CREATED" | "ORDER_UPDATED",
+  orderId: string
+): Promise<void> {
+  await appendAudit(auditRepository(transaction), metadata, {
+    action,
+    resourceKind: "ORDER",
+    resourceId: orderId,
+  });
+}
+
+/** Adapts Prisma's generic delegate to the narrow append-only audit boundary. */
+function auditRepository(transaction: OrderAuditTransaction): AuditEventRepository {
+  return {
+    auditEvent: {
+      create: async ({ data }) => transaction.auditEvent.create({ data }),
+    },
+  };
+}
+
+function requireOrderAudit(audit: RequestAuditMetadata): RequestAuditMetadata {
+  return RequestAuditMetadataSchema.parse(audit);
 }
