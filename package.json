@@ -15,6 +15,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:backfill:invoices": "tsx src/jobs/runInvoiceDecimalBackfill.ts",
+    "db:backfill:legacy-financial": "tsx src/jobs/runLegacyFinancialBackfill.ts",
     "db:reset": "prisma migrate reset --force",
     "db:validate": "prisma validate",
     "test": "bun test",

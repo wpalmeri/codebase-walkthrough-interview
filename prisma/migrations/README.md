@@ -96,6 +96,14 @@ touching financial rows. Every concrete backfill writes its last successfully co
 key in the same transaction as that batch; dry runs never advance it. Keep checkpoint rows until
 the reconciliation evidence and later contract migration are complete.
 
+Run `bun run db:backfill:legacy-financial` first in its default dry-run mode. It processes
+products, rates/tiers, discounts, payments, and payment applications as five independently
+checkpointed primary-key streams, refusing exact/legacy disagreement or unreconciled ownership,
+currency, payment-capacity, and invoice-balance facts. Set `BACKFILL_DRY_RUN=false` only after the
+preview is clean; tune `BACKFILL_BATCH_SIZE` and `BACKFILL_THROTTLE_MS` for writer contention.
+This job intentionally does not infer historical order pricing snapshots from current catalog
+terms. Those rows require evidence-backed reconstruction or explicit manual reconciliation.
+
 ## Durable idempotency reservations
 
 `20260922050000_idempotency_records` creates a new empty table and index; it does not scan or
