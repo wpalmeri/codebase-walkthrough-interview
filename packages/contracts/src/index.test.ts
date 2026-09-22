@@ -13,6 +13,7 @@ import {
   PaymentApplicationSchema,
   PaymentSchema,
   PercentageStringSchema,
+  ProblemDetailsSchema,
   ProductSchema,
   QuantityStringSchema,
   RateSchema,
@@ -215,5 +216,24 @@ void describe("financial response contracts", () => {
     assert.throws(() => CurrencyCodeSchema.parse("usd"));
     assert.throws(() => CurrencyCodeSchema.parse("US"));
     assert.throws(() => CurrencyCodeSchema.parse("EUR"));
+  });
+});
+
+void describe("problem-details contract", () => {
+  void test("accepts only stable client-safe error envelopes", () => {
+    const valid = {
+      type: "urn:meridian:problem:conflict",
+      title: "Conflict",
+      status: 409,
+      code: "VERSION_CONFLICT",
+    };
+
+    assert.equal(ProblemDetailsSchema.safeParse(valid).success, true);
+    assert.equal(ProblemDetailsSchema.safeParse({ ...valid, status: 200 }).success, false);
+    assert.equal(
+      ProblemDetailsSchema.safeParse({ ...valid, code: "version-conflict" }).success,
+      false
+    );
+    assert.equal(ProblemDetailsSchema.safeParse({ ...valid, debug: "secret" }).success, false);
   });
 });

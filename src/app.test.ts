@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { describe, test } from "node:test";
 import type { Server } from "node:http";
-import { ConflictError } from "./errors";
+import {
+  ConflictError,
+  DomainInvariantError,
+  PreconditionError,
+  ProblemDetailsSchema,
+} from "./errors";
 import { createApp } from "./app";
 import { h } from "./views/helpers";
 
@@ -85,6 +90,87 @@ void describe("HTTP problem-details boundary", () => {
       code: "VERSION_CONFLICT",
       detail: "The record changed; reload and retry.",
     });
+    assert.equal(ProblemDetailsSchema.safeParse(response.body).success, true);
+  });
+
+  void test("maps domain and precondition failures to their stable HTTP statuses", async () => {
+    const app = createApp({
+      configure(testApp) {
+        testApp.get(
+          "/test/domain",
+          h(async () => {
+            throw new DomainInvariantError(
+              "PAYMENT_ALLOCATION_INVALID",
+              "The payment cannot be allocated in its current state."
+            );
+          })
+        );
+        testApp.get(
+          "/test/precondition",
+          h(async () => {
+            throw new PreconditionError(
+              "ORDER_PRICING_BACKFILL_REQUIRED",
+              "Historical pricing must be backfilled before this order can change."
+            );
+          })
+        );
+      },
+    });
+
+    const [domain, precondition] = await Promise.all([
+      requestApp(app, "/test/domain"),
+      requestApp(app, "/test/precondition"),
+    ]);
+    assert.equal(domain.status, 422);
+    assert.deepEqual(domain.body, {
+      type: "urn:meridian:problem:domain-invariant",
+      title: "Unprocessable Entity",
+      status: 422,
+      code: "PAYMENT_ALLOCATION_INVALID",
+      detail: "The payment cannot be allocated in its current state.",
+    });
+    assert.equal(precondition.status, 412);
+    assert.deepEqual(precondition.body, {
+      type: "urn:meridian:problem:precondition-failed",
+      title: "Precondition Failed",
+      status: 412,
+      code: "ORDER_PRICING_BACKFILL_REQUIRED",
+      detail: "Historical pricing must be backfilled before this order can change.",
+    });
+  });
+
+  void test("maps database relation and constraint failures without exposing internals", async () => {
+    const expected = [
+      ["P2003", 422, "RELATED_RESOURCE_NOT_FOUND"],
+      ["P2004", 422, "DATABASE_CONSTRAINT"],
+      ["P2011", 422, "DATABASE_CONSTRAINT"],
+      ["P2014", 409, "RELATION_CONFLICT"],
+    ] as const;
+    const app = createApp({
+      configure(testApp) {
+        for (const [code] of expected) {
+          testApp.get(
+            `/test/prisma/${code}`,
+            h(async () => {
+              throw Object.assign(new Error("constraint failed for secret@example.com"), {
+                code,
+                meta: { field: "customer_email", value: "secret@example.com" },
+              });
+            })
+          );
+        }
+      },
+    });
+
+    for (const [code, status, problemCode] of expected) {
+      const response = await requestApp(app, `/test/prisma/${code}`);
+      assert.equal(response.status, status);
+      assert.ok(isRecord(response.body));
+      assert.equal(response.body.code, problemCode);
+      assert.equal(response.body.status, status);
+      assert.equal(ProblemDetailsSchema.safeParse(response.body).success, true);
+      assert.doesNotMatch(JSON.stringify(response.body), /secret|customer_email/);
+    }
   });
 
   void test("keeps unexpected async failures redacted and logs only through the injected sink", async () => {

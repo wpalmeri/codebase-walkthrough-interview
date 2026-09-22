@@ -9,6 +9,7 @@ import {
   type PaymentAllocationDependencies,
   type PaymentLedgerSnapshot,
 } from "./paymentController";
+import { DomainInvariantError, NotFoundError } from "../errors";
 
 const payment: PaymentLedgerSnapshot = {
   id: "payment-1",
@@ -113,7 +114,12 @@ void describe("payment controller atomic workflow", () => {
         [{ invoiceId: "invoice-1", amount: "10.0000" }],
         store
       ),
-      /different customer/
+      (error) => {
+        assert.ok(error instanceof DomainInvariantError);
+        assert.equal(error.problem.status, 422);
+        assert.equal(error.problem.code, "PAYMENT_ALLOCATION_INVALID");
+        return true;
+      }
     );
     assert.equal(store.writes.length, 0);
 
@@ -124,9 +130,34 @@ void describe("payment controller atomic workflow", () => {
         [{ invoiceId: "invoice-1", amount: "10.0000" }],
         draftStore
       ),
-      /must be POSTED or SENT/
+      (error) => {
+        assert.ok(error instanceof DomainInvariantError);
+        assert.equal(error.problem.status, 422);
+        assert.equal(error.problem.code, "PAYMENT_ALLOCATION_INVALID");
+        return true;
+      }
     );
     assert.equal(draftStore.writes.length, 0);
+  });
+
+  void test("returns a not-found problem and performs no write when an invoice is missing", async () => {
+    const store = transactionalStore({ invoices: [] });
+
+    await assert.rejects(
+      applyPaymentWithDependencies(
+        "payment-1",
+        [{ invoiceId: "missing-invoice", amount: "10.0000" }],
+        store
+      ),
+      (error) => {
+        assert.ok(error instanceof NotFoundError);
+        assert.equal(error.problem.status, 404);
+        assert.equal(error.problem.code, "PAYMENT_INVOICE_NOT_FOUND");
+        assert.doesNotMatch(JSON.stringify(error.problem), /missing-invoice/);
+        return true;
+      }
+    );
+    assert.equal(store.writes.length, 0);
   });
 
   void test("treats a failed atomic persistence attempt as a rollback, without partial application writes", async () => {

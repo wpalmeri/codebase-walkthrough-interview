@@ -1,30 +1,30 @@
-/** Stable, client-safe RFC 9457-style problem details. */
-export interface ProblemDetails {
-  readonly type: string;
-  readonly title: string;
-  readonly status: number;
-  readonly code: string;
-  readonly detail?: string;
-}
+import { ProblemDetailsSchema, type ProblemDetails } from "@meridian/contracts";
+
+export { ProblemDetailsSchema, type ProblemDetails } from "@meridian/contracts";
 
 export class ApplicationError extends Error {
   readonly problem: ProblemDetails;
 
   constructor(problem: ProblemDetails) {
-    super(problem.detail ?? problem.title);
+    const validatedProblem = ProblemDetailsSchema.parse(problem);
+    super(validatedProblem.detail ?? validatedProblem.title);
     this.name = "ApplicationError";
-    this.problem = problem;
+    this.problem = validatedProblem;
   }
 }
 
 export class NotFoundError extends ApplicationError {
-  constructor(detail?: string) {
+  constructor(detail?: string);
+  constructor(code: string, detail: string);
+  constructor(codeOrDetail?: string, detail?: string) {
+    const code = detail === undefined ? "NOT_FOUND" : (codeOrDetail ?? "NOT_FOUND");
+    const resolvedDetail = detail ?? codeOrDetail;
     super({
       type: "urn:meridian:problem:not-found",
       title: "Not Found",
       status: 404,
-      code: "NOT_FOUND",
-      ...(detail === undefined ? {} : { detail }),
+      code,
+      ...(resolvedDetail === undefined ? {} : { detail: resolvedDetail }),
     });
     this.name = "NotFoundError";
   }
@@ -99,41 +99,69 @@ function prismaErrorCode(error: unknown): string | undefined {
   return typeof error.code === "string" ? error.code : undefined;
 }
 
+function problem(problem: ProblemDetails): ProblemDetails {
+  return ProblemDetailsSchema.parse(problem);
+}
+
 /** Maps only recognized public conditions. Unknown failures remain redacted. */
 export function problemFromError(error: unknown): ProblemDetails {
   if (error instanceof ApplicationError) return error.problem;
 
   const code = prismaErrorCode(error);
   if (code === "P2025") {
-    return {
+    return problem({
       type: "urn:meridian:problem:not-found",
       title: "Not Found",
       status: 404,
       code: "NOT_FOUND",
-    };
+    });
   }
   if (code === "P2002") {
-    return {
+    return problem({
       type: "urn:meridian:problem:conflict",
       title: "Conflict",
       status: 409,
       code: "UNIQUE_CONSTRAINT",
-    };
+    });
+  }
+  if (code === "P2003") {
+    return problem({
+      type: "urn:meridian:problem:domain-invariant",
+      title: "Unprocessable Entity",
+      status: 422,
+      code: "RELATED_RESOURCE_NOT_FOUND",
+    });
+  }
+  if (code === "P2004" || code === "P2011") {
+    return problem({
+      type: "urn:meridian:problem:domain-invariant",
+      title: "Unprocessable Entity",
+      status: 422,
+      code: "DATABASE_CONSTRAINT",
+    });
+  }
+  if (code === "P2014") {
+    return problem({
+      type: "urn:meridian:problem:conflict",
+      title: "Conflict",
+      status: 409,
+      code: "RELATION_CONFLICT",
+    });
   }
   if (code === "P2034" || code === "40001" || isPaymentAllocationConflict(error)) {
-    return {
+    return problem({
       type: "urn:meridian:problem:conflict",
       title: "Conflict",
       status: 409,
       code: "CONCURRENT_MODIFICATION",
-    };
+    });
   }
-  return {
+  return problem({
     type: "urn:meridian:problem:internal-error",
     title: "Internal Server Error",
     status: 500,
     code: "INTERNAL_ERROR",
-  };
+  });
 }
 
 function isPaymentAllocationConflict(error: unknown): boolean {

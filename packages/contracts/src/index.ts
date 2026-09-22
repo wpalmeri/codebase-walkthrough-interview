@@ -17,6 +17,16 @@ export type CurrencyCode = z.infer<typeof CurrencyCodeSchema>;
 
 export const EmailAddressSchema = z.email();
 
+/** Stable RFC 9457-style error envelope shared by every API surface. */
+export const ProblemDetailsSchema = z.strictObject({
+  type: z.string().min(1),
+  title: z.string().min(1),
+  status: z.number().int().min(400).max(599),
+  code: z.string().regex(/^[A-Z][A-Z0-9_]*$/u),
+  detail: z.string().min(1).optional(),
+});
+export type ProblemDetails = z.infer<typeof ProblemDetailsSchema>;
+
 export const OrderStatusSchema = z.enum(["OPEN", "INVOICED", "CLOSED"]);
 export type OrderStatus = z.infer<typeof OrderStatusSchema>;
 

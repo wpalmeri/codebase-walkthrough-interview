@@ -12,6 +12,7 @@ import {
   type DecimalInput,
 } from "../domain/money";
 import { planPaymentAllocation, type PaymentAllocationPlan } from "../domain/paymentAllocation";
+import { ConflictError, DomainInvariantError, NotFoundError } from "../errors";
 import { PaymentModel, toPaymentModel } from "../models/payment";
 
 const paymentInclude = {
@@ -96,9 +97,12 @@ export interface PaymentRecordingDependencies {
   }): Promise<{ id: string }>;
 }
 
-export class PaymentAllocationConflictError extends Error {
+export class PaymentAllocationConflictError extends ConflictError {
   constructor() {
-    super("Payment allocation conflicted with a concurrent balance update");
+    super(
+      "CONCURRENT_MODIFICATION",
+      "Payment allocation conflicted with a concurrent balance update; reload and retry"
+    );
     this.name = "PaymentAllocationConflictError";
   }
 }
@@ -183,22 +187,38 @@ function prepareAllocation(
     field: "payment remaining balance",
   });
   const paymentCurrency = currencyCode(payment.currencyCode);
+  const foundInvoiceIds = new Set(invoices.map((invoice) => invoice.id));
+  if (applications.some((application) => !foundInvoiceIds.has(application.invoiceId))) {
+    throw new NotFoundError(
+      "PAYMENT_INVOICE_NOT_FOUND",
+      "One or more invoices were not found for this payment"
+    );
+  }
   const invoicesById = new Map(invoices.map((invoice) => [invoice.id, { invoice, ...reconciledInvoice(invoice) }]));
 
-  const plan = planPaymentAllocation({
-    payment: { id: payment.id, customerId: payment.customerId, currencyCode: paymentCurrency, remainingAmount: paymentRemaining },
-    invoices: invoices.map((invoice) => ({
-      id: invoice.id,
-      customerId: invoice.customerId,
-      currencyCode: currencyCode(invoice.currencyCode),
-      status: invoice.status,
-      remainingAmount: invoicesById.get(invoice.id)?.balance,
-    })),
-    applications: applications.map((application) => ({
-      invoiceId: application.invoiceId,
-      amount: canonicalMoney(application.amount, `application for invoice ${application.invoiceId}`),
-    })),
-  });
+  let plan: PaymentAllocationPlan;
+  try {
+    plan = planPaymentAllocation({
+      payment: { id: payment.id, customerId: payment.customerId, currencyCode: paymentCurrency, remainingAmount: paymentRemaining },
+      invoices: invoices.map((invoice) => ({
+        id: invoice.id,
+        customerId: invoice.customerId,
+        currencyCode: currencyCode(invoice.currencyCode),
+        status: invoice.status,
+        remainingAmount: invoicesById.get(invoice.id)?.balance,
+      })),
+      applications: applications.map((application) => ({
+        invoiceId: application.invoiceId,
+        amount: canonicalMoney(application.amount, `application for invoice ${application.invoiceId}`),
+      })),
+    });
+  } catch (error) {
+    if (error instanceof DomainInvariantError || error instanceof NotFoundError) throw error;
+    throw new DomainInvariantError(
+      "PAYMENT_ALLOCATION_INVALID",
+      "Payment allocation violates customer, currency, lifecycle, amount, or balance rules"
+    );
+  }
 
   const applicationWrites = plan.applications.map((application) => ({
     paymentId: payment.id,

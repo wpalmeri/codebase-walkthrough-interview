@@ -4,6 +4,7 @@ import {
   sendInvoiceWithDependencies,
   type InvoiceDeliveryDependencies,
 } from "./invoiceController";
+import { ConflictError, PreconditionError } from "../errors";
 import type { InvoiceModel } from "../models/invoice";
 
 type FailureRecord = Parameters<
@@ -141,10 +142,12 @@ void describe("invoice delivery", () => {
       },
     });
 
-    await assert.rejects(
-      sendInvoiceWithDependencies("invoice-1", "EMAIL", deps),
-      /must be POSTED or SENT/
-    );
+    await assert.rejects(sendInvoiceWithDependencies("invoice-1", "EMAIL", deps), (error) => {
+      assert.ok(error instanceof ConflictError);
+      assert.equal(error.problem.status, 409);
+      assert.equal(error.problem.code, "INVOICE_NOT_DELIVERABLE");
+      return true;
+    });
     assert.equal(rendered, false);
     assert.equal(failureRecorded, false);
   });
@@ -165,13 +168,50 @@ void describe("invoice delivery", () => {
       },
     });
 
-    await assert.rejects(sendInvoiceWithDependencies("invoice-1", "EMAIL", deps));
+    await assert.rejects(sendInvoiceWithDependencies("invoice-1", "EMAIL", deps), (error) => {
+      assert.ok(error instanceof PreconditionError);
+      assert.equal(error.problem.status, 412);
+      assert.equal(error.problem.code, "DELIVERY_RECIPIENT_INVALID");
+      assert.doesNotMatch(JSON.stringify(error.problem), /not-an-email/);
+      return true;
+    });
 
     assert.equal(rendered, false);
     assert.equal(failures.length, 1);
     assert.equal(failures[0]?.method, "EMAIL");
     assert.match(failures[0]?.detail ?? "", /recipient validation/);
     assert.doesNotMatch(failures[0]?.detail ?? "", /not-an-email/);
+  });
+
+  void test("returns a precondition problem when a portal destination is missing", async () => {
+    const failures: FailureRecord[] = [];
+    let rendered = false;
+    const deps = dependencies({
+      async findInvoice() {
+        return {
+          ...invoice(),
+          customer: { ...invoice().customer, portalAccount: null },
+        };
+      },
+      renderPdf() {
+        rendered = true;
+        return Buffer.from("pdf");
+      },
+      async recordFailedTransmission(input) {
+        failures.push(input);
+      },
+    });
+
+    await assert.rejects(sendInvoiceWithDependencies("invoice-1", "PORTAL", deps), (error) => {
+      assert.ok(error instanceof PreconditionError);
+      assert.equal(error.problem.status, 412);
+      assert.equal(error.problem.code, "DELIVERY_DESTINATION_MISSING");
+      return true;
+    });
+
+    assert.equal(rendered, false);
+    assert.equal(failures.length, 1);
+    assert.match(failures[0]?.detail ?? "", /recipient validation/);
   });
 
   void test("records render failures and never calls the delivery provider", async () => {

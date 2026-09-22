@@ -24,7 +24,7 @@ import {
   type DecimalInput,
 } from "../domain/money";
 import { productSubtotal } from "../domain/pricing";
-import { PreconditionError } from "../errors";
+import { ConflictError, DomainInvariantError, PreconditionError } from "../errors";
 import { InvoiceModel, toInvoiceModel } from "../models/invoice";
 import { toTransmissionModel, TransmissionModel } from "../models/transmission";
 import { renderInvoicePdf } from "../services/pdf";
@@ -196,7 +196,12 @@ export async function createInvoiceForOrder(orderId: string): Promise<InvoiceMod
       where: { id: orderId },
       include: { customer: true, items: { include: { product: true } } },
     });
-    if (order.items.length === 0) throw new Error("An invoice requires at least one order item");
+    if (order.items.length === 0) {
+      throw new DomainInvariantError(
+        "ORDER_ITEMS_REQUIRED",
+        "An invoice requires at least one order item"
+      );
+    }
     const lines = order.items.map(invoiceLineData);
     const totalDecimal = invoiceTotal(lines);
     const id = randomUUID();
@@ -227,7 +232,9 @@ export async function createInvoiceForOrder(orderId: string): Promise<InvoiceMod
       where: { id: orderId, status: "OPEN" },
       data: { status: "INVOICED" },
     });
-    if (updated.count !== 1) throw new Error("Only an OPEN order can be invoiced");
+    if (updated.count !== 1) {
+      throw new ConflictError("ORDER_NOT_OPEN", "Only an OPEN order can be invoiced");
+    }
     return id;
   });
   return getInvoice(invoiceId);
@@ -240,10 +247,17 @@ export async function updateInvoice(
 ): Promise<InvoiceModel> {
   await prisma.$transaction(async (transaction) => {
     const invoice = await transaction.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
-    if (invoice.status !== "DRAFT") throw new Error("Only a DRAFT invoice can be redated");
+    if (invoice.status !== "DRAFT") {
+      throw new ConflictError("INVOICE_NOT_DRAFT", "Only a DRAFT invoice can be redated");
+    }
     const issueDate = input.issueDate === undefined ? invoice.issueDate : new Date(input.issueDate);
     const dueDate = input.dueDate === undefined ? invoice.dueDate : new Date(input.dueDate);
-    if (dueDate < issueDate) throw new Error("Invoice due date must be on or after issue date");
+    if (dueDate < issueDate) {
+      throw new DomainInvariantError(
+        "INVOICE_DATE_RANGE_INVALID",
+        "Invoice due date must be on or after issue date"
+      );
+    }
     const accountingDate =
       input.issueDate === undefined
         ? invoice.accountingDate
@@ -255,7 +269,12 @@ export async function updateInvoice(
       where: { id: invoiceId, status: "DRAFT" },
       data: { issueDate, dueDate, accountingDate },
     });
-    if (updated.count !== 1) throw new Error("Invoice changed concurrently");
+    if (updated.count !== 1) {
+      throw new ConflictError(
+        "CONCURRENT_MODIFICATION",
+        "Invoice changed concurrently; reload and retry"
+      );
+    }
   });
   return getInvoice(invoiceId);
 }
@@ -289,7 +308,12 @@ export async function syncDraftInvoiceInTransaction(
       currencyCode: order.currencyCode,
     },
   });
-  if (updated.count !== 1) throw new Error("Draft invoice changed concurrently");
+  if (updated.count !== 1) {
+    throw new ConflictError(
+      "CONCURRENT_MODIFICATION",
+      "Draft invoice changed concurrently; reload and retry"
+    );
+  }
   await transaction.invoice.update({
     where: { id: invoice.id },
     data: {
@@ -308,7 +332,9 @@ export async function postInvoice(invoiceId: string): Promise<InvoiceModel> {
   await prisma.$transaction(async (transaction) => {
     const invoice = await transaction.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
     if (["POSTED", "SENT", "PAID"].includes(invoice.status)) return;
-    if (invoice.status !== "DRAFT") throw new Error("Only a DRAFT invoice can be posted");
+    if (invoice.status !== "DRAFT") {
+      throw new ConflictError("INVOICE_NOT_POSTABLE", "Only a DRAFT invoice can be posted");
+    }
 
     const order = await transaction.order.findUniqueOrThrow({
       where: { id: invoice.orderId },
@@ -338,7 +364,12 @@ export async function postInvoice(invoiceId: string): Promise<InvoiceModel> {
         currencyCode: order.currencyCode,
       },
     });
-    if (updated.count !== 1) throw new Error("Invoice changed concurrently while posting");
+    if (updated.count !== 1) {
+      throw new ConflictError(
+        "CONCURRENT_MODIFICATION",
+        "Invoice changed concurrently while posting; reload and retry"
+      );
+    }
   });
   return getInvoice(invoiceId);
 }
@@ -387,7 +418,12 @@ const defaultInvoiceDeliveryDependencies: InvoiceDeliveryDependencies = {
 type DeliveryStage = "recipient validation" | "PDF rendering" | "delivery" | "attachment" | "state recording";
 
 function requiredDestination(value: string | null, label: string): string {
-  if (!value?.trim()) throw new Error(`${label} is not configured`);
+  if (!value?.trim()) {
+    throw new PreconditionError(
+      "DELIVERY_DESTINATION_MISSING",
+      `${label} is not configured`
+    );
+  }
   return value;
 }
 
@@ -431,7 +467,8 @@ export async function sendInvoiceWithDependencies(
   const method = TransmissionMethodSchema.parse(rawMethod);
   const invoice = await dependencies.findInvoice(invoiceId);
   if (invoice.status !== "POSTED" && invoice.status !== "SENT") {
-    throw new Error(
+    throw new ConflictError(
+      "INVOICE_NOT_DELIVERABLE",
       `Invoice ${invoice.number} must be POSTED or SENT before transmission (current status: ${invoice.status})`
     );
   }
@@ -445,7 +482,14 @@ export async function sendInvoiceWithDependencies(
 
     let destination: string;
     if (method === "EMAIL") {
-      destination = EmailAddressSchema.parse(customerEmail);
+      const parsedEmail = EmailAddressSchema.safeParse(customerEmail);
+      if (!parsedEmail.success) {
+        throw new PreconditionError(
+          "DELIVERY_RECIPIENT_INVALID",
+          "The invoice delivery email is invalid"
+        );
+      }
+      destination = parsedEmail.data;
     } else if (method === "PORTAL") {
       destination = requiredDestination(invoice.customer.portalAccount, "Portal account");
     } else {
