@@ -169,4 +169,40 @@ void describe("HTTP problem-details boundary", () => {
     assert.equal(legacy.link, '</api/v1>; rel="successor-version"');
     assert.equal(versioned.link, null);
   });
+
+  void test("requires a constant-time bearer API key when configured", async () => {
+    const app = createApp({ apiKey: "test-api-key" });
+    const missing = await requestApp(app, "/api/payments");
+    const wrong = await requestApp(app, "/api/payments", {
+      headers: { authorization: "Bearer wrong-key" },
+    });
+    const accepted = await requestApp(app, "/api/payments", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-api-key",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ customerId: "", amount: 1 }),
+    });
+
+    for (const response of [missing, wrong]) {
+      assert.equal(response.status, 401);
+      assert.deepEqual(response.body, {
+        type: "urn:meridian:problem:unauthorized",
+        title: "Unauthorized",
+        status: 401,
+        code: "UNAUTHORIZED",
+      });
+    }
+    assert.equal(accepted.status, 400);
+    assert.ok(isRecord(accepted.body));
+    assert.equal(accepted.body.code, "VALIDATION_ERROR");
+  });
+
+  void test("refuses to start production without an API key", () => {
+    assert.throws(
+      () => createApp({ environment: "production", apiKey: "" }),
+      /MERIDIAN_API_KEY is required/
+    );
+  });
 });

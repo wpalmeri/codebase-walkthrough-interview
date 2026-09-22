@@ -30,6 +30,18 @@ export class NotFoundError extends ApplicationError {
   }
 }
 
+export class AuthenticationError extends ApplicationError {
+  constructor() {
+    super({
+      type: "urn:meridian:problem:unauthorized",
+      title: "Unauthorized",
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+    this.name = "AuthenticationError";
+  }
+}
+
 export class ConflictError extends ApplicationError {
   constructor(code = "CONFLICT", detail?: string) {
     super({
