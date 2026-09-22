@@ -1,31 +1,61 @@
+import {
+  GetInvoiceRequestSchema,
+  ListInvoicesRequestSchema,
+  PostInvoiceRequestSchema,
+  RefreshTransmissionRequestSchema,
+  SendInvoiceRequestSchema,
+  UpdateInvoiceRequestSchema,
+} from "@meridian/contracts";
 import { Router } from "express";
 import * as invoices from "../controllers/invoiceController";
-import { h } from "./helpers";
+import { h, validateRequest } from "./helpers";
 
 export const invoicesView = Router();
 
-invoicesView.get("/", h(async () => invoices.listInvoices()));
+invoicesView.get(
+  "/",
+  h(async (req) => {
+    validateRequest(ListInvoicesRequestSchema, req);
+    return invoices.listInvoices();
+  })
+);
 
-invoicesView.get("/:id", h(async (req) => invoices.getInvoice(req.params.id)));
+invoicesView.get(
+  "/:id",
+  h(async (req) => {
+    const { params } = validateRequest(GetInvoiceRequestSchema, req);
+    return invoices.getInvoice(params.id);
+  })
+);
 
 invoicesView.put(
   "/:id",
-  h(async (req) =>
-    invoices.updateInvoice(req.params.id, {
-      issueDate: req.body.issueDate,
-      dueDate: req.body.dueDate,
-    })
-  )
+  h(async (req) => {
+    const { params, body } = validateRequest(UpdateInvoiceRequestSchema, req);
+    return invoices.updateInvoice(params.id, body);
+  })
 );
 
-invoicesView.post("/:id/post", h(async (req) => invoices.postInvoice(req.params.id)));
+invoicesView.post(
+  "/:id/post",
+  h(async (req) => {
+    const { params } = validateRequest(PostInvoiceRequestSchema, req);
+    return invoices.postInvoice(params.id);
+  })
+);
 
 invoicesView.post(
   "/:id/send",
-  h(async (req) => invoices.sendInvoice(req.params.id, req.body.method))
+  h(async (req) => {
+    const { params, body } = validateRequest(SendInvoiceRequestSchema, req);
+    return invoices.sendInvoice(params.id, body.method);
+  })
 );
 
 invoicesView.post(
   "/transmissions/:transmissionId/refresh",
-  h(async (req) => invoices.refreshTransmission(req.params.transmissionId))
+  h(async (req) => {
+    const { params } = validateRequest(RefreshTransmissionRequestSchema, req);
+    return invoices.refreshTransmission(params.transmissionId);
+  })
 );

@@ -1,30 +1,53 @@
+import {
+  CreateInvoiceForOrderRequestSchema,
+  CreateOrderRequestSchema,
+  GetOrderRequestSchema,
+  ListOrdersRequestSchema,
+  UpdateOrderRequestSchema,
+} from "@meridian/contracts";
 import { Router } from "express";
 import * as invoices from "../controllers/invoiceController";
 import * as orders from "../controllers/orderController";
-import { h } from "./helpers";
+import { h, validateRequest } from "./helpers";
 
 export const ordersView = Router();
 
-ordersView.get("/", h(async () => orders.listOrders()));
+ordersView.get(
+  "/",
+  h(async (req) => {
+    validateRequest(ListOrdersRequestSchema, req);
+    return orders.listOrders();
+  })
+);
 
-ordersView.get("/:id", h(async (req) => orders.getOrder(req.params.id)));
+ordersView.get(
+  "/:id",
+  h(async (req) => {
+    const { params } = validateRequest(GetOrderRequestSchema, req);
+    return orders.getOrder(params.id);
+  })
+);
 
-ordersView.post("/", h(async (req) => orders.createOrder(req.body)));
+ordersView.post(
+  "/",
+  h(async (req) => {
+    const { body } = validateRequest(CreateOrderRequestSchema, req);
+    return orders.createOrder(body);
+  })
+);
 
 ordersView.put(
   "/:id",
-  h(async (req) =>
-    orders.saveOrder(req.params.id, {
-      customerId: req.body.customerId,
-      orderDate: req.body.orderDate,
-      notes: req.body.notes,
-      items: req.body.items,
-      comment: req.body.comment,
-    })
-  )
+  h(async (req) => {
+    const { params, body } = validateRequest(UpdateOrderRequestSchema, req);
+    return orders.saveOrder(params.id, body);
+  })
 );
 
 ordersView.post(
   "/:id/invoice",
-  h(async (req) => invoices.createInvoiceForOrder(req.params.id))
+  h(async (req) => {
+    const { params } = validateRequest(CreateInvoiceForOrderRequestSchema, req);
+    return invoices.createInvoiceForOrder(params.id);
+  })
 );

@@ -1,9 +1,12 @@
 import { z } from "zod";
+import { TransmissionMethodSchema } from "./requests.js";
 
 const id = z.string().min(1);
 const isoDateTime = z.iso.datetime({ offset: true });
 const money = z.number().finite();
 const nonNegativeMoney = money.nonnegative();
+
+export const EmailAddressSchema = z.email();
 
 export const OrderStatusSchema = z.enum(["OPEN", "INVOICED", "CLOSED"]);
 export type OrderStatus = z.infer<typeof OrderStatusSchema>;
@@ -11,7 +14,6 @@ export type OrderStatus = z.infer<typeof OrderStatusSchema>;
 export const InvoiceStatusSchema = z.enum(["DRAFT", "POSTED", "SENT", "PAID", "VOID"]);
 export type InvoiceStatus = z.infer<typeof InvoiceStatusSchema>;
 
-export const TransmissionMethodSchema = z.enum(["EMAIL", "PORTAL", "API"]);
 export type TransmissionMethod = z.infer<typeof TransmissionMethodSchema>;
 
 export const TransmissionStatusSchema = z.enum([
@@ -27,7 +29,7 @@ export type TransmissionStatus = z.infer<typeof TransmissionStatusSchema>;
 export const CustomerSchema = z.object({
   id,
   name: z.string(),
-  email: z.email(),
+  email: EmailAddressSchema,
   billingAddress: z.string().nullable(),
   portalAccount: z.string().nullable(),
   clearinghouseId: z.string().nullable(),
@@ -97,7 +99,7 @@ export const OrderSchema = z.object({
   reference: z.string().nullable(),
   customerId: id,
   customerName: z.string().optional(),
-  customerEmail: z.email().optional(),
+  customerEmail: EmailAddressSchema.optional(),
   billingAddress: z.string().nullable().optional(),
   orderDate: isoDateTime,
   status: OrderStatusSchema,
@@ -147,7 +149,7 @@ export const InvoiceSchema = z.object({
   number: z.string(),
   customerId: id,
   customerName: z.string().optional(),
-  customerEmail: z.email().optional(),
+  customerEmail: EmailAddressSchema.optional(),
   billingAddress: z.string().nullable().optional(),
   orderId: id,
   orderReference: z.string().nullable().optional(),
@@ -208,3 +210,5 @@ export const AnnualRevenueSchema = z.object({
   revenue: nonNegativeMoney,
 });
 export type AnnualRevenue = z.infer<typeof AnnualRevenueSchema>;
+
+export * from "./requests.js";
