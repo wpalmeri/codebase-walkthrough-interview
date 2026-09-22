@@ -1,7 +1,11 @@
 import { prisma } from "../db";
 import { ProductModel, toProductModel } from "../models/product";
 
-export async function listProducts(): Promise<ProductModel[]> {
-  const rows = await prisma.product.findMany({ orderBy: { sku: "asc" } });
+/** Lists only products owned by the server-derived tenant principal. */
+export async function listProducts(tenantId: string): Promise<ProductModel[]> {
+  const rows = await prisma.product.findMany({
+    where: { tenantId },
+    orderBy: { sku: "asc" },
+  });
   return rows.map(toProductModel);
 }
