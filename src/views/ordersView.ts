@@ -2,75 +2,164 @@ import {
   CreateInvoiceForOrderRequestSchema,
   CreateOrderRequestSchema,
   GetOrderRequestSchema,
+  InvoiceSchema,
   ListOrdersRequestSchema,
+  OrderConditionalRequestHeadersSchema,
+  OrderSchema,
   UpdateOrderRequestSchema,
 } from "@meridian/contracts";
 import { Router } from "express";
+import { BILLING_WRITE_ROLES, READ_ROLES } from "../auth/authorization";
+import { requestAuditMetadata } from "../audit/requestAudit";
 import * as invoices from "../controllers/invoiceController";
 import * as orders from "../controllers/orderController";
-import { BILLING_WRITE_ROLES, READ_ROLES, requireRole } from "../auth/authorization";
-import { requestAuditMetadata } from "../audit/requestAudit";
 import { isV1Request } from "../http/apiVersion";
-import { h, validateRequest } from "./helpers";
+import {
+  EtagResponseHeadersSchema,
+  IdempotencyRequestHeadersSchema,
+  defineOperation,
+  mountOperation,
+} from "../openapi/operation";
 
-export const ordersView = Router();
-
-ordersView.get(
-  "/",
-  h(async (req) => {
-    validateRequest(ListOrdersRequestSchema, req);
-    return orders.listOrders(requireRole(req, READ_ROLES).tenantId);
-  })
-);
-
-ordersView.get(
-  "/:id",
-  h(async (req, response) => {
-    const { params } = validateRequest(GetOrderRequestSchema, req);
-    const result = await orders.getVersionedOrder(requireRole(req, READ_ROLES).tenantId, params.id);
-    if (isV1Request(req)) response.setHeader("ETag", result.etag);
-    return result.order;
-  })
-);
-
-ordersView.post(
-  "/",
-  h(async (req) => {
-    const { body } = validateRequest(CreateOrderRequestSchema, req);
-    const principal = requireRole(req, BILLING_WRITE_ROLES);
-    return orders.createOrder(principal.tenantId, body, requestAuditMetadata(req, principal));
-  })
-);
-
-const updateOrder = h(async (req, response) => {
-  const { params, body } = validateRequest(UpdateOrderRequestSchema, req);
-  const principal = requireRole(req, BILLING_WRITE_ROLES);
-  const audit = requestAuditMetadata(req, principal);
-  if (!isV1Request(req)) return orders.saveOrder(principal.tenantId, params.id, body, audit);
-
-  const result = await orders.saveOrderConditionally(
-    principal.tenantId,
-    params.id,
-    body,
-    req.get("if-match"),
-    audit
-  );
-  response.setHeader("ETag", result.etag);
-  return result.order;
+const listOrdersOperation = defineOperation({
+  method: "get",
+  path: "/orders",
+  operationId: "listOrders",
+  summary: "List orders",
+  request: ListOrdersRequestSchema,
+  hasJsonBody: false,
+  success: { status: 200, description: "Orders visible to the tenant", schema: OrderSchema.array() },
+  security: "tenantBearer",
+  roles: READ_ROLES,
+  errors: [400, 401, 403, 500],
+  handler: async ({ principal }) => orders.listOrders(principal.tenantId),
 });
 
-ordersView.put("/:id", updateOrder);
-ordersView.patch("/:id", updateOrder);
+const getOrderOperation = defineOperation({
+  method: "get",
+  path: "/orders/:id",
+  operationId: "getOrder",
+  summary: "Get an order",
+  description: "On `/api/v1`, returns a strong ETag for conditional updates.",
+  request: GetOrderRequestSchema,
+  hasJsonBody: false,
+  success: { status: 200, description: "Order representation", schema: OrderSchema },
+  security: "tenantBearer",
+  roles: READ_ROLES,
+  errors: [400, 401, 403, 404, 500],
+  responseHeaders: EtagResponseHeadersSchema,
+  handler: async ({ input, principal, request, response }) => {
+    const result = await orders.getVersionedOrder(principal.tenantId, input.params.id);
+    if (isV1Request(request)) response.setHeader("ETag", result.etag);
+    return result.order;
+  },
+});
 
-ordersView.post(
-  "/:id/invoice",
-  h(async (req) => {
-    const { params } = validateRequest(CreateInvoiceForOrderRequestSchema, req);
-    const principal = requireRole(req, BILLING_WRITE_ROLES);
-    return invoices.createInvoiceForOrder(
+const createOrderOperation = defineOperation({
+  method: "post",
+  path: "/orders",
+  operationId: "createOrder",
+  summary: "Create an order with materialized pricing",
+  request: CreateOrderRequestSchema,
+  hasJsonBody: true,
+  success: { status: 200, description: "Created order", schema: OrderSchema },
+  security: "tenantBearer",
+  roles: BILLING_WRITE_ROLES,
+  errors: [400, 401, 403, 404, 422, 500],
+  requestHeaders: IdempotencyRequestHeadersSchema,
+  handler: async ({ input, principal, request }) =>
+    orders.createOrder(principal.tenantId, input.body, requestAuditMetadata(request, principal)),
+});
+
+const updateOrderOperation = defineOperation({
+  method: "put",
+  path: "/orders/:id",
+  operationId: "replaceOrder",
+  summary: "Update an order",
+  description:
+    "`/api/v1` requires an exact strong If-Match ETag and returns the next ETag; legacy `/api` keeps its unconditional update behavior.",
+  request: UpdateOrderRequestSchema,
+  hasJsonBody: true,
+  success: { status: 200, description: "Updated order", schema: OrderSchema },
+  security: "tenantBearer",
+  roles: BILLING_WRITE_ROLES,
+  errors: [400, 401, 403, 404, 409, 412, 422, 428, 500],
+  requestHeaders: IdempotencyRequestHeadersSchema.merge(OrderConditionalRequestHeadersSchema),
+  responseHeaders: EtagResponseHeadersSchema,
+  handler: async ({ input, principal, request, response }) => {
+    const audit = requestAuditMetadata(request, principal);
+    if (!isV1Request(request)) return orders.saveOrder(principal.tenantId, input.params.id, input.body, audit);
+
+    const result = await orders.saveOrderConditionally(
       principal.tenantId,
-      params.id,
-      { metadata: requestAuditMetadata(req, principal) }
+      input.params.id,
+      input.body,
+      request.get("if-match"),
+      audit
     );
-  })
-);
+    response.setHeader("ETag", result.etag);
+    return result.order;
+  },
+});
+
+const patchOrderOperation = defineOperation({
+  method: "patch",
+  path: "/orders/:id",
+  operationId: "updateOrder",
+  summary: "Partially update an order",
+  description:
+    "`/api/v1` requires an exact strong If-Match ETag and returns the next ETag; legacy `/api` keeps its unconditional update behavior.",
+  request: UpdateOrderRequestSchema,
+  hasJsonBody: true,
+  success: { status: 200, description: "Updated order", schema: OrderSchema },
+  security: "tenantBearer",
+  roles: BILLING_WRITE_ROLES,
+  errors: [400, 401, 403, 404, 409, 412, 422, 428, 500],
+  requestHeaders: IdempotencyRequestHeadersSchema.merge(OrderConditionalRequestHeadersSchema),
+  responseHeaders: EtagResponseHeadersSchema,
+  handler: async ({ input, principal, request, response }) => {
+    const audit = requestAuditMetadata(request, principal);
+    if (!isV1Request(request)) return orders.saveOrder(principal.tenantId, input.params.id, input.body, audit);
+
+    const result = await orders.saveOrderConditionally(
+      principal.tenantId,
+      input.params.id,
+      input.body,
+      request.get("if-match"),
+      audit
+    );
+    response.setHeader("ETag", result.etag);
+    return result.order;
+  },
+});
+
+const createInvoiceForOrderOperation = defineOperation({
+  method: "post",
+  path: "/orders/:id/invoice",
+  operationId: "createInvoiceForOrder",
+  summary: "Create an invoice from a materialized order",
+  request: CreateInvoiceForOrderRequestSchema,
+  hasJsonBody: false,
+  success: { status: 200, description: "Created draft invoice", schema: InvoiceSchema },
+  security: "tenantBearer",
+  roles: BILLING_WRITE_ROLES,
+  errors: [400, 401, 403, 404, 409, 422, 500],
+  requestHeaders: IdempotencyRequestHeadersSchema,
+  handler: async ({ input, principal, request }) =>
+    invoices.createInvoiceForOrder(principal.tenantId, input.params.id, {
+      metadata: requestAuditMetadata(request, principal),
+    }),
+});
+
+/** Reused by the OpenAPI inventory; these descriptors are what Express mounts. */
+export const orderOperations = [
+  listOrdersOperation,
+  getOrderOperation,
+  createOrderOperation,
+  updateOrderOperation,
+  patchOrderOperation,
+  createInvoiceForOrderOperation,
+] as const;
+
+export const ordersView = Router();
+for (const operation of orderOperations) mountOperation(ordersView, operation);

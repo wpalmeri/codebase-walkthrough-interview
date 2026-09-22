@@ -14,7 +14,7 @@ export const api = Router();
 api.use(customersView);
 api.use(productsView);
 api.use(ratesView);
-api.use("/orders", ordersView);
+api.use(ordersView);
 api.use("/invoices", invoicesView);
 api.use(paymentsView);
 api.use("/reports", reportsView);
