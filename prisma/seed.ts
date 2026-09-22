@@ -1,351 +1,415 @@
+import { ExactRateTierSchema } from "@meridian/contracts";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../src/db";
-import { parseRateTiers } from "../src/domain/rateTier";
+import { utcAccountingDateFromInstant } from "../src/domain/accountingPeriod";
+import {
+  MONEY_PRECISION,
+  MONEY_SCALE,
+  QUANTITY_PRECISION,
+  QUANTITY_SCALE,
+  addDecimal,
+  canonicalMoney,
+  canonicalPercentage,
+  canonicalQuantity,
+  legacyNumber,
+  type DecimalInput,
+} from "../src/domain/money";
+import {
+  captureOrderPricing,
+  exactPricingInput,
+  type CapturedOrderPricing,
+} from "../src/domain/orderPricing";
 
-async function wipe() {
-  await prisma.transmission.deleteMany();
-  await prisma.paymentApplication.deleteMany();
-  await prisma.payment.deleteMany();
-  await prisma.invoiceLine.deleteMany();
-  await prisma.invoice.deleteMany();
-  await prisma.orderComment.deleteMany();
-  await prisma.orderItem.deleteMany();
-  await prisma.order.deleteMany();
-  await prisma.comboDiscount.deleteMany();
-  await prisma.rate.deleteMany();
-  await prisma.product.deleteMany();
-  await prisma.customer.deleteMany();
+const CURRENCY = "USD";
+const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "amount" } as const;
+const quantityFormat = {
+  scale: QUANTITY_SCALE,
+  precision: QUANTITY_PRECISION,
+  field: "quantity",
+} as const;
+
+type SeedTier = {
+  upTo: string | null;
+  unitPrice: string;
+  floor?: string | null;
+  ceiling?: string | null;
+};
+
+type SeedOrder = {
+  id: string;
+  customerId: string;
+  orderDate: string;
+  status: "OPEN" | "INVOICED";
+  shipTo: string;
+  items: readonly { productId: string; quantity: string }[];
+};
+
+type SeedInvoice = {
+  id: string;
+  number: string;
+  orderId: string;
+  issueDate: string;
+  status: "DRAFT" | "POSTED" | "SENT" | "PAID";
+  amountPaid?: string;
+};
+
+function exactTiers(tiers: readonly SeedTier[]) {
+  return ExactRateTierSchema.array().parse(
+    tiers.map((tier) => ({
+      upTo: tier.upTo === null ? null : canonicalQuantity(tier.upTo, "tier upper bound"),
+      unitPrice: canonicalMoney(tier.unitPrice, "tier unit price"),
+      ...(tier.floor === undefined
+        ? {}
+        : { floor: tier.floor === null ? null : canonicalMoney(tier.floor, "tier floor") }),
+      ...(tier.ceiling === undefined
+        ? {}
+        : { ceiling: tier.ceiling === null ? null : canonicalMoney(tier.ceiling, "tier ceiling") }),
+    }))
+  );
 }
 
-async function createOrder(
-  id: string,
-  customerId: string,
-  orderDate: string,
-  status: string,
-  items: { productId: string; quantity: number }[],
-  shipTo?: string
-) {
-  const count = await prisma.order.count();
-  await prisma.order.create({
-    data: {
-      id,
-      reference: `SO-${String(count + 1).padStart(4, "0")}`,
-      customerId,
-      orderDate: new Date(orderDate),
-      status,
-      shipTo,
-    },
-  });
-  for (const item of items) {
-    const rate = await prisma.rate.findUniqueOrThrow({
-      where: { customerId_productId: { customerId, productId: item.productId } },
+function instant(day: string): Date {
+  return new Date(`${day}T00:00:00.000Z`);
+}
+
+function addDays(day: Date, days: number): Date {
+  return new Date(day.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+function requireMoney(value: DecimalInput | null, field: string): string {
+  if (value === null) throw new Error(`${field} was unexpectedly null in seeded data`);
+  return canonicalMoney(value, field);
+}
+
+function requireQuantity(value: DecimalInput | null, field: string): string {
+  if (value === null) throw new Error(`${field} was unexpectedly null in seeded data`);
+  return canonicalQuantity(value, field);
+}
+
+function orderItemData(captured: CapturedOrderPricing) {
+  return {
+    productId: captured.productId,
+    rateId: captured.rateId,
+    quantity: legacyNumber(captured.quantityDecimal, quantityFormat),
+    unitPrice: legacyNumber(captured.effectiveUnitPriceDecimal, moneyFormat),
+    productSkuSnapshot: captured.productSkuSnapshot,
+    productNameSnapshot: captured.productNameSnapshot,
+    productUnitSnapshot: captured.productUnitSnapshot,
+    quantityDecimal: captured.quantityDecimal,
+    baseUnitPriceDecimal: captured.baseUnitPriceDecimal,
+    effectiveUnitPriceDecimal: captured.effectiveUnitPriceDecimal,
+    amountDecimal: captured.amountDecimal,
+    pricingSnapshot: captured.pricingSnapshot as Prisma.InputJsonValue,
+    pricingCapturedAt: new Date(captured.pricingCapturedAt),
+    snapshotVersion: captured.snapshotVersion,
+  };
+}
+
+async function requireEmptyDatabase(): Promise<void> {
+  const counts = await Promise.all([
+    prisma.customer.count(),
+    prisma.product.count(),
+    prisma.order.count(),
+    prisma.invoice.count(),
+    prisma.payment.count(),
+    prisma.backfillCheckpoint.count(),
+  ]);
+  if (counts.some((count) => count !== 0)) {
+    throw new Error(
+      "Seed requires an empty database because finalized financial history is immutable; use `bun run db:reset` for a disposable local database"
+    );
+  }
+}
+
+async function createOrder(seed: SeedOrder): Promise<void> {
+  await prisma.$transaction(async (transaction) => {
+    const productIds = seed.items.map((item) => item.productId);
+    const [products, rates, discounts] = await Promise.all([
+      transaction.product.findMany({ where: { id: { in: productIds } } }),
+      transaction.rate.findMany({
+        where: { customerId: seed.customerId, productId: { in: productIds } },
+      }),
+      transaction.comboDiscount.findMany({
+        where: { OR: [{ customerId: seed.customerId }, { customerId: null }] },
+        include: { products: true },
+      }),
+    ]);
+    if (products.length !== productIds.length || rates.length !== productIds.length) {
+      throw new Error(`seed order ${seed.id} is missing a product or contracted rate`);
+    }
+
+    const productsById = new Map(products.map((product) => [product.id, product]));
+    const ratesByProductId = new Map(rates.map((rate) => [rate.productId, rate]));
+    const productIdSet = new Set(productIds);
+    const capturedAt = `${seed.orderDate}T12:00:00.000Z`;
+    const lines = seed.items.map((item) => {
+      const product = productsById.get(item.productId);
+      const rate = ratesByProductId.get(item.productId);
+      if (!product || !rate || product.currencyCode !== CURRENCY || rate.currencyCode !== CURRENCY) {
+        throw new Error(`seed order ${seed.id} has invalid pricing data for ${item.productId}`);
+      }
+      const applicableDiscounts = discounts.filter((discount) => {
+        const discountProductIds = discount.products.map((candidate) => candidate.id);
+        return (
+          discountProductIds.includes(item.productId) &&
+          discountProductIds.every((productId) => productIdSet.has(productId))
+        );
+      });
+      const tiers = rate.tiers === null ? [] : ExactRateTierSchema.array().parse(rate.tiers);
+
+      return captureOrderPricing(
+        exactPricingInput({
+          product: {
+            id: product.id,
+            sku: product.sku,
+            name: product.name,
+            unit: product.unit,
+            currencyCode: product.currencyCode,
+          },
+          rate: {
+            id: rate.id,
+            currencyCode: rate.currencyCode,
+            baseUnitPrice: requireMoney(rate.unitPriceDecimal, `rate ${rate.id} unit price`),
+            tiers,
+          },
+          quantity: item.quantity,
+          discounts: applicableDiscounts.map((discount) => ({
+            id: discount.id,
+            name: discount.name,
+            percentOff: canonicalPercentage(
+              requireMoney(discount.percentOffDecimal, `discount ${discount.id} percentage`),
+              `discount ${discount.id} percentage`
+            ),
+          })),
+          capturedAt,
+        })
+      );
     });
-    await prisma.orderItem.create({
+
+    await transaction.order.create({
       data: {
-        orderId: id,
-        productId: item.productId,
-        rateId: rate.id,
-        quantity: item.quantity,
-        unitPrice: rate.unitPrice,
+        id: seed.id,
+        reference: `SO-${seed.id.replace("ord_", "").padStart(4, "0")}`,
+        customerId: seed.customerId,
+        orderDate: instant(seed.orderDate),
+        status: seed.status,
+        shipTo: seed.shipTo,
+        currencyCode: CURRENCY,
       },
     });
-  }
-  // Store computed prices on the items.
-  const order = await prisma.order.findUniqueOrThrow({
-    where: { id },
-    include: { customer: true, items: { include: { product: true, rate: true } } },
+    await transaction.orderItem.createMany({
+      data: lines.map((line) => ({ orderId: seed.id, ...orderItemData(line) })),
+    });
   });
-  const combos = await prisma.comboDiscount.findMany({
-    where: { OR: [{ customerId }, { customerId: null }] },
-    include: { products: true },
-  });
-  const orderProductIds = order.items.map((i) => i.productId);
-  for (const item of order.items) {
-    let unitPrice = item.rate.unitPrice;
-    const tiers = parseRateTiers(item.rate.tiers);
-    if (tiers.length > 0 && item.quantity > 0) {
-      let total = 0;
-      let lower = 0;
-      for (const interval of tiers.toSorted(
-        (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
-      )) {
-        const upper = interval.upTo ?? Infinity;
-        const units = Math.min(item.quantity, upper) - lower;
-        if (units > 0) {
-          let charge = units * interval.unitPrice;
-          if (interval.floor != null && charge < interval.floor) charge = interval.floor;
-          if (interval.ceiling != null && charge > interval.ceiling) charge = interval.ceiling;
-          total += charge;
-        }
-        lower = upper;
-        if (upper >= item.quantity) break;
-      }
-      unitPrice = total / item.quantity;
-    }
-    for (const combo of combos) {
-      const comboProductIds = combo.products.map((p) => p.id);
-      if (
-        comboProductIds.every((pid) => orderProductIds.includes(pid)) &&
-        comboProductIds.includes(item.productId)
-      ) {
-        unitPrice = unitPrice * (1 - combo.percentOff / 100);
-      }
-    }
-    await prisma.orderItem.update({ where: { id: item.id }, data: { unitPrice } });
-  }
 }
 
-async function createInvoice(
-  id: string,
-  number: string,
-  orderId: string,
-  issueDate: string,
-  status: string,
-  amountPaid = 0
-) {
-  const order = await prisma.order.findUniqueOrThrow({
-    where: { id: orderId },
-    include: { customer: true, items: { include: { product: true, rate: true } } },
-  });
-  const bundles = await prisma.comboDiscount.findMany({
-    where: { OR: [{ customerId: order.customerId }, { customerId: null }] },
-    include: { products: true },
-  });
-  const productIds = order.items.map((line) => line.productId);
-  const lines = order.items.map((line) => {
-    let price = line.rate.unitPrice;
-    const tierList = parseRateTiers(line.rate.tiers);
-    if (tierList.length > 0 && line.quantity > 0) {
-      let charged = 0;
-      let from = 0;
-      for (const band of tierList.toSorted(
-        (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
-      )) {
-        const to = band.upTo ?? Infinity;
-        const unitsInBand = Math.min(line.quantity, to) - from;
-        if (unitsInBand > 0) {
-          let bandCharge = unitsInBand * band.unitPrice;
-          if (band.floor != null && bandCharge < band.floor) bandCharge = band.floor;
-          if (band.ceiling != null && bandCharge > band.ceiling) bandCharge = band.ceiling;
-          charged += bandCharge;
-        }
-        from = to;
-        if (to >= line.quantity) break;
-      }
-      price = charged / line.quantity;
-    }
-    for (const bundle of bundles) {
-      const bundleProductIds = bundle.products.map((p) => p.id);
-      if (
-        bundleProductIds.every((pid) => productIds.includes(pid)) &&
-        bundleProductIds.includes(line.productId)
-      ) {
-        price = price * (1 - bundle.percentOff / 100);
-      }
-    }
-    return {
-      description: `${line.product.name} @ ${line.product.unit}`,
-      quantity: line.quantity,
-      unitPrice: price,
-      amount: price * line.quantity,
-    };
-  });
-  const total = lines.reduce((sum, line) => sum + line.amount, 0);
+async function createInvoice(seed: SeedInvoice): Promise<{ id: string; total: string }> {
+  return prisma.$transaction(async (transaction) => {
+    const order = await transaction.order.findUniqueOrThrow({
+      where: { id: seed.orderId },
+      include: { customer: true, items: true },
+    });
+    if (order.currencyCode !== CURRENCY) throw new Error(`seed order ${order.id} has no USD currency`);
 
-  const issue = new Date(issueDate);
-  const posted = status !== "DRAFT";
-  await prisma.invoice.create({
+    const lines = order.items.map((item) => {
+      const quantityDecimal = requireQuantity(item.quantityDecimal, `order item ${item.id} quantity`);
+      const unitPriceDecimal = requireMoney(
+        item.effectiveUnitPriceDecimal,
+        `order item ${item.id} unit price`
+      );
+      const amountDecimal = requireMoney(item.amountDecimal, `order item ${item.id} amount`);
+      if (
+        item.productSkuSnapshot === null ||
+        item.productNameSnapshot === null ||
+        item.productUnitSnapshot === null
+      ) {
+        throw new Error(`order item ${item.id} is missing a product snapshot`);
+      }
+      return {
+        description: `${item.productNameSnapshot} @ ${item.productUnitSnapshot}`,
+        quantity: legacyNumber(quantityDecimal, quantityFormat),
+        unitPrice: legacyNumber(unitPriceDecimal, moneyFormat),
+        amount: legacyNumber(amountDecimal, moneyFormat),
+        productSkuSnapshot: item.productSkuSnapshot,
+        productUnitSnapshot: item.productUnitSnapshot,
+        quantityDecimal,
+        unitPriceDecimal,
+        amountDecimal,
+      };
+    });
+    const totalDecimal = lines.reduce(
+      (total, line) => addDecimal(total, line.amountDecimal, moneyFormat),
+      canonicalMoney("0")
+    );
+    const amountPaidDecimal =
+      seed.status === "PAID"
+        ? totalDecimal
+        : canonicalMoney(seed.amountPaid ?? "0", `invoice ${seed.id} amount paid`);
+    const issueDate = instant(seed.issueDate);
+
+    await transaction.invoice.create({
+      data: {
+        id: seed.id,
+        number: seed.number,
+        customerId: order.customerId,
+        orderId: order.id,
+        // InvoiceLine guards require immutable lines to be inserted while the
+        // invoice is a draft. Advance through valid lifecycle transitions below.
+        status: "DRAFT",
+        issueDate,
+        dueDate: addDays(issueDate, 30),
+        accountingDate: utcAccountingDateFromInstant(issueDate),
+        total: legacyNumber(totalDecimal, moneyFormat),
+        totalDecimal,
+        amountPaid: legacyNumber(amountPaidDecimal, moneyFormat),
+        amountPaidDecimal,
+        customerNameSnapshot: order.customer.name,
+        customerEmailSnapshot: order.customer.email,
+        billingAddressSnapshot: order.customer.billingAddress,
+        postedAt: null,
+        currencyCode: CURRENCY,
+        lines: { create: lines },
+      },
+    });
+    if (seed.status !== "DRAFT") {
+      await transaction.invoice.update({
+        where: { id: seed.id },
+        data: { status: "POSTED", postedAt: addDays(issueDate, 2) },
+      });
+    }
+    if (seed.status === "SENT" || seed.status === "PAID") {
+      await transaction.invoice.update({ where: { id: seed.id }, data: { status: seed.status } });
+    }
+    return { id: seed.id, total: totalDecimal };
+  });
+}
+
+async function createPayment(input: {
+  id: string;
+  customerId: string;
+  amount: string;
+  receivedAt: string;
+  reference: string;
+  applications: readonly { id: string; invoiceId: string; amount: string; appliedAt: string }[];
+}): Promise<void> {
+  const amountDecimal = canonicalMoney(input.amount, `payment ${input.id} amount`);
+  await prisma.payment.create({
     data: {
-      id,
-      number,
-      customerId: order.customerId,
-      orderId,
-      status,
-      issueDate: issue,
-      dueDate: new Date(issue.getTime() + 30 * 24 * 60 * 60 * 1000),
-      total,
-      amountPaid: status === "PAID" ? total : amountPaid,
-      postedAt: posted ? new Date(issue.getTime() + 2 * 24 * 60 * 60 * 1000) : null,
-      lines: { create: lines },
+      id: input.id,
+      customerId: input.customerId,
+      amount: legacyNumber(amountDecimal, moneyFormat),
+      amountDecimal,
+      currencyCode: CURRENCY,
+      receivedAt: instant(input.receivedAt),
+      reference: input.reference,
+      applications: {
+        create: input.applications.map((application) => {
+          const applicationAmount = canonicalMoney(
+            application.amount,
+            `payment application ${application.id} amount`
+          );
+          return {
+            id: application.id,
+            invoiceId: application.invoiceId,
+            amount: legacyNumber(applicationAmount, moneyFormat),
+            amountDecimal: applicationAmount,
+            appliedAt: instant(application.appliedAt),
+          };
+        }),
+      },
     },
   });
-  return total;
 }
 
-async function main() {
-  await wipe();
+async function main(): Promise<void> {
+  await requireEmptyDatabase();
 
   await prisma.customer.createMany({
     data: [
-      {
-        id: "cust_acme",
-        name: "Acme Logistics",
-        email: "ap@acmelogistics.com",
-        billingAddress: "1 Freight Way, Reno, NV",
-        portalAccount: "ACME-AP-291",
-        clearinghouseId: "TP-ACME-01",
-      },
-      {
-        id: "cust_bluebird",
-        name: "Bluebird Media",
-        email: "billing@bluebird.media",
-        billingAddress: "88 Aviary Ave, Austin, TX",
-        clearinghouseId: "TP-BLUE-77",
-      },
-      {
-        id: "cust_cascade",
-        name: "Cascade Manufacturing",
-        email: "payables@cascademfg.com",
-        billingAddress: "400 Mill Rd, Tacoma, WA",
-        portalAccount: "CASC-PORTAL-8",
-      },
+      { id: "cust_acme", name: "Acme Logistics", email: "ap@acmelogistics.com", billingAddress: "1 Freight Way, Reno, NV", portalAccount: "ACME-AP-291", clearinghouseId: "TP-ACME-01" },
+      { id: "cust_bluebird", name: "Bluebird Media", email: "billing@bluebird.media", billingAddress: "88 Aviary Ave, Austin, TX", clearinghouseId: "TP-BLUE-77" },
+      { id: "cust_cascade", name: "Cascade Manufacturing", email: "payables@cascademfg.com", billingAddress: "400 Mill Rd, Tacoma, WA", portalAccount: "CASC-PORTAL-8" },
     ],
   });
 
+  const products = [
+    ["prod_seat", "SEAT-STD", "Standard Seat License", "seat/month", "45"],
+    ["prod_storage", "STG-GB", "Object Storage", "GB/month", "0.12"],
+    ["prod_api", "API-1K", "API Calls", "1k calls", "0.9"],
+    ["prod_support", "SUP-PREM", "Premium Support", "contract/month", "1200"],
+    ["prod_device", "DEV-TRK", "Fleet Tracker Device", "device", "210"],
+  ] as const;
   await prisma.product.createMany({
-    data: [
-      { id: "prod_seat", sku: "SEAT-STD", name: "Standard Seat License", unit: "seat/month", listPrice: 45 },
-      { id: "prod_storage", sku: "STG-GB", name: "Object Storage", unit: "GB/month", listPrice: 0.12 },
-      { id: "prod_api", sku: "API-1K", name: "API Calls", unit: "1k calls", listPrice: 0.9 },
-      { id: "prod_support", sku: "SUP-PREM", name: "Premium Support", unit: "contract/month", listPrice: 1200 },
-      { id: "prod_device", sku: "DEV-TRK", name: "Fleet Tracker Device", unit: "device", listPrice: 210 },
-    ],
+    data: products.map(([id, sku, name, unit, listPrice]) => {
+      const decimal = canonicalMoney(listPrice, `${sku} list price`);
+      return { id, sku, name, unit, listPrice: legacyNumber(decimal, moneyFormat), listPriceDecimal: decimal, currencyCode: CURRENCY };
+    }),
   });
 
-  // Tiers are quantity intervals: units inside each interval bill at its price,
-  // with the interval charge clamped between floor and ceiling.
+  const rates: readonly {
+    id: string;
+    customerId: string;
+    productId: string;
+    unitPrice: string;
+    tiers?: readonly SeedTier[];
+    effectiveDate: string;
+  }[] = [
+    { id: "rate_acme_seat", customerId: "cust_acme", productId: "prod_seat", unitPrice: "39", tiers: [{ upTo: "100", unitPrice: "39" }, { upTo: "250", unitPrice: "34", floor: "500" }, { upTo: null, unitPrice: "29.5", ceiling: "12000" }], effectiveDate: "2025-01-01" },
+    { id: "rate_acme_device", customerId: "cust_acme", productId: "prod_device", unitPrice: "185", tiers: [{ upTo: "50", unitPrice: "185" }, { upTo: "200", unitPrice: "172", floor: "2000" }, { upTo: null, unitPrice: "159", ceiling: "40000" }], effectiveDate: "2025-01-01" },
+    { id: "rate_acme_support", customerId: "cust_acme", productId: "prod_support", unitPrice: "950", effectiveDate: "2025-01-01" },
+    { id: "rate_acme_api", customerId: "cust_acme", productId: "prod_api", unitPrice: "0.85", tiers: [{ upTo: "500", unitPrice: "0.85", floor: "50" }, { upTo: null, unitPrice: "0.72" }], effectiveDate: "2025-01-01" },
+    { id: "rate_blue_storage", customerId: "cust_bluebird", productId: "prod_storage", unitPrice: "0.1", tiers: [{ upTo: "5000", unitPrice: "0.1", floor: "150" }, { upTo: "20000", unitPrice: "0.085" }, { upTo: null, unitPrice: "0.07", ceiling: "2500" }], effectiveDate: "2025-03-01" },
+    { id: "rate_blue_api", customerId: "cust_bluebird", productId: "prod_api", unitPrice: "0.8", tiers: [{ upTo: "1000", unitPrice: "0.8" }, { upTo: null, unitPrice: "0.66" }], effectiveDate: "2025-03-01" },
+    { id: "rate_blue_seat", customerId: "cust_bluebird", productId: "prod_seat", unitPrice: "42", effectiveDate: "2025-03-01" },
+    { id: "rate_casc_seat", customerId: "cust_cascade", productId: "prod_seat", unitPrice: "41", effectiveDate: "2025-06-01" },
+    { id: "rate_casc_device", customerId: "cust_cascade", productId: "prod_device", unitPrice: "199", tiers: [{ upTo: "100", unitPrice: "199" }, { upTo: null, unitPrice: "180", floor: "1000" }], effectiveDate: "2025-06-01" },
+    { id: "rate_casc_support", customerId: "cust_cascade", productId: "prod_support", unitPrice: "1100", effectiveDate: "2025-06-01" },
+  ];
   await prisma.rate.createMany({
-    data: [
-      // Acme
-      {
-        id: "rate_acme_seat", customerId: "cust_acme", productId: "prod_seat", unitPrice: 39,
-        tiers: [
-          { upTo: 100, unitPrice: 39 },
-          { upTo: 250, unitPrice: 34, floor: 500 },
-          { upTo: null, unitPrice: 29.5, ceiling: 12000 },
-        ],
-        effectiveDate: new Date("2025-01-01"),
-      },
-      {
-        id: "rate_acme_device", customerId: "cust_acme", productId: "prod_device", unitPrice: 185,
-        tiers: [
-          { upTo: 50, unitPrice: 185 },
-          { upTo: 200, unitPrice: 172, floor: 2000 },
-          { upTo: null, unitPrice: 159, ceiling: 40000 },
-        ],
-        effectiveDate: new Date("2025-01-01"),
-      },
-      {
-        id: "rate_acme_support", customerId: "cust_acme", productId: "prod_support", unitPrice: 950,
-        effectiveDate: new Date("2025-01-01"),
-      },
-      {
-        id: "rate_acme_api", customerId: "cust_acme", productId: "prod_api", unitPrice: 0.85,
-        tiers: [
-          { upTo: 500, unitPrice: 0.85, floor: 50 },
-          { upTo: null, unitPrice: 0.72 },
-        ],
-        effectiveDate: new Date("2025-01-01"),
-      },
-      // Bluebird
-      {
-        id: "rate_blue_storage", customerId: "cust_bluebird", productId: "prod_storage", unitPrice: 0.1,
-        tiers: [
-          { upTo: 5000, unitPrice: 0.1, floor: 150 },
-          { upTo: 20000, unitPrice: 0.085 },
-          { upTo: null, unitPrice: 0.07, ceiling: 2500 },
-        ],
-        effectiveDate: new Date("2025-03-01"),
-      },
-      {
-        id: "rate_blue_api", customerId: "cust_bluebird", productId: "prod_api", unitPrice: 0.8,
-        tiers: [
-          { upTo: 1000, unitPrice: 0.8 },
-          { upTo: null, unitPrice: 0.66 },
-        ],
-        effectiveDate: new Date("2025-03-01"),
-      },
-      {
-        id: "rate_blue_seat", customerId: "cust_bluebird", productId: "prod_seat", unitPrice: 42,
-        effectiveDate: new Date("2025-03-01"),
-      },
-      // Cascade
-      {
-        id: "rate_casc_seat", customerId: "cust_cascade", productId: "prod_seat", unitPrice: 41,
-        effectiveDate: new Date("2025-06-01"),
-      },
-      {
-        id: "rate_casc_device", customerId: "cust_cascade", productId: "prod_device", unitPrice: 199,
-        tiers: [
-          { upTo: 100, unitPrice: 199 },
-          { upTo: null, unitPrice: 180, floor: 1000 },
-        ],
-        effectiveDate: new Date("2025-06-01"),
-      },
-      {
-        id: "rate_casc_support", customerId: "cust_cascade", productId: "prod_support", unitPrice: 1100,
-        effectiveDate: new Date("2025-06-01"),
-      },
-    ],
+    data: rates.map((rate) => {
+      const unitPriceDecimal = canonicalMoney(rate.unitPrice, `rate ${rate.id} unit price`);
+      return {
+        ...rate,
+        unitPrice: legacyNumber(unitPriceDecimal, moneyFormat),
+        unitPriceDecimal,
+        currencyCode: CURRENCY,
+        tiers: exactTiers(rate.tiers ?? []),
+        effectiveDate: instant(rate.effectiveDate),
+      };
+    }),
   });
 
-  await prisma.comboDiscount.create({
-    data: {
-      id: "combo_acme_platform", customerId: "cust_acme", name: "Platform Bundle", percentOff: 10,
-      products: { connect: [{ id: "prod_seat" }, { id: "prod_support" }] },
-    },
-  });
-  await prisma.comboDiscount.create({
-    data: {
-      id: "combo_blue_data", customerId: "cust_bluebird", name: "Data Bundle", percentOff: 12,
-      products: { connect: [{ id: "prod_storage" }, { id: "prod_api" }] },
-    },
-  });
-  await prisma.comboDiscount.create({
-    data: {
-      id: "combo_casc_fleet", customerId: "cust_cascade", name: "Fleet Bundle", percentOff: 7.5,
-      products: { connect: [{ id: "prod_seat" }, { id: "prod_device" }] },
-    },
-  });
-  // Global: applies to every customer.
-  await prisma.comboDiscount.create({
-    data: {
-      id: "combo_global_devkit", customerId: null, name: "Seats + API Promo", percentOff: 5,
-      products: { connect: [{ id: "prod_seat" }, { id: "prod_api" }] },
-    },
-  });
+  const discounts = [
+    ["combo_acme_platform", "cust_acme", "Platform Bundle", "10", ["prod_seat", "prod_support"]],
+    ["combo_blue_data", "cust_bluebird", "Data Bundle", "12", ["prod_storage", "prod_api"]],
+    ["combo_casc_fleet", "cust_cascade", "Fleet Bundle", "7.5", ["prod_seat", "prod_device"]],
+    ["combo_global_devkit", null, "Seats + API Promo", "5", ["prod_seat", "prod_api"]],
+  ] as const;
+  for (const [id, customerId, name, percentOff, productIds] of discounts) {
+    const percentOffDecimal = canonicalPercentage(percentOff, `${id} percent off`);
+    await prisma.comboDiscount.create({
+      data: {
+        id,
+        customerId,
+        name,
+        percentOff: legacyNumber(percentOffDecimal, { scale: 4, precision: 7, field: "percent off" }),
+        percentOffDecimal,
+        products: { connect: productIds.map((id) => ({ id })) },
+      },
+    });
+  }
 
-  await createOrder("ord_1", "cust_acme", "2025-05-12", "INVOICED", [
-    { productId: "prod_seat", quantity: 120 },
-    { productId: "prod_support", quantity: 1 },
-  ], "Acme Logistics HQ, 1 Freight Way, Reno, NV");
-  await createOrder("ord_2", "cust_bluebird", "2025-07-03", "INVOICED", [
-    { productId: "prod_storage", quantity: 8000 },
-    { productId: "prod_api", quantity: 1500 },
-  ], "Bluebird Media, 88 Aviary Ave, Austin, TX");
-  await createOrder("ord_3", "cust_acme", "2025-09-20", "INVOICED", [
-    { productId: "prod_device", quantity: 60 },
-    { productId: "prod_seat", quantity: 120 },
-    { productId: "prod_support", quantity: 1 },
-  ], "Acme Depot 12, 340 Yard St, Sparks, NV");
-  await createOrder("ord_4", "cust_cascade", "2025-11-08", "INVOICED", [
-    { productId: "prod_seat", quantity: 35 },
-    { productId: "prod_device", quantity: 110 },
-  ], "Cascade Plant 2, 410 Mill Rd, Tacoma, WA");
-  await createOrder("ord_5", "cust_bluebird", "2026-02-14", "INVOICED", [
-    { productId: "prod_storage", quantity: 25000 },
-    { productId: "prod_api", quantity: 900 },
-  ], "Bluebird Media, 88 Aviary Ave, Austin, TX");
-  await createOrder("ord_6", "cust_cascade", "2026-06-30", "INVOICED", [
-    { productId: "prod_support", quantity: 1 },
-    { productId: "prod_seat", quantity: 35 },
-  ], "Cascade Plant 2, 410 Mill Rd, Tacoma, WA");
-  await createOrder("ord_7", "cust_acme", "2026-07-22", "OPEN", [
-    { productId: "prod_seat", quantity: 140 },
-    { productId: "prod_api", quantity: 600 },
-  ], "Acme Logistics HQ, 1 Freight Way, Reno, NV");
-  await createOrder("ord_8", "cust_bluebird", "2026-08-05", "INVOICED", [
-    { productId: "prod_seat", quantity: 6 },
-  ], "Bluebird Media, 88 Aviary Ave, Austin, TX");
+  const orders: readonly SeedOrder[] = [
+    { id: "ord_1", customerId: "cust_acme", orderDate: "2025-05-12", status: "INVOICED", shipTo: "Acme Logistics HQ, 1 Freight Way, Reno, NV", items: [{ productId: "prod_seat", quantity: "120" }, { productId: "prod_support", quantity: "1" }] },
+    { id: "ord_2", customerId: "cust_bluebird", orderDate: "2025-07-03", status: "INVOICED", shipTo: "Bluebird Media, 88 Aviary Ave, Austin, TX", items: [{ productId: "prod_storage", quantity: "8000" }, { productId: "prod_api", quantity: "1500" }] },
+    { id: "ord_3", customerId: "cust_acme", orderDate: "2025-09-20", status: "INVOICED", shipTo: "Acme Depot 12, 340 Yard St, Sparks, NV", items: [{ productId: "prod_device", quantity: "60" }, { productId: "prod_seat", quantity: "120" }, { productId: "prod_support", quantity: "1" }] },
+    { id: "ord_4", customerId: "cust_cascade", orderDate: "2025-11-08", status: "INVOICED", shipTo: "Cascade Plant 2, 410 Mill Rd, Tacoma, WA", items: [{ productId: "prod_seat", quantity: "35" }, { productId: "prod_device", quantity: "110" }] },
+    { id: "ord_5", customerId: "cust_bluebird", orderDate: "2026-02-14", status: "INVOICED", shipTo: "Bluebird Media, 88 Aviary Ave, Austin, TX", items: [{ productId: "prod_storage", quantity: "25000" }, { productId: "prod_api", quantity: "900" }] },
+    { id: "ord_6", customerId: "cust_cascade", orderDate: "2026-06-30", status: "INVOICED", shipTo: "Cascade Plant 2, 410 Mill Rd, Tacoma, WA", items: [{ productId: "prod_support", quantity: "1" }, { productId: "prod_seat", quantity: "35" }] },
+    { id: "ord_7", customerId: "cust_acme", orderDate: "2026-07-22", status: "OPEN", shipTo: "Acme Logistics HQ, 1 Freight Way, Reno, NV", items: [{ productId: "prod_seat", quantity: "140" }, { productId: "prod_api", quantity: "600" }] },
+    { id: "ord_8", customerId: "cust_bluebird", orderDate: "2026-08-05", status: "INVOICED", shipTo: "Bluebird Media, 88 Aviary Ave, Austin, TX", items: [{ productId: "prod_seat", quantity: "6" }] },
+  ];
+  for (const order of orders) await createOrder(order);
 
   await prisma.orderComment.createMany({
     data: [
@@ -356,45 +420,25 @@ async function main() {
     ],
   });
 
-  await createInvoice("inv_1", "INV-00001", "ord_1", "2025-05-15", "PAID");
-  await createInvoice("inv_2", "INV-00002", "ord_2", "2025-07-10", "PAID");
-  await createInvoice("inv_3", "INV-00003", "ord_3", "2025-10-01", "SENT", 5000);
-  await createInvoice("inv_4", "INV-00004", "ord_4", "2026-01-12", "POSTED");
-  await createInvoice("inv_5", "INV-00005", "ord_5", "2026-03-02", "SENT", 1000);
-  await createInvoice("inv_6", "INV-00006", "ord_6", "2026-07-05", "DRAFT");
-  await createInvoice("inv_7", "INV-00007", "ord_8", "2026-08-10", "DRAFT");
+  const invoices = new Map<string, { id: string; total: string }>();
+  const invoiceSeeds: readonly SeedInvoice[] = [
+    { id: "inv_1", number: "INV-00001", orderId: "ord_1", issueDate: "2025-05-15", status: "PAID" },
+    { id: "inv_2", number: "INV-00002", orderId: "ord_2", issueDate: "2025-07-10", status: "PAID" },
+    { id: "inv_3", number: "INV-00003", orderId: "ord_3", issueDate: "2025-10-01", status: "SENT", amountPaid: "5000" },
+    { id: "inv_4", number: "INV-00004", orderId: "ord_4", issueDate: "2026-01-12", status: "POSTED" },
+    { id: "inv_5", number: "INV-00005", orderId: "ord_5", issueDate: "2026-03-02", status: "SENT", amountPaid: "1000" },
+    { id: "inv_6", number: "INV-00006", orderId: "ord_6", issueDate: "2026-07-05", status: "DRAFT" },
+    { id: "inv_7", number: "INV-00007", orderId: "ord_8", issueDate: "2026-08-10", status: "DRAFT" },
+  ];
+  for (const invoice of invoiceSeeds) invoices.set(invoice.id, await createInvoice(invoice));
 
-  const inv1 = await prisma.invoice.findUniqueOrThrow({ where: { id: "inv_1" } });
-  const inv2 = await prisma.invoice.findUniqueOrThrow({ where: { id: "inv_2" } });
-  await prisma.payment.create({
-    data: {
-      id: "pay_1", customerId: "cust_acme", amount: inv1.total,
-      receivedAt: new Date("2025-06-10"), reference: "ACH 88231",
-      applications: { create: [{ id: "app_1", invoiceId: "inv_1", amount: inv1.total, appliedAt: new Date("2025-06-10") }] },
-    },
-  });
-  await prisma.payment.create({
-    data: {
-      id: "pay_2", customerId: "cust_bluebird", amount: inv2.total,
-      receivedAt: new Date("2025-08-02"), reference: "CHK 1077",
-      applications: { create: [{ id: "app_2", invoiceId: "inv_2", amount: inv2.total, appliedAt: new Date("2025-08-02") }] },
-    },
-  });
-  await prisma.payment.create({
-    data: {
-      id: "pay_3", customerId: "cust_acme", amount: 5000,
-      receivedAt: new Date("2025-10-28"), reference: "ACH 90112",
-      applications: { create: [{ id: "app_3", invoiceId: "inv_3", amount: 5000, appliedAt: new Date("2025-10-28") }] },
-    },
-  });
-  // Received 2,500 but only 1,000 applied so far — 1,500 sits as unapplied cash.
-  await prisma.payment.create({
-    data: {
-      id: "pay_4", customerId: "cust_bluebird", amount: 2500,
-      receivedAt: new Date("2026-03-20"), reference: "WIRE 5541",
-      applications: { create: [{ id: "app_4", invoiceId: "inv_5", amount: 1000, appliedAt: new Date("2026-03-22") }] },
-    },
-  });
+  const inv1 = invoices.get("inv_1");
+  const inv2 = invoices.get("inv_2");
+  if (!inv1 || !inv2) throw new Error("seeded paid invoices are missing");
+  await createPayment({ id: "pay_1", customerId: "cust_acme", amount: inv1.total, receivedAt: "2025-06-10", reference: "ACH 88231", applications: [{ id: "app_1", invoiceId: "inv_1", amount: inv1.total, appliedAt: "2025-06-10" }] });
+  await createPayment({ id: "pay_2", customerId: "cust_bluebird", amount: inv2.total, receivedAt: "2025-08-02", reference: "CHK 1077", applications: [{ id: "app_2", invoiceId: "inv_2", amount: inv2.total, appliedAt: "2025-08-02" }] });
+  await createPayment({ id: "pay_3", customerId: "cust_acme", amount: "5000", receivedAt: "2025-10-28", reference: "ACH 90112", applications: [{ id: "app_3", invoiceId: "inv_3", amount: "5000", appliedAt: "2025-10-28" }] });
+  await createPayment({ id: "pay_4", customerId: "cust_bluebird", amount: "2500", receivedAt: "2026-03-20", reference: "WIRE 5541", applications: [{ id: "app_4", invoiceId: "inv_5", amount: "1000", appliedAt: "2026-03-22" }] });
 
   await prisma.transmission.createMany({
     data: [
@@ -403,20 +447,19 @@ async function main() {
     ],
   });
 
-  const counts = {
+  console.log("seeded:", {
     customers: await prisma.customer.count(),
     products: await prisma.product.count(),
     rates: await prisma.rate.count(),
     orders: await prisma.order.count(),
     invoices: await prisma.invoice.count(),
     payments: await prisma.payment.count(),
-  };
-  console.log("seeded:", counts);
+  });
 }
 
 main()
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
+  .catch((error: unknown) => {
+    console.error(error);
+    process.exitCode = 1;
   })
   .finally(() => prisma.$disconnect());
