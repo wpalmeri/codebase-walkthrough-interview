@@ -31,6 +31,9 @@ const ENUM_BACKED_LIFECYCLE_FIELDS = new Map([
   ["Transmission.status", "TransmissionStatus"],
   ["IdempotencyRecord.method", "IdempotencyHttpMethod"],
   ["IdempotencyRecord.state", "IdempotencyRecordState"],
+  ["AuditEvent.action", "AuditAction"],
+  ["AuditEvent.principalKind", "AuditPrincipalKind"],
+  ["AuditEvent.resourceKind", "AuditResourceKind"],
 ]);
 
 const CENTRALIZED_LEGACY_CONVERSION_BOUNDARIES = new Set([

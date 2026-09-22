@@ -27,6 +27,7 @@ model Tenant {
   invoices                Invoice[]
   payments                Payment[]
   idempotencyRecords      IdempotencyRecord[]
+  auditEvents             AuditEvent[]
 }
 
 enum TenantRole {
@@ -77,6 +78,44 @@ enum IdempotencyHttpMethod {
 enum IdempotencyRecordState {
   IN_PROGRESS
   COMPLETED
+}
+
+// Audit records use explicit generated enums so controller integrations cannot
+// silently introduce unreviewed lifecycle strings.
+enum AuditAction {
+  RATE_CREATED
+  RATE_UPDATED
+  ORDER_CREATED
+  ORDER_UPDATED
+  ORDER_INVOICED
+  INVOICE_CREATED
+  INVOICE_POSTED
+  INVOICE_SENT
+  INVOICE_VOIDED
+  INVOICE_DELIVERY_REQUESTED
+  INVOICE_DELIVERY_UPDATED
+  PAYMENT_RECORDED
+  PAYMENT_APPLIED
+  PAYMENT_APPLICATION_REVERSED
+  TENANT_API_KEY_ISSUED
+  TENANT_API_KEY_REVOKED
+}
+
+enum AuditPrincipalKind {
+  TENANT_API_KEY
+  LEGACY_API_KEY
+  DEVELOPMENT
+}
+
+enum AuditResourceKind {
+  RATE
+  ORDER
+  INVOICE
+  INVOICE_DELIVERY
+  PAYMENT
+  PAYMENT_APPLICATION
+  PAYMENT_APPLICATION_REVERSAL
+  TENANT_API_KEY
 }
 
 // The API key secret itself is never stored. keyHash is a one-way, versioned
@@ -382,6 +421,27 @@ model Payment {
 
   @@index([tenantId])
   @@index([tenantId, receivedAt(sort: Desc), id(sort: Desc)])
+}
+
+// Immutable security/accounting metadata. Deliberately no generic payload:
+// request bodies, errors, credentials, and PII do not belong in this table.
+model AuditEvent {
+  id                        String             @id
+  tenantId                  String
+  action                    AuditAction
+  principalKind             AuditPrincipalKind
+  principalSubject          String
+  principalCredentialId     String
+  requestId                 String
+  idempotencyKeyFingerprint String?
+  resourceKind              AuditResourceKind
+  resourceId                String
+  occurredAt                DateTime
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, occurredAt, id])
+  @@index([tenantId, resourceKind, resourceId, occurredAt])
 }
 
 model PaymentApplication {

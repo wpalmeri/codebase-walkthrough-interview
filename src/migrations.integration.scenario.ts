@@ -40,6 +40,7 @@ async function main(): Promise<void> {
       "20260922100000_resource_versions",
       "20260922110000_rate_conditional_writes",
       "20260922120000_payment_cursor_pagination",
+      "20260922130000_audit_events",
     ]
   );
 
@@ -73,6 +74,8 @@ async function main(): Promise<void> {
     "Invoice_resource_version_update_guard",
     "Rate_resource_version_initialize",
     "Rate_resource_version_business_update_bump",
+    "AuditEvent_append_only_update_guard",
+    "AuditEvent_append_only_delete_guard",
   ];
   const triggers = await prisma.$queryRaw<NamedRow[]>`
     SELECT name
@@ -91,6 +94,23 @@ async function main(): Promise<void> {
     WHERE type = 'index' AND name = 'Payment_tenantId_receivedAt_id_idx'
   `;
   assert.deepEqual(paymentPaginationIndex, [{ name: "Payment_tenantId_receivedAt_id_idx" }]);
+
+  const auditIndexes = await prisma.$queryRaw<NamedRow[]>`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'index' AND name IN (
+      'AuditEvent_tenantId_occurredAt_id_idx',
+      'AuditEvent_tenantId_resourceKind_resourceId_occurredAt_idx'
+    )
+    ORDER BY name
+  `;
+  assert.deepEqual(
+    auditIndexes.map(({ name }) => name),
+    [
+      "AuditEvent_tenantId_occurredAt_id_idx",
+      "AuditEvent_tenantId_resourceKind_resourceId_occurredAt_idx",
+    ]
+  );
 
   const tenantForeignKeys = await Promise.all([
     prisma.$queryRaw<ForeignKeyRow[]>`PRAGMA foreign_key_list("Customer")`,

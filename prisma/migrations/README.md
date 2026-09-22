@@ -227,6 +227,22 @@ uses tenant identity derived from authentication; the opaque cursor carries
 only the public customer filter fingerprint and ordering tuple. Legacy
 `/api/payments` remains its existing first-100 array during client migration.
 
+### Append-only audit events
+
+`20260922130000_audit_events` creates a new empty `AuditEvent` table and two
+tenant-first lookup indexes. It does not scan, rewrite, or alter existing
+business rows, so it is safe to deploy before controller integrations begin.
+The table contains only server-derived principal identity, request correlation,
+resource identity, and enumerated action metadata; it has no generic request,
+error, or payload field. If a request has an idempotency key, persist only its
+SHA-256 fingerprint—not the key itself.
+
+SQLite triggers reject every update and delete. Treat the table as an immutable
+evidence log: correction means append a new action rather than changing history.
+The new indexes are built over an empty table at first deploy; later direct
+index rebuilds or table maintenance must be separately tested for SQLite's
+serialized-writer behavior.
+
 ### Legacy ownership backfill
 
 `bun run db:backfill:tenant-ownership` is preview-only by default. It reports stable ownership-conflict

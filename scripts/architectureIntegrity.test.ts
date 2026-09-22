@@ -83,6 +83,11 @@ describe("architecture integrity guard", () => {
         "  method IdempotencyHttpMethod",
         "  state String",
         "}",
+        "model AuditEvent {",
+        "  action String",
+        "  principalKind String",
+        "  resourceKind String",
+        "}",
       ].join("\n"),
     });
 
@@ -110,6 +115,24 @@ describe("architecture integrity guard", () => {
         path: "prisma/schema.prisma",
         line: 13,
         message: "lifecycle field IdempotencyRecord.state must use Prisma enum IdempotencyRecordState, not String",
+      },
+      {
+        ruleId: "ARCH005",
+        path: "prisma/schema.prisma",
+        line: 16,
+        message: "lifecycle field AuditEvent.action must use Prisma enum AuditAction, not String",
+      },
+      {
+        ruleId: "ARCH005",
+        path: "prisma/schema.prisma",
+        line: 17,
+        message: "lifecycle field AuditEvent.principalKind must use Prisma enum AuditPrincipalKind, not String",
+      },
+      {
+        ruleId: "ARCH005",
+        path: "prisma/schema.prisma",
+        line: 18,
+        message: "lifecycle field AuditEvent.resourceKind must use Prisma enum AuditResourceKind, not String",
       },
     ]);
   });
