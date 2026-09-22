@@ -34,10 +34,13 @@ export function toOrderModel(row: OrderRow): OrderModel {
       { decimal: item.baseUnitPriceDecimal, legacy: item.unitPrice },
       { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "order item base unit price" }
     );
-    const amountDecimal = canonicalMoney(
-      productSubtotal(effectiveUnitPriceDecimal, quantityDecimal),
-      "order item amount"
-    );
+    const amountDecimal =
+      item.amountDecimal === null || item.amountDecimal === undefined
+        ? canonicalMoney(
+            productSubtotal(effectiveUnitPriceDecimal, quantityDecimal),
+            "order item amount"
+          )
+        : canonicalMoney(item.amountDecimal, "order item amount");
     return {
       id: item.id,
       productId: item.productId,
