@@ -44,7 +44,7 @@ Review bottom to top. PRs #8-#13 were closed because they encoded the incorrect 
 | 5 | [#5](https://github.com/wpalmeri/codebase-walkthrough-interview/pull/5) | Immutable snapshots, HTTP behavior, authentication | CI green |
 | 6 | [#6](https://github.com/wpalmeri/codebase-walkthrough-interview/pull/6) | Safe backfills and mutation idempotency | CI green |
 | 7 | [#7](https://github.com/wpalmeri/codebase-walkthrough-interview/pull/7) | Reconciliation and migration/architecture guardrails | CI green |
-| 8 | [#15](https://github.com/wpalmeri/codebase-walkthrough-interview/pull/15) | Corrected single-company API, audit, concurrency, OpenAPI, SDK, and test capstone | Local verification green; CI must be checked after the final push |
+| 8 | [#15](https://github.com/wpalmeri/codebase-walkthrough-interview/pull/15) | Corrected single-company API, audit, concurrency, OpenAPI, SDK, and test capstone | CI green |
 
 ## Remaining work, ranked
 
