@@ -104,3 +104,18 @@ closed when a process dies after mutating data but before recording the response
 must investigate stale `IN_PROGRESS` rows rather than deleting or replaying them automatically.
 Retain completed rows for at least the published client retry window, then archive or purge them
 in bounded primary-key batches under an explicit retention policy.
+
+## Captured pricing and payment ledger immutability
+
+`20260922070000_ledger_immutability_guards` installs row-level triggers only; it adds no
+columns, defaults, indexes, scans, or table rebuilds. After an order item receives
+`pricingCapturedAt`, its order/product/rate provenance and the parent order's customer/currency
+cannot be repointed. Apply any unresolved order currency backfill before capturing new items;
+do not bypass the guard by nulling a capture marker.
+
+Payments and payment applications become accounting facts at the database boundary. A legacy
+payment or application may receive its currently null exact decimal (and payment currency) once,
+but changing an amount, party, receipt timestamp/reference, application relationship, or a
+captured exact value is rejected. Neither payments nor applications can be deleted. Corrections must be modeled as
+an approved reversal/adjustment workflow in a later additive release, never by mutating ledger
+history.

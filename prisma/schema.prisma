@@ -72,12 +72,12 @@ model ComboDiscount {
 model Order {
   id         String   @id @default(cuid())
   reference  String? // sales order number, e.g. SO-0042
-  customerId String
+  customerId String // immutable after any order item captures pricing
   orderDate  DateTime @default(now())
   status     String   @default("OPEN") // OPEN | INVOICED | CLOSED
   shipTo     String? // receiving party / delivery address
   notes      String?
-  currencyCode String? // Supported order-pricing currency (currently USD); nullable during rollout.
+  currencyCode String? // Supported order-pricing currency; immutable after capture and nullable only during rollout.
 
   customer Customer       @relation(fields: [customerId], references: [id])
   items    OrderItem[]
@@ -99,7 +99,7 @@ model OrderItem {
   id        String @id @default(cuid())
   orderId   String
   productId String
-  rateId    String // legacy provenance only; billing must use the immutable snapshots below
+  rateId    String // legacy provenance only; immutable once pricing is captured
   quantity  Float // Legacy compatibility column; retire after the decimal cutover.
   unitPrice Float // Legacy compatibility column; retire after the decimal cutover.
 
@@ -205,12 +205,12 @@ model InvoiceLine {
 // one payment can be applied across many invoices.
 model Payment {
   id            String   @id @default(cuid())
-  customerId    String
-  amount        Float // Legacy compatibility column.
-  amountDecimal Decimal? // DECIMAL(19,4) in the migration.
-  currencyCode  String? // Supported received-amount currency (currently USD); nullable during rollout.
-  receivedAt    DateTime @default(now())
-  reference     String?
+  customerId    String // immutable receipt party
+  amount        Float // Legacy compatibility column; immutable receipt amount.
+  amountDecimal Decimal? // DECIMAL(19,4); a legacy null may be backfilled once.
+  currencyCode  String? // Supported receipt currency; a legacy null may be backfilled once.
+  receivedAt    DateTime @default(now()) // immutable receipt timestamp
+  reference     String? // immutable receipt reference
 
   customer     Customer             @relation(fields: [customerId], references: [id])
   applications PaymentApplication[]
@@ -220,8 +220,8 @@ model PaymentApplication {
   id            String   @id @default(cuid())
   paymentId     String
   invoiceId     String
-  amount        Float // Legacy compatibility column.
-  amountDecimal Decimal? // DECIMAL(19,4) in the migration.
+  amount        Float // Legacy compatibility column; immutable ledger fact.
+  amountDecimal Decimal? // DECIMAL(19,4); append-only except a null backfill.
   appliedAt     DateTime @default(now())
 
   payment Payment @relation(fields: [paymentId], references: [id])

@@ -23,6 +23,7 @@ async function main(): Promise<void> {
       "20260922040000_backfill_checkpoints",
       "20260922050000_idempotency_records",
       "20260922060000_usd_currency_policy",
+      "20260922070000_ledger_immutability_guards",
     ]
   );
 
