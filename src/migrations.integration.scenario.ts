@@ -42,6 +42,7 @@ async function main(): Promise<void> {
       "20260922120000_payment_cursor_pagination",
       "20260922130000_audit_events",
       "20260922140000_order_conditional_writes",
+      "20260922150000_customer_email_guard",
     ]
   );
 
@@ -89,6 +90,8 @@ async function main(): Promise<void> {
     "Invoice_order_version_insert_bump",
     "Invoice_order_version_update_bump",
     "Invoice_order_version_delete_bump",
+    "Customer_email_insert_guard",
+    "Customer_email_update_guard",
   ];
   const triggers = await prisma.$queryRaw<NamedRow[]>`
     SELECT name

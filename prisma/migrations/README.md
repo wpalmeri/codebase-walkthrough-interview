@@ -263,6 +263,20 @@ The new indexes are built over an empty table at first deploy; later direct
 index rebuilds or table maintenance must be separately tested for SQLite's
 serialized-writer behavior.
 
+### Customer email delivery guard
+
+`20260922150000_customer_email_guard` installs insert and email-update triggers
+only; it does not scan, rewrite, rebuild, or reject untouched Customer rows.
+The guard is a database backstop for obvious undeliverable structure: bounded
+length, one nonempty `@` boundary, a bounded local part, a dotted domain, and no
+spaces, CR/LF, tabs, or leading/trailing/consecutive dots. The shared Zod email
+contract remains authoritative at API and delivery boundaries.
+
+Reconcile any historical invalid addresses separately before attempting to
+change their email column. Unrelated updates remain possible during that work,
+which keeps this deploy expand-only and avoids coupling a table scan or data
+cleanup to application startup.
+
 ### Legacy ownership backfill
 
 `bun run db:backfill:tenant-ownership` is preview-only by default. It reports stable ownership-conflict
