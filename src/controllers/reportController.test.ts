@@ -20,7 +20,8 @@ function invoice(
   total: number,
   issueDate = new Date(2026, 0, 15),
   customerId = "customer-1",
-  customerName = "Acme"
+  customerName = "Acme",
+  customerNameSnapshot: string | null = customerName
 ): ReportableInvoice {
   return {
     status,
@@ -29,6 +30,7 @@ function invoice(
     issueDate,
     accountingDate: issueDate.toISOString().slice(0, 10),
     customerId,
+    customerNameSnapshot,
     customer: { name: customerName },
   };
 }
@@ -80,6 +82,36 @@ void describe("revenue reports", () => {
         revenueDecimal: "125.0000",
       },
     ]);
+  });
+
+  void it("uses captured invoice identity and limits live customer names to legacy fallback", () => {
+    const captured = invoice(
+      "POSTED",
+      25,
+      new Date("2026-01-15T00:00:00.000Z"),
+      "customer-1",
+      "Renamed live customer",
+      "Name captured when invoiced"
+    );
+    const legacy = invoice(
+      "POSTED",
+      10,
+      new Date("2026-01-16T00:00:00.000Z"),
+      "customer-2",
+      "Legacy live fallback",
+      null
+    );
+
+    assert.deepEqual(
+      toRecognizedRevenueRows([captured, legacy]).map(({ customerId, customerName }) => ({
+        customerId,
+        customerName,
+      })),
+      [
+        { customerId: "customer-1", customerName: "Name captured when invoiced" },
+        { customerId: "customer-2", customerName: "Legacy live fallback" },
+      ]
+    );
   });
 
   void it("groups recognized totals and emits empty quarters inside the requested period", () => {
@@ -194,6 +226,7 @@ void describe("revenue reports", () => {
     const sql = query.strings.join("?");
     assert.match(sql, /AS "quarter"/u);
     assert.match(sql, /AS "year"/u);
+    assert.match(sql, /COALESCE\("Invoice"\."customerNameSnapshot", "Customer"\."name"\)/u);
     assert.match(sql, /"Invoice"\."tenantId" = \?/u);
     assert.match(sql, /ORDER BY "Invoice"\."id" ASC/u);
     assert.match(sql, /LIMIT \?/u);

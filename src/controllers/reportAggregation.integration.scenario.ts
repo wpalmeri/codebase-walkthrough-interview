@@ -36,6 +36,7 @@ async function createInvoice(input: {
   status: "DRAFT" | "POSTED" | "SENT" | "PAID";
   total: string;
   amountPaid?: string;
+  captureCustomerName?: boolean;
 }): Promise<void> {
   await prisma.customer.upsert({
     where: { id: input.customerId },
@@ -67,6 +68,7 @@ async function createInvoice(input: {
       totalDecimal: input.total,
       amountPaid,
       amountPaidDecimal: input.amountPaid,
+      customerNameSnapshot: input.captureCustomerName === false ? null : input.customerName,
       currencyCode: "USD",
       accountingDate: input.accountingDate,
       postedAt: input.status === "DRAFT" ? null : input.issueDate,
@@ -166,6 +168,48 @@ async function main(): Promise<void> {
       status: "POSTED",
       total: "900.0000",
     });
+    await createInvoice({
+      id: "report-a-legacy-name-fallback",
+      tenantId: tenantA,
+      customerId: "report-customer-legacy-name",
+      customerName: "Legacy name before rename",
+      accountingDate: "2024-01-01",
+      issueDate: new Date("2024-01-01T00:00:00.000Z"),
+      status: "POSTED",
+      total: "2.0000",
+      captureCustomerName: false,
+    });
+
+    await prisma.customer.update({
+      where: { id: "report-customer-a" },
+      data: { name: "Renamed live customer A" },
+    });
+    await prisma.customer.update({
+      where: { id: "report-customer-legacy-name" },
+      data: { name: "Renamed legacy live fallback" },
+    });
+
+    const capturedIdentityPage = await pagedRepository.page(
+      tenantA,
+      { from: "2026-01-01", to: "2026-12-31" },
+      null
+    );
+    assert.equal(
+      capturedIdentityPage.find(({ id }) => id === "report-a-fallback-date")?.customerName,
+      "Same customer name",
+      "renaming a customer must not rewrite recognized invoice identity"
+    );
+    const legacyIdentityPage = await pagedRepository.page(
+      tenantA,
+      { from: "2024-01-01", to: "2024-12-31" },
+      null
+    );
+    assert.equal(
+      legacyIdentityPage.find(({ id }) => id === "report-a-legacy-name-fallback")?.customerName,
+      "Renamed legacy live fallback",
+      "a null legacy snapshot uses the explicit live-data fallback until backfill"
+    );
+    reportQueries.length = 0;
 
     await prisma.payment.create({
       data: {

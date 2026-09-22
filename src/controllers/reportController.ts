@@ -39,6 +39,7 @@ export interface ReportableInvoice {
   total: number;
   totalDecimal?: DecimalInput | null;
   customerId: string;
+  customerNameSnapshot?: string | null;
   customer: { name: string };
 }
 
@@ -102,7 +103,10 @@ export function toRecognizedRevenueRows(invoices: readonly ReportableInvoice[]):
             ? utcAccountingDateFromInstant(invoice.issueDate)
             : parseAccountingDate(invoice.accountingDate),
         customerId: invoice.customerId,
-        customerName: invoice.customer.name,
+        // Finalized invoices own their historical customer identity. Live
+        // customer data remains a compatibility fallback only for legacy rows
+        // that have not completed the snapshot backfill.
+        customerName: invoice.customerNameSnapshot ?? invoice.customer.name,
         revenue: legacyNumber(revenueDecimal, moneyFormat),
         revenueDecimal,
       };
@@ -163,7 +167,7 @@ export function createRevenueAggregateRepository(
         SELECT
           "Invoice"."id" AS "id",
           "Invoice"."customerId" AS "customerId",
-          "Customer"."name" AS "customerName",
+          COALESCE("Invoice"."customerNameSnapshot", "Customer"."name") AS "customerName",
           ${effectiveAccountingDateSql} AS "accountingDate",
           strftime('%Y', ${effectiveAccountingDateSql}) || '-Q' ||
             CAST(((CAST(strftime('%m', ${effectiveAccountingDateSql}) AS INTEGER) - 1) / 3) + 1 AS TEXT) AS "quarter",
