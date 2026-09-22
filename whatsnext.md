@@ -2,6 +2,16 @@
 
 These items are intentionally deferred while core financial correctness, transaction safety, snapshots, and tests are completed.
 
+## Production observability
+
+The service has a useful minimum operational foundation—validated request IDs, redacted structured 5xx events, public liveness/readiness checks, graceful shutdown, append-only business audit events, and constrained delivery telemetry—but it does not yet have production-grade observability.
+
+- Add vendor-neutral OpenTelemetry traces and metrics with W3C trace-context propagation. Instrument normalized HTTP routes, Prisma/database latency and pool pressure, external delivery calls, reconciliation, backfills, and scheduled jobs without recording request bodies, credentials, customer data, invoice identifiers, or recipient addresses.
+- Emit RED metrics by bounded labels: request rate, errors, and duration by route template/method/status; add idempotency contention/replay/failure, database saturation, accounting-close, invoice-delivery, reconciliation-drift, and backfill progress counters and histograms. Reject unbounded identifiers as metric attributes.
+- Replace remaining ad hoc process logs with one structured logger carrying service, environment, release, severity, request ID, and trace/span IDs. Centralize collection and retention, preserve the existing redaction contract, and ensure a broken telemetry exporter never blocks a response or financial transaction.
+- Define service-level indicators and objectives for API availability, p95/p99 latency, 5xx rate, readiness, database health, invoice-delivery latency/failure, and reconciliation freshness. Add dashboards, burn-rate alerts, synthetic probes, and linked operator runbooks with actionable thresholds and ownership.
+- Add error tracking for unexpected exceptions and failed background work, grouped by stable error code and release rather than raw payload. Test sampling, exporter failure, PII/secret exclusion, trace propagation, and metric-cardinality limits in CI.
+
 ## Durable invoice delivery
 
 - Add a transactional outbox record when a delivery is requested, with a unique idempotency key, immutable recipient/payload snapshot, artifact hash, and provider-specific destination.
