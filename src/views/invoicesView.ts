@@ -28,13 +28,13 @@ invoicesView.get(
   })
 );
 
-invoicesView.put(
-  "/:id",
-  h(async (req) => {
-    const { params, body } = validateRequest(UpdateInvoiceRequestSchema, req);
-    return invoices.updateInvoice(params.id, body);
-  })
-);
+const updateInvoice = h(async (req) => {
+  const { params, body } = validateRequest(UpdateInvoiceRequestSchema, req);
+  return invoices.updateInvoice(params.id, body);
+});
+
+invoicesView.put("/:id", updateInvoice);
+invoicesView.patch("/:id", updateInvoice);
 
 invoicesView.post(
   "/:id/post",

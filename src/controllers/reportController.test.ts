@@ -18,7 +18,9 @@ function invoice(
   return {
     status,
     total,
+    totalDecimal: total.toFixed(4),
     issueDate,
+    accountingDate: issueDate.toISOString().slice(0, 10),
     customerId,
     customer: { name: customerName },
   };
@@ -52,10 +54,11 @@ void describe("revenue reports", () => {
 
     assert.deepEqual(rows, [
       {
-        issueDate: new Date(2026, 0, 15),
+        accountingDate: "2026-01-15",
         customerId: "customer-1",
         customerName: "Acme",
         revenue: 125,
+        revenueDecimal: "125.0000",
       },
     ]);
   });
@@ -69,9 +72,9 @@ void describe("revenue reports", () => {
     assert.deepEqual(
       summarizeRevenueByQuarter(rows, { from: "2026-01-01", to: "2026-09-30" }),
       [
-        { quarter: "2026-Q1", invoiceCount: 1, revenue: 100 },
-        { quarter: "2026-Q2", invoiceCount: 0, revenue: 0 },
-        { quarter: "2026-Q3", invoiceCount: 1, revenue: 50 },
+        { quarter: "2026-Q1", invoiceCount: 1, revenue: 100, revenueDecimal: "100.0000" },
+        { quarter: "2026-Q2", invoiceCount: 0, revenue: 0, revenueDecimal: "0.0000" },
+        { quarter: "2026-Q3", invoiceCount: 1, revenue: 50, revenueDecimal: "50.0000" },
       ]
     );
   });
@@ -84,8 +87,20 @@ void describe("revenue reports", () => {
     ]);
 
     assert.deepEqual(summarizeRevenueByCustomer(rows), [
-      { customerId: "customer-2", customerName: "Same Name", invoiceCount: 1, revenue: 75 },
-      { customerId: "customer-1", customerName: "Same Name", invoiceCount: 2, revenue: 60 },
+      {
+        customerId: "customer-2",
+        customerName: "Same Name",
+        invoiceCount: 1,
+        revenue: 75,
+        revenueDecimal: "75.0000",
+      },
+      {
+        customerId: "customer-1",
+        customerName: "Same Name",
+        invoiceCount: 2,
+        revenue: 60,
+        revenueDecimal: "60.0000",
+      },
     ]);
   });
 
@@ -98,9 +113,41 @@ void describe("revenue reports", () => {
     assert.deepEqual(
       summarizeAnnualRevenue(rows, { from: "2025-01-01", to: "2027-12-31" }),
       [
-        { year: 2025, invoiceCount: 1, revenue: 100 },
-        { year: 2026, invoiceCount: 0, revenue: 0 },
-        { year: 2027, invoiceCount: 1, revenue: 200 },
+        { year: 2025, invoiceCount: 1, revenue: 100, revenueDecimal: "100.0000" },
+        { year: 2026, invoiceCount: 0, revenue: 0, revenueDecimal: "0.0000" },
+        { year: 2027, invoiceCount: 1, revenue: 200, revenueDecimal: "200.0000" },
+      ]
+    );
+  });
+
+  void it("groups by explicit accounting date and adds Decimal totals exactly", () => {
+    const marchInstant = invoice("POSTED", 999, new Date("2026-03-01T00:30:00+01:00"));
+    marchInstant.accountingDate = "2026-03-31";
+    marchInstant.totalDecimal = "0.1000";
+    const aprilInstant = invoice("POSTED", 999, new Date("2026-03-31T23:30:00-08:00"));
+    aprilInstant.accountingDate = "2026-04-01";
+    aprilInstant.totalDecimal = "0.2000";
+
+    assert.deepEqual(
+      summarizeRevenueByQuarter(toRecognizedRevenueRows([marchInstant, aprilInstant]), {
+        from: "2026-01-01",
+        to: "2026-06-30",
+      }),
+      [
+        { quarter: "2026-Q1", invoiceCount: 1, revenue: 0.1, revenueDecimal: "0.1000" },
+        { quarter: "2026-Q2", invoiceCount: 1, revenue: 0.2, revenueDecimal: "0.2000" },
+      ]
+    );
+    assert.deepEqual(
+      summarizeRevenueByCustomer(toRecognizedRevenueRows([marchInstant, aprilInstant])),
+      [
+        {
+          customerId: "customer-1",
+          customerName: "Acme",
+          invoiceCount: 2,
+          revenue: 0.3,
+          revenueDecimal: "0.3000",
+        },
       ]
     );
   });

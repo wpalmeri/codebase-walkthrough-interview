@@ -1,68 +1,50 @@
+import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
+import {
+  MONEY_PRECISION,
+  MONEY_SCALE,
+  QUANTITY_PRECISION,
+  QUANTITY_SCALE,
+  canonicalPercentage,
+  decimalOrLegacy,
+  legacyNumber,
+} from "../domain/money";
+import {
+  captureOrderPricing,
+  exactPricingInput,
+  repriceOrderPricingSnapshot,
+  type CapturedOrderPricing,
+} from "../domain/orderPricing";
 import { parseRateTiers } from "../domain/rateTier";
 import { OrderModel, toOrderModel } from "../models/order";
-import { syncDraftInvoice } from "./invoiceController";
+import { syncDraftInvoiceInTransaction } from "./invoiceController";
+
+const DEFAULT_BILLING_CURRENCY = "USD";
+const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "amount" } as const;
+const quantityFormat = {
+  scale: QUANTITY_SCALE,
+  precision: QUANTITY_PRECISION,
+  field: "quantity",
+} as const;
 
 const orderInclude = {
   customer: true,
-  items: { include: { product: true, rate: true } },
+  items: { include: { product: true } },
   invoice: true,
   comments: { orderBy: { createdAt: "asc" } },
 } as const;
 
-// Order totals are never stored; they are recalculated from the customer's
-// current rates every time orders are read.
+function orderReference(id: string): string {
+  return `SO-${id.toUpperCase()}`;
+}
+
 export async function listOrders(): Promise<OrderModel[]> {
   const rows = await prisma.order.findMany({
     include: orderInclude,
     orderBy: { orderDate: "desc" },
   });
-  const allCombos = await prisma.comboDiscount.findMany({ include: { products: true } });
-
-  return rows.map((row) => {
-    const model = toOrderModel(row);
-    const combos = allCombos.filter(
-      (combo) => combo.customerId === row.customerId || combo.customerId === null
-    );
-    const productIds = row.items.map((item) => item.productId);
-    let orderTotal = 0;
-    for (const item of row.items) {
-      const schedule = parseRateTiers(item.rate.tiers);
-      let charge: number;
-      if (schedule.length === 0 || item.quantity <= 0) {
-        charge = item.quantity * item.rate.unitPrice;
-      } else {
-        charge = 0;
-        let covered = 0;
-        for (const band of schedule.toSorted(
-          (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
-        )) {
-          const limit = band.upTo ?? Infinity;
-          const unitsHere = Math.min(item.quantity, limit) - covered;
-          if (unitsHere > 0) {
-            let bandCharge = unitsHere * band.unitPrice;
-            if (band.floor != null && bandCharge < band.floor) bandCharge = band.floor;
-            if (band.ceiling != null && bandCharge > band.ceiling) bandCharge = band.ceiling;
-            charge += bandCharge;
-          }
-          covered = limit;
-          if (limit >= item.quantity) break;
-        }
-      }
-      for (const combo of combos) {
-        const comboProductIds = combo.products.map((p) => p.id);
-        if (
-          comboProductIds.every((pid) => productIds.includes(pid)) &&
-          comboProductIds.includes(item.productId)
-        ) {
-          charge = charge * (1 - combo.percentOff / 100);
-        }
-      }
-      orderTotal += charge;
-    }
-    model.total = orderTotal;
-    return model;
-  });
+  return rows.map(toOrderModel);
 }
 
 export async function getOrder(orderId: string): Promise<OrderModel> {
@@ -70,53 +52,128 @@ export async function getOrder(orderId: string): Promise<OrderModel> {
     where: { id: orderId },
     include: orderInclude,
   });
-  const model = toOrderModel(row);
+  return toOrderModel(row);
+}
 
-  // Price the order fresh for the detail view; nothing is stored on the order.
-  const combos = await prisma.comboDiscount.findMany({
-    where: { OR: [{ customerId: row.customerId }, { customerId: null }] },
+type PricingTransaction = Prisma.TransactionClient;
+
+async function capturedOrderLines(
+  transaction: PricingTransaction,
+  input: {
+    customerId: string;
+    items: readonly { productId: string; quantity: number }[];
+    capturedAt: Date;
+  }
+): Promise<CapturedOrderPricing[]> {
+  await transaction.customer.findUniqueOrThrow({ where: { id: input.customerId } });
+  const productIds = input.items.map((item) => item.productId);
+  const products = await transaction.product.findMany({ where: { id: { in: productIds } } });
+  if (products.length !== productIds.length) {
+    const found = new Set(products.map((product) => product.id));
+    const missing = productIds.find((productId) => !found.has(productId));
+    throw new Error(`Product ${missing ?? "unknown"} was not found`);
+  }
+
+  const productsById = new Map(products.map((product) => [product.id, product]));
+  const existingRates = await transaction.rate.findMany({
+    where: { customerId: input.customerId, productId: { in: productIds } },
+  });
+  const ratesByProductId = new Map(existingRates.map((rate) => [rate.productId, rate]));
+
+  for (const productId of productIds) {
+    if (ratesByProductId.has(productId)) continue;
+    const product = productsById.get(productId);
+    if (!product) throw new Error(`Product ${productId} was not found`);
+    const listPriceDecimal = decimalOrLegacy(
+      { decimal: product.listPriceDecimal, legacy: product.listPrice },
+      { ...moneyFormat, field: `product ${productId} list price` }
+    );
+    const rate = await transaction.rate.create({
+      data: {
+        customerId: input.customerId,
+        productId,
+        unitPrice: legacyNumber(listPriceDecimal, moneyFormat),
+        unitPriceDecimal: listPriceDecimal,
+        currencyCode: product.currencyCode ?? DEFAULT_BILLING_CURRENCY,
+      },
+    });
+    ratesByProductId.set(productId, rate);
+  }
+
+  const discounts = await transaction.comboDiscount.findMany({
+    where: { OR: [{ customerId: input.customerId }, { customerId: null }] },
     include: { products: true },
   });
-  const idsInOrder = row.items.map((item) => item.productId);
-  model.items = row.items.map((item, index) => {
-    let unitPrice = item.rate.unitPrice;
-    const tiers = parseRateTiers(item.rate.tiers);
-    if (tiers.length > 0 && item.quantity > 0) {
-      let total = 0;
-      let lower = 0;
-      for (const interval of tiers.toSorted(
-        (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
-      )) {
-        const upper = interval.upTo ?? Infinity;
-        const units = Math.min(item.quantity, upper) - lower;
-        if (units > 0) {
-          let charge = units * interval.unitPrice;
-          if (interval.floor != null && charge < interval.floor) charge = interval.floor;
-          if (interval.ceiling != null && charge > interval.ceiling) charge = interval.ceiling;
-          total += charge;
-        }
-        lower = upper;
-        if (upper >= item.quantity) break;
-      }
-      unitPrice = total / item.quantity;
-    }
-    for (const combo of combos) {
-      const comboProductIds = combo.products.map((p) => p.id);
-      if (
-        comboProductIds.every((pid) => idsInOrder.includes(pid)) &&
-        comboProductIds.includes(item.productId)
-      ) {
-        unitPrice = unitPrice * (1 - combo.percentOff / 100);
-      }
-    }
-    return {
-      ...model.items[index],
-      unitPrice,
-      amount: unitPrice * item.quantity,
-    };
+  const productIdSet = new Set(productIds);
+  const capturedAt = input.capturedAt.toISOString();
+
+  return input.items.map((item) => {
+    const product = productsById.get(item.productId);
+    const rate = ratesByProductId.get(item.productId);
+    if (!product || !rate) throw new Error(`Pricing data for product ${item.productId} is missing`);
+
+    const applicableDiscounts = discounts.filter((discount) => {
+      const discountProductIds = discount.products.map((candidate) => candidate.id);
+      return (
+        discountProductIds.includes(item.productId) &&
+        discountProductIds.every((productId) => productIdSet.has(productId))
+      );
+    });
+    const productCurrency = product.currencyCode ?? rate.currencyCode ?? DEFAULT_BILLING_CURRENCY;
+    const rateCurrency = rate.currencyCode ?? product.currencyCode ?? DEFAULT_BILLING_CURRENCY;
+    const baseUnitPrice = decimalOrLegacy(
+      { decimal: rate.unitPriceDecimal, legacy: rate.unitPrice },
+      { ...moneyFormat, field: `rate ${rate.id} unit price` }
+    );
+
+    return captureOrderPricing(
+      exactPricingInput({
+        product: {
+          id: product.id,
+          sku: product.sku,
+          name: product.name,
+          unit: product.unit,
+          currencyCode: productCurrency,
+        },
+        rate: {
+          id: rate.id,
+          currencyCode: rateCurrency,
+          baseUnitPrice,
+          tiers: parseRateTiers(rate.tiers),
+        },
+        quantity: item.quantity,
+        discounts: applicableDiscounts.map((discount) => ({
+          id: discount.id,
+          name: discount.name,
+          percentOff: canonicalPercentage(
+            discount.percentOffDecimal ?? discount.percentOff,
+            `discount ${discount.id} percentage`
+          ),
+        })),
+        capturedAt,
+      })
+    );
   });
-  model.total = model.items.reduce((sum, item) => sum + item.amount, 0);
-  return model;
+}
+
+function orderItemCreateData(orderId: string, captured: CapturedOrderPricing) {
+  return {
+    orderId,
+    productId: captured.productId,
+    rateId: captured.rateId,
+    quantity: legacyNumber(captured.quantityDecimal, quantityFormat),
+    unitPrice: legacyNumber(captured.effectiveUnitPriceDecimal, moneyFormat),
+    productSkuSnapshot: captured.productSkuSnapshot,
+    productNameSnapshot: captured.productNameSnapshot,
+    productUnitSnapshot: captured.productUnitSnapshot,
+    quantityDecimal: captured.quantityDecimal,
+    baseUnitPriceDecimal: captured.baseUnitPriceDecimal,
+    effectiveUnitPriceDecimal: captured.effectiveUnitPriceDecimal,
+    amountDecimal: captured.amountDecimal,
+    pricingSnapshot: captured.pricingSnapshot as Prisma.InputJsonValue,
+    pricingCapturedAt: new Date(captured.pricingCapturedAt),
+    snapshotVersion: captured.snapshotVersion,
+  };
 }
 
 export async function createOrder(input: {
@@ -124,92 +181,34 @@ export async function createOrder(input: {
   items: { productId: string; quantity: number }[];
   notes?: string;
 }): Promise<OrderModel> {
-  const count = await prisma.order.count();
-  const order = await prisma.order.create({
-    data: {
-      reference: `SO-${String(count + 1).padStart(4, "0")}`,
+  const orderId = randomUUID();
+  await prisma.$transaction(async (transaction) => {
+    const lines = await capturedOrderLines(transaction, {
       customerId: input.customerId,
-      notes: input.notes,
-    },
-  });
-
-  for (const item of input.items) {
-    // Find the customer's rate for this product; set one up from list price if missing.
-    let rate = await prisma.rate.findUnique({
-      where: { customerId_productId: { customerId: input.customerId, productId: item.productId } },
+      items: input.items,
+      capturedAt: new Date(),
     });
-    if (!rate) {
-      const product = await prisma.product.findUniqueOrThrow({ where: { id: item.productId } });
-      rate = await prisma.rate.create({
-        data: {
-          customerId: input.customerId,
-          productId: item.productId,
-          unitPrice: product.listPrice,
-        },
-      });
-    }
-    await prisma.orderItem.create({
+    const currencies = new Set(lines.map((line) => line.currencyCode));
+    if (currencies.size !== 1) throw new Error("An order cannot contain multiple currencies");
+
+    await transaction.order.create({
       data: {
-        orderId: order.id,
-        productId: item.productId,
-        rateId: rate.id,
-        quantity: item.quantity,
-        unitPrice: rate.unitPrice,
+        id: orderId,
+        reference: orderReference(orderId),
+        customerId: input.customerId,
+        notes: input.notes,
+        currencyCode: lines[0]?.currencyCode,
       },
     });
-  }
-
-  // Price the new order from the customer's rates, bundles, and discount.
-  const created = await prisma.order.findUniqueOrThrow({
-    where: { id: order.id },
-    include: { customer: true, items: { include: { product: true, rate: true } } },
+    await transaction.orderItem.createMany({
+      data: lines.map((line) => orderItemCreateData(orderId, line)),
+    });
   });
-  const combos = await prisma.comboDiscount.findMany({
-    where: { OR: [{ customerId: created.customerId }, { customerId: null }] },
-    include: { products: true },
-  });
-  const orderProductIds = created.items.map((i) => i.productId);
-  for (const item of created.items) {
-    let unitPrice = item.rate.unitPrice;
-    const tiers = parseRateTiers(item.rate.tiers);
-    if (tiers.length > 0 && item.quantity > 0) {
-      // Blend the interval charges into one per-unit price.
-      let total = 0;
-      let lower = 0;
-      for (const interval of tiers.toSorted(
-        (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
-      )) {
-        const upper = interval.upTo ?? Infinity;
-        const units = Math.min(item.quantity, upper) - lower;
-        if (units > 0) {
-          let charge = units * interval.unitPrice;
-          if (interval.floor != null && charge < interval.floor) charge = interval.floor;
-          if (interval.ceiling != null && charge > interval.ceiling) charge = interval.ceiling;
-          total += charge;
-        }
-        lower = upper;
-        if (upper >= item.quantity) break;
-      }
-      unitPrice = total / item.quantity;
-    }
-    for (const combo of combos) {
-      const comboProductIds = combo.products.map((p) => p.id);
-      if (
-        comboProductIds.every((pid) => orderProductIds.includes(pid)) &&
-        comboProductIds.includes(item.productId)
-      ) {
-        unitPrice = unitPrice * (1 - combo.percentOff / 100);
-      }
-    }
-    await prisma.orderItem.update({ where: { id: item.id }, data: { unitPrice } });
-  }
-
-  return getOrder(order.id);
+  return getOrder(orderId);
 }
 
-// Save changes to an order: customer, order date, quantities, notes, and any new
-// comment come through as one payload. Saving re-rates the order and keeps its
-// draft invoice in step.
+// Order terms are captured once. Quantity changes recalculate from those terms;
+// changing the customer would require an explicit re-contracting workflow.
 export async function saveOrder(
   orderId: string,
   input: {
@@ -220,107 +219,63 @@ export async function saveOrder(
     comment?: { author?: string; body: string };
   }
 ): Promise<OrderModel> {
-  const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+  await prisma.$transaction(async (transaction) => {
+    const order = await transaction.order.findUniqueOrThrow({
+      where: { id: orderId },
+      include: { items: true, invoice: true },
+    });
+    const hasFinancialChange =
+      input.customerId !== undefined ||
+      input.orderDate !== undefined ||
+      input.notes !== undefined ||
+      input.items !== undefined;
+    const invoiceIsFinal = order.invoice !== null && order.invoice.status !== "DRAFT";
+    if (invoiceIsFinal && hasFinancialChange) {
+      throw new Error("Orders with finalized invoices cannot be changed");
+    }
+    if (input.customerId !== undefined && input.customerId !== order.customerId) {
+      throw new Error("Changing an order customer requires a new order");
+    }
 
-  const data: { notes?: string; orderDate?: Date; customerId?: string } = {};
-  if (input.notes !== undefined) data.notes = input.notes;
-  if (input.orderDate !== undefined) data.orderDate = new Date(input.orderDate);
-  const customerChanged =
-    input.customerId !== undefined && input.customerId !== order.customerId;
-  if (customerChanged) data.customerId = input.customerId;
-  if (Object.keys(data).length > 0) {
-    await prisma.order.update({ where: { id: orderId }, data });
-  }
-
-  // A different customer means different pricing: point every item at the new
-  // customer's rate for its product (set one up from list price if missing).
-  if (customerChanged) {
-    const items = await prisma.orderItem.findMany({ where: { orderId } });
-    for (const item of items) {
-      let rate = await prisma.rate.findUnique({
-        where: {
-          customerId_productId: { customerId: input.customerId!, productId: item.productId },
+    const itemsById = new Map(order.items.map((item) => [item.id, item]));
+    for (const itemUpdate of input.items ?? []) {
+      const item = itemsById.get(itemUpdate.id);
+      if (!item) throw new Error(`Order item ${itemUpdate.id} does not belong to order ${orderId}`);
+      if (item.pricingSnapshot === null) {
+        throw new Error(`Order item ${item.id} must be backfilled before its quantity can change`);
+      }
+      const repriced = repriceOrderPricingSnapshot(item.pricingSnapshot, itemUpdate.quantity);
+      await transaction.orderItem.update({
+        where: { id: item.id },
+        data: {
+          quantity: legacyNumber(repriced.quantityDecimal, quantityFormat),
+          quantityDecimal: repriced.quantityDecimal,
+          unitPrice: legacyNumber(repriced.effectiveUnitPriceDecimal, moneyFormat),
+          effectiveUnitPriceDecimal: repriced.effectiveUnitPriceDecimal,
+          amountDecimal: repriced.amountDecimal,
         },
       });
-      if (!rate) {
-        const product = await prisma.product.findUniqueOrThrow({
-          where: { id: item.productId },
-        });
-        rate = await prisma.rate.create({
-          data: {
-            customerId: input.customerId!,
-            productId: item.productId,
-            unitPrice: product.listPrice,
-          },
-        });
-      }
-      await prisma.orderItem.update({ where: { id: item.id }, data: { rateId: rate.id } });
     }
-    await prisma.invoice.updateMany({
-      where: { orderId, status: "DRAFT" },
-      data: { customerId: input.customerId! },
-    });
-  }
 
-  for (const item of input.items ?? []) {
-    await prisma.orderItem.update({
-      where: { id: item.id },
-      data: { quantity: item.quantity },
-    });
-  }
-  if (input.comment?.body) {
-    await prisma.orderComment.create({
-      data: {
-        orderId,
-        author: input.comment.author ?? "billing-ops",
-        body: input.comment.body,
-      },
-    });
-  }
-
-  // Re-rate the order so its prices reflect the current agreement.
-  const current = await prisma.order.findUniqueOrThrow({
-    where: { id: orderId },
-    include: { customer: true, items: { include: { product: true, rate: true } } },
+    if (input.orderDate !== undefined || input.notes !== undefined) {
+      await transaction.order.update({
+        where: { id: orderId },
+        data: {
+          orderDate: input.orderDate === undefined ? undefined : new Date(input.orderDate),
+          notes: input.notes,
+        },
+      });
+    }
+    if (input.comment !== undefined) {
+      await transaction.orderComment.create({
+        data: {
+          orderId,
+          author: input.comment.author ?? "billing-ops",
+          body: input.comment.body,
+        },
+      });
+    }
+    await syncDraftInvoiceInTransaction(transaction, orderId);
   });
-  const discounts = await prisma.comboDiscount.findMany({
-    where: { OR: [{ customerId: current.customerId }, { customerId: null }] },
-    include: { products: true },
-  });
-  const productIdsOnOrder = current.items.map((line) => line.productId);
-  for (const line of current.items) {
-    let price = line.rate.unitPrice;
-    const tierList = parseRateTiers(line.rate.tiers);
-    if (tierList.length > 0 && line.quantity > 0) {
-      const sorted = tierList.toSorted(
-        (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
-      );
-      let charged = 0;
-      let from = 0;
-      for (const band of sorted) {
-        const to = band.upTo ?? Infinity;
-        const unitsInBand = Math.min(line.quantity, to) - from;
-        if (unitsInBand > 0) {
-          let bandCharge = unitsInBand * band.unitPrice;
-          if (band.floor != null && bandCharge < band.floor) bandCharge = band.floor;
-          if (band.ceiling != null && bandCharge > band.ceiling) bandCharge = band.ceiling;
-          charged += bandCharge;
-        }
-        from = to;
-        if (to >= line.quantity) break;
-      }
-      price = charged / line.quantity;
-    }
-    for (const bundle of discounts) {
-      const bundleProductIds = bundle.products.map((p) => p.id);
-      const bundleApplies = bundleProductIds.every((pid) => productIdsOnOrder.includes(pid));
-      if (bundleApplies && bundleProductIds.includes(line.productId)) {
-        price = price * (1 - bundle.percentOff / 100);
-      }
-    }
-    await prisma.orderItem.update({ where: { id: line.id }, data: { unitPrice: price } });
-  }
-
-  await syncDraftInvoice(orderId);
   return getOrder(orderId);
 }
