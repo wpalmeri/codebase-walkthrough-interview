@@ -24,56 +24,95 @@ export interface AnnualRevenue {
   revenue: number;
 }
 
-// Revenue for an invoice is computed from its order's items at current prices.
-async function invoiceRevenues(period: ReportPeriod) {
+export const REVENUE_RECOGNIZED_STATUSES = ["POSTED", "SENT", "PAID"] as const;
+
+export interface ReportableInvoice {
+  status: string;
+  issueDate: Date;
+  total: number;
+  customerId: string;
+  customer: { name: string };
+}
+
+export interface RevenueRow {
+  issueDate: Date;
+  customerId: string;
+  customerName: string;
+  revenue: number;
+}
+
+// Invoice.total is the materialized billing amount. In contrast to rebuilding a
+// total from an order, it preserves invoice-level adjustments and does not rely
+// on mutable rates or products that may no longer exist.
+export function toRecognizedRevenueRows(invoices: readonly ReportableInvoice[]): RevenueRow[] {
+  const recognizedStatuses = new Set<string>(REVENUE_RECOGNIZED_STATUSES);
+  return invoices
+    .filter((invoice) => recognizedStatuses.has(invoice.status))
+    .map((invoice) => ({
+      issueDate: invoice.issueDate,
+      customerId: invoice.customerId,
+      customerName: invoice.customer.name,
+      revenue: invoice.total,
+    }));
+}
+
+async function invoiceRevenues(period: ReportPeriod): Promise<RevenueRow[]> {
   const issueDate: { gte?: Date; lte?: Date } = {};
   if (period.from) issueDate.gte = new Date(period.from);
   if (period.to) issueDate.lte = new Date(period.to);
   const invoices = await prisma.invoice.findMany({
-    where: period.from || period.to ? { issueDate } : undefined,
-    include: {
-      customer: true,
-      order: { include: { items: true } },
+    where: {
+      status: { in: [...REVENUE_RECOGNIZED_STATUSES] },
+      ...(period.from || period.to ? { issueDate } : {}),
+    },
+    select: {
+      status: true,
+      issueDate: true,
+      total: true,
+      customerId: true,
+      customer: { select: { name: true } },
     },
   });
-  return invoices.map((invoice) => ({
-    invoice,
-    revenue: invoice.order.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0),
-  }));
+  return toRecognizedRevenueRows(invoices);
 }
 
 function periodBounds(
   period: ReportPeriod,
-  dates: Date[]
+  dates: readonly Date[]
 ): { start: Date; end: Date } | null {
   const start = period.from
     ? new Date(period.from)
     : dates.length > 0
-      ? new Date(Math.min(...dates.map((d) => d.getTime())))
+      ? new Date(Math.min(...dates.map((date) => date.getTime())))
       : null;
   const end = period.to
     ? new Date(period.to)
     : dates.length > 0
-      ? new Date(Math.max(...dates.map((d) => d.getTime())))
+      ? new Date(Math.max(...dates.map((date) => date.getTime())))
       : null;
   if (!start || !end || start > end) return null;
   return { start, end };
 }
 
-export async function revenueByQuarter(period: ReportPeriod): Promise<QuarterRevenue[]> {
-  const rows = await invoiceRevenues(period);
+export function summarizeRevenueByQuarter(
+  rows: readonly RevenueRow[],
+  period: ReportPeriod
+): QuarterRevenue[] {
   const totals = new Map<string, { invoiceCount: number; revenue: number }>();
-  for (const { invoice, revenue } of rows) {
-    const q = Math.floor(invoice.issueDate.getMonth() / 3) + 1;
-    const key = `${invoice.issueDate.getFullYear()}-Q${q}`;
+  for (const row of rows) {
+    const quarter = Math.floor(row.issueDate.getMonth() / 3) + 1;
+    const key = `${row.issueDate.getFullYear()}-Q${quarter}`;
     const bucket = totals.get(key) ?? { invoiceCount: 0, revenue: 0 };
     bucket.invoiceCount += 1;
-    bucket.revenue += revenue;
+    bucket.revenue += row.revenue;
     totals.set(key, bucket);
   }
 
   // Emit every quarter in the period, including empty ones.
-  const bounds = periodBounds(period, rows.map((row) => row.invoice.issueDate));
+  const bounds = periodBounds(
+    period,
+    rows.map((row) => row.issueDate)
+  );
   if (!bounds) return [];
   const result: QuarterRevenue[] = [];
   let year = bounds.start.getFullYear();
@@ -97,35 +136,39 @@ export async function revenueByQuarter(period: ReportPeriod): Promise<QuarterRev
   return result;
 }
 
-export async function revenueByCustomer(period: ReportPeriod): Promise<CustomerRevenue[]> {
-  const rows = await invoiceRevenues(period);
+export function summarizeRevenueByCustomer(rows: readonly RevenueRow[]): CustomerRevenue[] {
   const buckets = new Map<string, CustomerRevenue>();
-  for (const { invoice, revenue } of rows) {
-    const bucket = buckets.get(invoice.customerId) ?? {
-      customerId: invoice.customerId,
-      customerName: invoice.customer.name,
+  for (const row of rows) {
+    const bucket = buckets.get(row.customerId) ?? {
+      customerId: row.customerId,
+      customerName: row.customerName,
       invoiceCount: 0,
       revenue: 0,
     };
     bucket.invoiceCount += 1;
-    bucket.revenue += revenue;
-    buckets.set(invoice.customerId, bucket);
+    bucket.revenue += row.revenue;
+    buckets.set(row.customerId, bucket);
   }
   return [...buckets.values()].toSorted((a, b) => b.revenue - a.revenue);
 }
 
-export async function annualRevenue(period: ReportPeriod): Promise<AnnualRevenue[]> {
-  const rows = await invoiceRevenues(period);
+export function summarizeAnnualRevenue(
+  rows: readonly RevenueRow[],
+  period: ReportPeriod
+): AnnualRevenue[] {
   const totals = new Map<number, { invoiceCount: number; revenue: number }>();
-  for (const { invoice, revenue } of rows) {
-    const year = invoice.issueDate.getFullYear();
+  for (const row of rows) {
+    const year = row.issueDate.getFullYear();
     const bucket = totals.get(year) ?? { invoiceCount: 0, revenue: 0 };
     bucket.invoiceCount += 1;
-    bucket.revenue += revenue;
+    bucket.revenue += row.revenue;
     totals.set(year, bucket);
   }
 
-  const bounds = periodBounds(period, rows.map((row) => row.invoice.issueDate));
+  const bounds = periodBounds(
+    period,
+    rows.map((row) => row.issueDate)
+  );
   if (!bounds) return [];
   const result: AnnualRevenue[] = [];
   for (let year = bounds.start.getFullYear(); year <= bounds.end.getFullYear(); year++) {
@@ -137,4 +180,16 @@ export async function annualRevenue(period: ReportPeriod): Promise<AnnualRevenue
     });
   }
   return result;
+}
+
+export async function revenueByQuarter(period: ReportPeriod): Promise<QuarterRevenue[]> {
+  return summarizeRevenueByQuarter(await invoiceRevenues(period), period);
+}
+
+export async function revenueByCustomer(period: ReportPeriod): Promise<CustomerRevenue[]> {
+  return summarizeRevenueByCustomer(await invoiceRevenues(period));
+}
+
+export async function annualRevenue(period: ReportPeriod): Promise<AnnualRevenue[]> {
+  return summarizeAnnualRevenue(await invoiceRevenues(period), period);
 }
