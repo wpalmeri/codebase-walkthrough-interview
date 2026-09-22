@@ -51,6 +51,8 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - [x] Add v1 Rate strong ETags, exact conditional writes, legacy invalidation, and ETag-safe idempotent replay (`ea35b16`).
 - [x] Add a strict shared cursor/page contract and integrate tenant-scoped v1 payment pagination without changing the legacy array (`5052272`, `861a9cb`).
 - [x] Remove destination PII and commercial identifiers from delivery operational telemetry (`b43fd2b`).
+- [x] Define one Zod/OpenAPI operation contract for Rate routing, authorization, validation, responses, and deterministic OpenAPI 3.1 generation (`9d9790d`).
+- [x] Append request-derived audit evidence atomically for Rate, combo-discount, payment receipt, allocation, and reversal mutations (`ddf6424`, `d5532b1`).
 
 ### Tenant isolation and runtime operations
 
@@ -73,10 +75,13 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - [x] Backfill order pricing and invoice identity snapshots only from immutable persisted evidence (`4620816`, `57dd259`).
 - [x] Add a bounded, read-only financial reconciliation gate with deterministic issue contracts (`c59ed50`).
 - [x] Add an expand-only resource-version migration and strict strong-ETag/`If-Match` primitives (`fb4eda4`).
+- [x] Add an empty-table append-only audit migration with generated enum vocabulary, tenant ownership, valid action/resource pairs, immutable rows, and an expand-safe insert guard (`8a393ca`, `25a1528`).
+- [x] Move Prisma's seed configuration into typed `prisma.config.ts` while keeping the database URL external (`813d3d9`).
 
 ### Continuous enforcement and supply chain
 
 - [x] Ratchet architectural integrity against new float-backed finance fields, raw financial coercion, direct ledger mutations, and hand-written API model types (`478ddca`).
+- [x] Replace raw Prisma lifecycle field types with generated enums and prevent regressions through the architecture ratchet (`c34bae7`).
 - [x] Upgrade and pin vulnerable runtime/tooling dependencies and verify a zero-finding live audit (`0fce620`).
 
 ## Ranked remaining implementation sequence
@@ -92,11 +97,11 @@ This is the execution source of truth. Implement each numbered item as an atomic
 3. **P1 — Strengthen API evolution and database scale**
    - Extend the working Rate conditional-write pattern to order and invoice aggregates, including indirect payment/delivery changes, with atomic compare-and-swap writes and stale interleaving tests; keep preconditions v1-only during rollout.
    - Extend the working payment cursor contract to order, invoice, and catalog lists, then move reports to bounded SQL-side aggregation. Add each supporting SQLite index only after measuring its blocking build on a production-sized copy; use concurrent indexes when PostgreSQL becomes a supported deployment.
-   - Generate OpenAPI from the Zod contracts, generate/validate the client, and add consumer-contract tests so `/api/v1` can evolve independently.
-   - Replace the remaining raw lifecycle literals with schema-derived enums at boundaries and explicit database constraints/types where the target database supports them.
+   - Extend the proven Rate operation definition to every route, publish a complete deterministic OpenAPI document only when its inventory is complete, generate/validate the client, and add consumer-contract tests so `/api/v1` can evolve independently.
+   - Replace remaining raw lifecycle literals outside the converted Prisma fields with schema-derived enums at boundaries, then add explicit database constraints/types where the target database supports them.
 
 4. **P1 — Add auditability and continuous controls**
-   - Record append-only audit events for financial and lifecycle mutations using authenticated actors and correlation/idempotency identifiers.
+   - Extend the append-only Rate/discount/payment audit pattern to order, invoice, delivery, API-key, and accounting-control mutations, preserving exactly-once transactional evidence and proving audit-storage failure rolls back each business write.
    - Schedule reconciliation in read-only bounded batches, export metrics, and alert on drift without automatically rewriting financial history.
    - Add recipient-correction semantics and systematic PII redaction for delivery/audit logs.
 
