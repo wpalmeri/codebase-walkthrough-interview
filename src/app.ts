@@ -14,6 +14,12 @@ import {
   readiness,
   type ReadinessProbe,
 } from "./runtime/health";
+import {
+  createJsonPrivateErrorLogger,
+  createPrivateErrorLog,
+  createRequestContextMiddleware,
+  type PrivateErrorLogSink,
+} from "./runtime/requestContext";
 import { api } from "./views";
 
 export type AppOptions = {
@@ -25,6 +31,11 @@ export type AppOptions = {
   configure?: (app: express.Express) => void;
   /** Receives raw failures for private logging; API responses always stay redacted. */
   logError?: (error: unknown, request: Request) => void;
+  /**
+   * Receives a JSON-safe structured event for unexpected server errors. This
+   * excludes raw errors, request bodies, headers, cookies, and query strings.
+   */
+  privateErrorLogSink?: PrivateErrorLogSink;
   /** Overrides environment configuration for embedding and tests. */
   apiKey?: string | null;
   /** Optional tenant ID for the temporary legacy API-key bridge. */
@@ -63,6 +74,7 @@ export function createApp(options: AppOptions = {}): express.Express {
   }
   const app = express();
   app.disable("x-powered-by");
+  app.use(createRequestContextMiddleware());
   app.use(express.json());
   const idempotency = createIdempotencyMiddleware(options.idempotencyStore ?? createPrismaIdempotencyStore());
   const readinessProbe = options.readinessProbe ?? createPrismaReadinessProbe(prisma);
@@ -127,7 +139,19 @@ export function createApp(options: AppOptions = {}): express.Express {
 
       const problem = problemFromError(error);
       if (problem.status >= 500) {
-        (options.logError ?? console.error)(error, _req);
+        // Retain the existing opt-in raw-error hook for embedders. The default
+        // path is deliberately structured and redacted.
+        options.logError?.(error, _req);
+        const privateErrorLogSink =
+          options.privateErrorLogSink ??
+          (options.logError === undefined ? createJsonPrivateErrorLogger() : undefined);
+        privateErrorLogSink?.(
+          createPrivateErrorLog(_req, {
+            status: problem.status,
+            code: problem.code,
+            stage: "UNHANDLED",
+          })
+        );
       }
       sendProblem(res, problem);
     }

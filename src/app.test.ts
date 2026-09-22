@@ -19,6 +19,7 @@ async function requestApp(
   readonly status: number;
   readonly contentType: string | null;
   readonly link: string | null;
+  readonly requestId: string | null;
   readonly body: unknown;
 }> {
   const server = app.listen(0);
@@ -31,6 +32,7 @@ async function requestApp(
       status: response.status,
       contentType: response.headers.get("content-type"),
       link: response.headers.get("link"),
+      requestId: response.headers.get("x-request-id"),
       body: await response.json(),
     };
   } finally {
@@ -200,6 +202,92 @@ void describe("HTTP problem-details boundary", () => {
     assert.ok(logged[0] instanceof Error);
     assert.match(logged[0].message, /super-secret-value/);
     assert.doesNotMatch(JSON.stringify(response.body), /super-secret-value/);
+  });
+
+  void test("propagates a valid correlation ID and generates one before public or protected routes", async () => {
+    const supplied = await requestApp(createApp(), "/health/live", {
+      headers: { "x-request-id": "edge-gateway_9.4" },
+    });
+    const generated = await requestApp(createApp({ apiKey: "test-api-key" }), "/api/payments", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-api-key",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ customerId: "", amount: 1 }),
+    });
+
+    assert.equal(supplied.status, 200);
+    assert.equal(supplied.requestId, "edge-gateway_9.4");
+    assert.equal(generated.status, 400);
+    assert.match(generated.requestId ?? "", /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu);
+  });
+
+  void test("rejects malformed correlation IDs without reflecting their contents", async () => {
+    const maliciousId = "credential leaked in request id";
+    const response = await requestApp(createApp(), "/health/live", {
+      headers: { "x-request-id": maliciousId },
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(response.body, {
+      type: "urn:meridian:problem:invalid-request-id",
+      title: "Invalid Request ID",
+      status: 400,
+      code: "INVALID_REQUEST_ID",
+    });
+    assert.notEqual(response.requestId, maliciousId);
+    assert.match(response.requestId ?? "", /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu);
+    assert.doesNotMatch(JSON.stringify(response.body), /credential|leaked/i);
+  });
+
+  void test("emits a redacted, correlated private event for unexpected failures", async () => {
+    const events: unknown[] = [];
+    const secret = "do-not-log-this-secret";
+    const app = createApp({
+      privateErrorLogSink(event) {
+        events.push(event);
+      },
+      configure(testApp) {
+        testApp.post(
+          "/test/unexpected-private-log",
+          h(async () => {
+            throw new Error(`database password=${secret}`);
+          })
+        );
+      },
+    });
+
+    const response = await requestApp(app, `/test/unexpected-private-log?email=person@example.com`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer credential-that-must-not-appear",
+        cookie: "session=not-for-logs",
+        "content-type": "application/json",
+        "x-request-id": "correlated-failure-1",
+      },
+      body: JSON.stringify({ password: secret, email: "person@example.com" }),
+    });
+
+    assert.equal(response.status, 500);
+    assert.equal(response.requestId, "correlated-failure-1");
+    assert.equal(events.length, 1);
+    const event = events[0];
+    if (!isRecord(event)) throw new Error("private error logger emitted a non-object event");
+    assert.deepEqual(event, {
+      timestamp: event.timestamp,
+      level: "error",
+      requestId: "correlated-failure-1",
+      method: "POST",
+      path: "/test/unexpected-private-log",
+      status: 500,
+      code: "INTERNAL_ERROR",
+      stage: "UNHANDLED",
+    });
+    assert.doesNotMatch(
+      JSON.stringify(event),
+      /do-not-log|credential-that-must-not-appear|not-for-logs|person@example\.com|password/i
+    );
   });
 
   void test("preserves the existing request-validation body and handles malformed JSON separately", async () => {
