@@ -36,13 +36,13 @@ ordersView.post(
   })
 );
 
-ordersView.put(
-  "/:id",
-  h(async (req) => {
-    const { params, body } = validateRequest(UpdateOrderRequestSchema, req);
-    return orders.saveOrder(params.id, body);
-  })
-);
+const updateOrder = h(async (req) => {
+  const { params, body } = validateRequest(UpdateOrderRequestSchema, req);
+  return orders.saveOrder(params.id, body);
+});
+
+ordersView.put("/:id", updateOrder);
+ordersView.patch("/:id", updateOrder);
 
 ordersView.post(
   "/:id/invoice",

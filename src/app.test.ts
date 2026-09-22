@@ -10,7 +10,12 @@ async function requestApp(
   app: ReturnType<typeof createApp>,
   path: string,
   init?: RequestInit
-): Promise<{ readonly status: number; readonly contentType: string | null; readonly body: unknown }> {
+): Promise<{
+  readonly status: number;
+  readonly contentType: string | null;
+  readonly link: string | null;
+  readonly body: unknown;
+}> {
   const server = app.listen(0);
   await once(server, "listening");
   try {
@@ -20,6 +25,7 @@ async function requestApp(
     return {
       status: response.status,
       contentType: response.headers.get("content-type"),
+      link: response.headers.get("link"),
       body: await response.json(),
     };
   } finally {
@@ -144,5 +150,23 @@ void describe("HTTP problem-details boundary", () => {
       status: 404,
       code: "NOT_FOUND",
     });
+  });
+
+  void test("serves the additive v1 API while preserving a successor link on legacy routes", async () => {
+    const invalidPayment = {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ customerId: "", amount: 1 }),
+    };
+    const [legacy, versioned] = await Promise.all([
+      requestApp(createApp(), "/api/payments", invalidPayment),
+      requestApp(createApp(), "/api/v1/payments", invalidPayment),
+    ]);
+
+    assert.equal(legacy.status, 400);
+    assert.equal(versioned.status, 400);
+    assert.deepEqual(versioned.body, legacy.body);
+    assert.equal(legacy.link, '</api/v1>; rel="successor-version"');
+    assert.equal(versioned.link, null);
   });
 });

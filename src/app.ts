@@ -30,7 +30,15 @@ export function createApp(options: AppOptions = {}): express.Express {
   app.disable("x-powered-by");
   app.use(express.json());
 
-  app.use("/api", api);
+  app.use("/api/v1", api);
+  app.use(
+    "/api",
+    (_req: Request, res: Response, next: NextFunction) => {
+      res.append("Link", '</api/v1>; rel="successor-version"');
+      next();
+    },
+    api
+  );
   options.configure?.(app);
 
   app.use((_req: Request, res: Response) => {
