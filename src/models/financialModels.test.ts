@@ -12,6 +12,7 @@ const createdAt = new Date("2026-09-22T12:00:00.000Z");
 const product = {
   id: "product-1",
   tenantId: null,
+  resourceVersion: null,
   sku: "LIVE-SKU",
   name: "Live product name",
   unit: "seat",
@@ -25,6 +26,7 @@ void describe("exact financial response models", () => {
     const productModel = toProductModel(product);
     const rateModel = toRateModel({
       id: "rate-1",
+      resourceVersion: null,
       customerId: "customer-1",
       productId: product.id,
       unitPrice: 888,
@@ -53,6 +55,7 @@ void describe("exact financial response models", () => {
     const model = toOrderModel({
       id: "order-1",
       tenantId: null,
+      resourceVersion: null,
       reference: "SO-1",
       customerId: "customer-1",
       orderDate: createdAt,
@@ -125,6 +128,7 @@ void describe("exact financial response models", () => {
     const invoiceModel = toInvoiceModel({
       id: "invoice-1",
       tenantId: null,
+      resourceVersion: null,
       number: "INV-1",
       customerId: "customer-1",
       orderId: "order-1",

@@ -176,6 +176,23 @@ batches, reconcile every cross-table ownership edge, and only then make `tenantI
 include it in idempotency uniqueness. Do not use this additive migration as permission to accept a
 client-supplied tenant ID: runtime principals must be authenticated and derive the scope server-side.
 
+## Resource versions and conditional writes
+
+`20260922100000_resource_versions` is an expand-only optimistic-concurrency
+foundation. It adds nullable integer `resourceVersion` columns to mutable root
+resources only: customer, product, rate, combo discount, order, and invoice.
+There is no default, backfill, table rebuild, or version-only index—the future
+compare-and-swap write predicates use each table's existing primary-key index.
+
+Deploy this before enabling any endpoint's `ETag` and `If-Match` behavior. A
+bounded, restartable backfill may initialize legacy null versions in a later
+release; the installed triggers accept that null-to-integer transition and then
+reject non-integers, negative values, clearing, and decreases. Endpoint rollout
+must atomically predicate on both resource ID and version, increment the stored
+version in the same transaction, and return the new strong ETag. Do not accept
+wildcard, weak, or multi-value `If-Match` headers for a mutation that needs a
+single-resource compare-and-swap contract.
+
 ### Legacy ownership backfill
 
 `bun run db:backfill:tenant-ownership` is preview-only by default. It reports stable ownership-conflict

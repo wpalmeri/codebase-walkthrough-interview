@@ -33,6 +33,7 @@ async function main(): Promise<void> {
       "20260922070000_ledger_immutability_guards",
       "20260922080000_payment_application_reversals",
       "20260922090000_tenant_foundation",
+      "20260922100000_resource_versions",
     ]
   );
 
@@ -52,6 +53,18 @@ async function main(): Promise<void> {
     "Rate_tenant_identity_guard",
     "PaymentApplication_tenant_identity_guard",
     "Tenant_referenced_delete_guard",
+    "Customer_resource_version_insert_guard",
+    "Customer_resource_version_update_guard",
+    "Product_resource_version_insert_guard",
+    "Product_resource_version_update_guard",
+    "Rate_resource_version_insert_guard",
+    "Rate_resource_version_update_guard",
+    "ComboDiscount_resource_version_insert_guard",
+    "ComboDiscount_resource_version_update_guard",
+    "Order_resource_version_insert_guard",
+    "Order_resource_version_update_guard",
+    "Invoice_resource_version_insert_guard",
+    "Invoice_resource_version_update_guard",
   ];
   const triggers = await prisma.$queryRaw<NamedRow[]>`
     SELECT name
@@ -216,6 +229,65 @@ async function main(): Promise<void> {
   await assert.rejects(
     prisma.$executeRaw`DELETE FROM "Tenant" WHERE "id" = 'tenant-a'`,
     /Tenant has referenced business records/u
+  );
+
+  // Version columns are nullable on deployment so a later bounded backfill can
+  // initialize each row. Once initialized, direct SQL cannot make a version
+  // negative, fractional, absent, or lower than the recorded value.
+  await prisma.$executeRaw`
+    INSERT INTO "Customer" ("id", "name", "email")
+    VALUES ('version-customer', 'Versioned Customer', 'version-customer@example.com')
+  `;
+  await prisma.$executeRaw`
+    UPDATE "Customer" SET "resourceVersion" = 5 WHERE "id" = 'version-customer'
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      UPDATE "Customer" SET "resourceVersion" = 4 WHERE "id" = 'version-customer'
+    `,
+    /Customer\.resourceVersion must increase monotonically/u
+  );
+  await assert.rejects(
+    prisma.$executeRaw`
+      UPDATE "Customer" SET "resourceVersion" = NULL WHERE "id" = 'version-customer'
+    `,
+    /Customer\.resourceVersion must increase monotonically/u
+  );
+  await assert.rejects(
+    prisma.$executeRaw`
+      INSERT INTO "Product" ("id", "sku", "name", "unit", "listPrice", "resourceVersion")
+      VALUES ('invalid-version-product', 'invalid-version-product', 'Invalid Version Product', 'seat', 1, -1)
+    `,
+    /Product\.resourceVersion must be a nonnegative integer/u
+  );
+  await prisma.$executeRaw`
+    INSERT INTO "Product" ("id", "sku", "name", "unit", "listPrice", "resourceVersion")
+    VALUES ('version-product', 'version-product', 'Version Product', 'seat', 1, 1)
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      INSERT INTO "Rate" ("id", "customerId", "productId", "unitPrice", "effectiveDate", "resourceVersion")
+      VALUES ('invalid-version-rate', 'version-customer', 'version-product', 1, CURRENT_TIMESTAMP, 1.5)
+    `,
+    /Rate\.resourceVersion must be a nonnegative integer/u
+  );
+  await prisma.$executeRaw`
+    UPDATE "Order" SET "resourceVersion" = 2 WHERE "id" = 'migration-order'
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      UPDATE "Order" SET "resourceVersion" = 1 WHERE "id" = 'migration-order'
+    `,
+    /Order\.resourceVersion must increase monotonically/u
+  );
+  await prisma.$executeRaw`
+    UPDATE "Invoice" SET "resourceVersion" = 2 WHERE "id" = 'tenant-invoice-a'
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      UPDATE "Invoice" SET "resourceVersion" = -1 WHERE "id" = 'tenant-invoice-a'
+    `,
+    /Invoice\.resourceVersion must increase monotonically/u
   );
 }
 

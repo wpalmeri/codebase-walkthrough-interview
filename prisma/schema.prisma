@@ -141,6 +141,9 @@ model TenantAccountingPeriodControl {
 model Customer {
   id              String   @id @default(cuid())
   tenantId        String?
+  // Nullable during the expand/backfill rollout. Conditional-write endpoints
+  // will atomically advance this monotonically increasing value once adopted.
+  resourceVersion Int?
   name            String
   email           String
   billingAddress  String?
@@ -161,6 +164,7 @@ model Customer {
 model Product {
   id               String   @id @default(cuid())
   tenantId         String?
+  resourceVersion  Int?
   sku              String   @unique
   name             String
   unit             String // "seat", "GB", "1k calls", ...
@@ -179,6 +183,7 @@ model Product {
 // One rate per customer+product. Edits update this row with the new price.
 model Rate {
   id               String   @id @default(cuid())
+  resourceVersion  Int?
   customerId       String
   productId        String
   unitPrice        Float // Legacy compatibility column; retire after the decimal cutover.
@@ -200,6 +205,7 @@ model Rate {
 model ComboDiscount {
   id                String   @id @default(cuid())
   tenantId          String?
+  resourceVersion   Int?
   customerId        String?
   name              String
   percentOff        Float // Legacy compatibility column; retire after the decimal cutover.
@@ -213,15 +219,16 @@ model ComboDiscount {
 }
 
 model Order {
-  id           String      @id @default(cuid())
-  tenantId     String?
-  reference    String? // sales order number, e.g. SO-0042
-  customerId   String // immutable after any order item captures pricing
-  orderDate    DateTime    @default(now())
-  status       OrderStatus @default(OPEN)
-  shipTo       String? // receiving party / delivery address
-  notes        String?
-  currencyCode String? // Supported order-pricing currency; immutable after capture and nullable only during rollout.
+  id              String      @id @default(cuid())
+  tenantId        String?
+  resourceVersion Int?
+  reference       String? // sales order number, e.g. SO-0042
+  customerId      String // immutable after any order item captures pricing
+  orderDate       DateTime    @default(now())
+  status          OrderStatus @default(OPEN)
+  shipTo          String? // receiving party / delivery address
+  notes           String?
+  currencyCode    String? // Supported order-pricing currency; immutable after capture and nullable only during rollout.
 
   customer Customer       @relation(fields: [customerId], references: [id])
   items    OrderItem[]
@@ -271,6 +278,7 @@ model OrderItem {
 model Invoice {
   id                     String        @id @default(cuid())
   tenantId               String?
+  resourceVersion        Int?
   number                 String        @unique
   customerId             String
   orderId                String        @unique
