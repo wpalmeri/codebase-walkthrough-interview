@@ -9,10 +9,10 @@ import { reportsView } from "./reportsView";
 
 export const api = Router();
 
-api.use("/customers", customersView);
-api.use("/products", productsView);
-// Rate operation descriptors own their complete version-relative paths so the
-// mounted route and generated OpenAPI path cannot disagree about a prefix.
+// Catalog operation descriptors own their complete version-relative paths so
+// the mounted route and generated OpenAPI path cannot disagree about a prefix.
+api.use(customersView);
+api.use(productsView);
 api.use(ratesView);
 api.use("/orders", ordersView);
 api.use("/invoices", invoicesView);

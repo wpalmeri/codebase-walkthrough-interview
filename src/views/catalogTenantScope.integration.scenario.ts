@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import type { Server } from "node:http";
+import { ValidationErrorResponseSchema } from "@meridian/contracts";
 import { createApp } from "../app";
 import { prisma } from "../db";
 import type { Principal } from "../auth/principal";
@@ -36,18 +37,24 @@ async function request(
   server: Server,
   token: keyof typeof principals,
   path: string,
-  init: RequestInit = {}
-): Promise<{ status: number; body: unknown }> {
+  init: RequestInit = {},
+  apiVersion: "legacy" | "v1" = "legacy"
+): Promise<{ status: number; body: unknown; successorLink: string | null }> {
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("catalog test server has no TCP address");
   const headers = new Headers(init.headers);
   headers.set("authorization", `Bearer ${token}`);
   if (init.body !== undefined) headers.set("content-type", "application/json");
-  const response = await fetch(`http://127.0.0.1:${address.port}/api${path}`, {
+  const apiPrefix = apiVersion === "v1" ? "/api/v1" : "/api";
+  const response = await fetch(`http://127.0.0.1:${address.port}${apiPrefix}${path}`, {
     ...init,
     headers,
   });
-  return { status: response.status, body: await response.json() };
+  return {
+    status: response.status,
+    body: await response.json(),
+    successorLink: response.headers.get("link"),
+  };
 }
 
 async function close(server: Server): Promise<void> {
@@ -165,6 +172,7 @@ function notFound(body: unknown): void {
 async function main(): Promise<void> {
   await seed();
   const app = createApp({
+    environment: "production",
     principalResolver: {
       resolve: async (token) => principals[token] ?? null,
     },
@@ -180,6 +188,36 @@ async function main(): Promise<void> {
     assert.deepEqual(ids(customers.body), ["catalog-customer-a"]);
     assert.equal(products.status, 200);
     assert.deepEqual(ids(products.body), ["catalog-product-a"]);
+    assert.match(customers.successorLink ?? "", /<\/api\/v1>; rel="successor-version"/u);
+    assert.match(products.successorLink ?? "", /<\/api\/v1>; rel="successor-version"/u);
+
+    // The same mounted Zod operations preserve the legacy adapter while also
+    // serving the versioned contract; neither path may leak tenant-B catalog
+    // rows or weaken read-role enforcement.
+    const v1Customers = await request(server, "tenant-a-viewer", "/customers", {}, "v1");
+    const v1Products = await request(server, "tenant-a-viewer", "/products", {}, "v1");
+    assert.equal(v1Customers.status, 200);
+    assert.deepEqual(ids(v1Customers.body), ["catalog-customer-a"]);
+    assert.equal(v1Customers.successorLink, null);
+    assert.equal(v1Products.status, 200);
+    assert.deepEqual(ids(v1Products.body), ["catalog-product-a"]);
+    assert.equal(v1Products.successorLink, null);
+
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("catalog test server has no TCP address");
+    const unauthorized = await fetch(`http://127.0.0.1:${address.port}/api/v1/customers`);
+    assert.equal(unauthorized.status, 401);
+    assert.deepEqual(await unauthorized.json(), {
+      type: "urn:meridian:problem:unauthorized",
+      title: "Unauthorized",
+      status: 401,
+      code: "UNAUTHORIZED",
+    });
+    const invalidQuery = await fetch(`http://127.0.0.1:${address.port}/api/v1/products?unexpected=true`, {
+      headers: { authorization: "Bearer tenant-a-viewer" },
+    });
+    assert.equal(invalidQuery.status, 400);
+    assert.equal(ValidationErrorResponseSchema.safeParse(await invalidQuery.json()).success, true);
     assert.equal(rates.status, 200);
     assert.deepEqual(ids(rates.body), ["catalog-rate-a"]);
     assert.equal(combos.status, 200);

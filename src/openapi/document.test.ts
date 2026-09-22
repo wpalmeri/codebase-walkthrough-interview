@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { z } from "zod";
 import { createOpenApiV1Document } from "./document";
+import { customerOperations } from "../views/customersView";
+import { productOperations } from "../views/productsView";
 import { rateOperations } from "../views/ratesView";
+
+const catalogAndRateOperations = [...customerOperations, ...productOperations, ...rateOperations] as const;
 
 const OperationSchema = z.object({
   operationId: z.string(),
@@ -20,9 +24,9 @@ function operation(document: unknown, path: string, method: string) {
 }
 
 void describe("generated version-one OpenAPI contract", () => {
-  void test("is deterministic and inventories the exact mounted rate operations", () => {
-    const first = createOpenApiV1Document(rateOperations);
-    const second = createOpenApiV1Document(rateOperations);
+  void test("is deterministic and inventories the exact mounted catalog and rate operations", () => {
+    const first = createOpenApiV1Document(catalogAndRateOperations);
+    const second = createOpenApiV1Document(catalogAndRateOperations);
     assert.deepEqual(first, second);
 
     const document = z
@@ -37,6 +41,8 @@ void describe("generated version-one OpenAPI contract", () => {
         .flatMap(([path, item]) => Object.keys(item).map((method) => `${method} ${path}`))
         .toSorted(),
       [
+        "get /customers",
+        "get /products",
         "get /rates",
         "get /rates/combos",
         "get /rates/{id}",
@@ -44,16 +50,25 @@ void describe("generated version-one OpenAPI contract", () => {
         "put /rates/{id}",
       ].toSorted()
     );
-    assert.doesNotThrow(() => createOpenApiV1Document(rateOperations));
-    assert.throws(() => createOpenApiV1Document([...rateOperations, rateOperations[0]]), /Duplicate OpenAPI operation/u);
+    assert.doesNotThrow(() => createOpenApiV1Document(catalogAndRateOperations));
+    assert.throws(
+      () => createOpenApiV1Document([...catalogAndRateOperations, customerOperations[0]]),
+      /Duplicate OpenAPI operation/u
+    );
   });
 
   void test("documents tenant bearer security, correlation, replay, and rate conditional headers", () => {
-    const document = createOpenApiV1Document(rateOperations);
+    const document = createOpenApiV1Document(catalogAndRateOperations);
+    const customers = operation(document, "/customers", "get");
+    const products = operation(document, "/products", "get");
     const getRate = operation(document, "/rates/{id}", "get");
     const updateRate = operation(document, "/rates/{id}", "put");
     const createCombo = operation(document, "/rates/combos", "post");
 
+    assert.deepEqual(customers.security, [{ tenantBearer: [] }]);
+    assert.deepEqual(products.security, [{ tenantBearer: [] }]);
+    assert.equal(customers.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"), true);
+    assert.equal(products.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"), true);
     assert.deepEqual(getRate.security, [{ tenantBearer: [] }]);
     assert.equal(getRate.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"), true);
     assert.equal(updateRate.parameters.some((parameter) => parameter.name === "If-Match" && parameter.required === true), true);
