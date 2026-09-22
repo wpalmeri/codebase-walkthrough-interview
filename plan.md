@@ -48,6 +48,9 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - [x] Add durable mutation idempotency with alias-normalized replay scope (`f5f4f03`).
 - [x] Replace the fixed PDF buffer with deterministic, exact, multi-page invoice artifacts (`25b2d20`).
 - [x] Add request correlation and strictly redacted structured error events (`97c3363`).
+- [x] Add v1 Rate strong ETags, exact conditional writes, legacy invalidation, and ETag-safe idempotent replay (`ea35b16`).
+- [x] Add a strict shared cursor/page contract and integrate tenant-scoped v1 payment pagination without changing the legacy array (`5052272`, `861a9cb`).
+- [x] Remove destination PII and commercial identifiers from delivery operational telemetry (`b43fd2b`).
 
 ### Tenant isolation and runtime operations
 
@@ -87,8 +90,8 @@ This is the execution source of truth. Implement each numbered item as an atomic
    - Add CSRF/session rotation/logout/role-change tests and keep server-to-server tenant API keys as a separate credential class. The identity-provider choice and deployment configuration are external prerequisites, but the server trust boundary must remain fail-closed.
 
 3. **P1 — Strengthen API evolution and database scale**
-   - Adopt the resource-version foundation in aggregate mutations with atomic compare-and-swap writes, strong response ETags, and stale interleaving tests; require preconditions on `/api/v1` while preserving legacy `/api` clients during rollout.
-   - Add cursor pagination, stable ordering, supporting indexes, and SQL-side report aggregation through online PostgreSQL migrations.
+   - Extend the working Rate conditional-write pattern to order and invoice aggregates, including indirect payment/delivery changes, with atomic compare-and-swap writes and stale interleaving tests; keep preconditions v1-only during rollout.
+   - Extend the working payment cursor contract to order, invoice, and catalog lists, then move reports to bounded SQL-side aggregation. Add each supporting SQLite index only after measuring its blocking build on a production-sized copy; use concurrent indexes when PostgreSQL becomes a supported deployment.
    - Generate OpenAPI from the Zod contracts, generate/validate the client, and add consumer-contract tests so `/api/v1` can evolve independently.
    - Replace the remaining raw lifecycle literals with schema-derived enums at boundaries and explicit database constraints/types where the target database supports them.
 
