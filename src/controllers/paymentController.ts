@@ -1,5 +1,17 @@
 import { randomUUID } from "node:crypto";
-import type { InvoiceStatus, TransmissionMethod, TransmissionStatus } from "@meridian/contracts";
+import {
+  PaymentPageSchema,
+  fingerprintPaginationFilters,
+  formatPaginationCursor,
+  parsePaginationCursor,
+  type InvoiceStatus,
+  type ListPaymentsV1Request,
+  type PaymentPage,
+  type PaginationCursorFailureCode,
+  type TransmissionMethod,
+  type TransmissionStatus,
+} from "@meridian/contracts";
+import { z } from "zod";
 import { prisma } from "../db";
 import {
   assertAccountingDateOpen,
@@ -652,6 +664,75 @@ export async function listPayments(tenantId: string): Promise<PaymentModel[]> {
     take: 100,
   });
   return rows.map(toPaymentModel);
+}
+
+const PaymentCursorOrderingSchema = z.tuple([
+  z.iso.datetime({ offset: true }),
+  z.string().min(1).max(1_024),
+]);
+
+export type PaymentPageResult =
+  | { readonly ok: true; readonly page: PaymentPage }
+  | { readonly ok: false; readonly code: PaginationCursorFailureCode };
+
+/**
+ * Lists a v1 payment page with a tenant-scoped keyset predicate. The cursor
+ * intentionally contains only public filtering/order state; authentication is
+ * the sole source of tenant scope for every page, including cursor replays.
+ */
+export async function listPaymentsPage(
+  tenantId: string,
+  query: ListPaymentsV1Request["query"]
+): Promise<PaymentPageResult> {
+  const filterFingerprint = fingerprintPaginationFilters({
+    customerId: query.customerId,
+  });
+  const parsedCursor = query.cursor === undefined
+    ? undefined
+    : parsePaginationCursor(query.cursor, { resource: "payments", filterFingerprint });
+  if (parsedCursor !== undefined && !parsedCursor.ok) return parsedCursor;
+
+  const ordering = parsedCursor === undefined
+    ? undefined
+    : PaymentCursorOrderingSchema.safeParse(parsedCursor.ordering);
+  if (ordering !== undefined && !ordering.success) {
+    return { ok: false, code: "CURSOR_MALFORMED" };
+  }
+
+  const [receivedAt, id] = ordering === undefined ? [] : ordering.data;
+  const rows = await prisma.payment.findMany({
+    where: {
+      tenantId,
+      ...(query.customerId === undefined ? {} : { customerId: query.customerId }),
+      ...(receivedAt === undefined || id === undefined
+        ? {}
+        : {
+            OR: [
+              { receivedAt: { lt: new Date(receivedAt) } },
+              { receivedAt: new Date(receivedAt), id: { lt: id } },
+            ],
+          }),
+    },
+    include: paymentInclude,
+    orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
+    take: query.limit + 1,
+  });
+  const pageRows = rows.slice(0, query.limit);
+  const lastRow = pageRows.at(-1);
+  const nextCursor = rows.length > query.limit && lastRow !== undefined
+    ? formatPaginationCursor({
+        resource: "payments",
+        filterFingerprint,
+        ordering: [lastRow.receivedAt.toISOString(), lastRow.id],
+      })
+    : null;
+  return {
+    ok: true,
+    page: PaymentPageSchema.parse({
+      data: pageRows.map(toPaymentModel),
+      page: { limit: query.limit, nextCursor },
+    }),
+  };
 }
 
 export async function getPayment(tenantId: string, paymentId: string): Promise<PaymentModel> {

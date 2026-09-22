@@ -381,6 +381,7 @@ model Payment {
   tenant       Tenant?              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([tenantId])
+  @@index([tenantId, receivedAt(sort: Desc), id(sort: Desc)])
 }
 
 model PaymentApplication {

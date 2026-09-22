@@ -39,6 +39,7 @@ async function main(): Promise<void> {
       "20260922090000_tenant_foundation",
       "20260922100000_resource_versions",
       "20260922110000_rate_conditional_writes",
+      "20260922120000_payment_cursor_pagination",
     ]
   );
 
@@ -83,6 +84,13 @@ async function main(): Promise<void> {
   for (const trigger of requiredTriggers) {
     assert.equal(installed.has(trigger), true, `missing migration trigger ${trigger}`);
   }
+
+  const paymentPaginationIndex = await prisma.$queryRaw<NamedRow[]>`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'index' AND name = 'Payment_tenantId_receivedAt_id_idx'
+  `;
+  assert.deepEqual(paymentPaginationIndex, [{ name: "Payment_tenantId_receivedAt_id_idx" }]);
 
   const tenantForeignKeys = await Promise.all([
     prisma.$queryRaw<ForeignKeyRow[]>`PRAGMA foreign_key_list("Customer")`,

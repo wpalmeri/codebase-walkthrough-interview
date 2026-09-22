@@ -4,6 +4,7 @@ import {
   PercentageStringSchema,
   QuantityStringSchema,
 } from "./decimal.js";
+import { PageEnvelopeSchema } from "./pagination.js";
 import { TransmissionMethodSchema } from "./requests.js";
 
 const id = z.string().min(1);
@@ -265,6 +266,10 @@ export const PaymentSchema = z.object({
   applications: z.array(PaymentApplicationSchema),
 });
 export type Payment = z.infer<typeof PaymentSchema>;
+
+/** Additive v1 envelope; the legacy payment-list representation stays an array. */
+export const PaymentPageSchema = PageEnvelopeSchema(PaymentSchema);
+export type PaymentPage = z.infer<typeof PaymentPageSchema>;
 
 export const QuarterRevenueSchema = z.object({
   quarter: z.string(),

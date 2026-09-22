@@ -4,6 +4,7 @@ import {
   PercentageInputStringSchema,
   QuantityInputStringSchema,
 } from "./decimal.js";
+import { PaginationQuerySchema } from "./pagination.js";
 
 export const TransmissionMethodSchema = z.enum(["EMAIL", "PORTAL", "API"]);
 
@@ -342,6 +343,14 @@ export type RefreshTransmissionRequest = z.infer<
 
 export const ListPaymentsRequestSchema = EmptyRequestSchema;
 export type ListPaymentsRequest = z.infer<typeof ListPaymentsRequestSchema>;
+
+/** Additive v1 query contract; legacy `/api/payments` remains an array endpoint. */
+export const ListPaymentsV1RequestSchema = requestSchema(
+  EmptyParamsSchema,
+  PaginationQuerySchema.extend({ customerId: IdentifierSchema.optional() }),
+  NoBodySchema
+);
+export type ListPaymentsV1Request = z.infer<typeof ListPaymentsV1RequestSchema>;
 
 export const GetPaymentRequestSchema = requestSchema(
   IdParamsSchema,

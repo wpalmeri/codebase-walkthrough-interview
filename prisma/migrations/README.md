@@ -212,6 +212,21 @@ available during client migration. Retried idempotent writes store and replay
 the exact response ETag, and their fingerprints include `If-Match`, so a stale
 precondition can never silently replay a response for a different revision.
 
+### Payment cursor pagination
+
+`20260922120000_payment_cursor_pagination` adds one tenant-first keyset index
+on `Payment(tenantId, receivedAt DESC, id DESC)`; it neither alters rows nor
+rewrites table data. SQLite implements `CREATE INDEX` by scanning the table and
+serializes writers while DDL runs, so schedule it in a controlled low-write
+window, test duration against a production-sized copy, and monitor the writer
+queue. Do not treat this migration as online/concurrent index creation.
+
+After the index is deployed, `/api/v1/payments` may use its additive cursor
+envelope. It reads `limit + 1` in descending `(receivedAt, id)` order and only
+uses tenant identity derived from authentication; the opaque cursor carries
+only the public customer filter fingerprint and ordering tuple. Legacy
+`/api/payments` remains its existing first-100 array during client migration.
+
 ### Legacy ownership backfill
 
 `bun run db:backfill:tenant-ownership` is preview-only by default. It reports stable ownership-conflict

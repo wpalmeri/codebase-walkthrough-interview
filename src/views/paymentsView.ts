@@ -2,21 +2,42 @@ import {
   ApplyPaymentRequestSchema,
   GetPaymentRequestSchema,
   ListPaymentsRequestSchema,
+  ListPaymentsV1RequestSchema,
   RecordPaymentRequestSchema,
   ReversePaymentApplicationRequestSchema,
 } from "@meridian/contracts";
 import { Router } from "express";
 import { BILLING_WRITE_ROLES, READ_ROLES, requireRole } from "../auth/authorization";
 import * as payments from "../controllers/paymentController";
-import { h, validateRequest } from "./helpers";
+import { isV1Request } from "../http/apiVersion";
+import { formatNextPageLink } from "../http/pagination";
+import { h, RequestValidationError, validateRequest } from "./helpers";
 
 export const paymentsView = Router();
 
 paymentsView.get(
   "/",
-  h(async (req) => {
-    validateRequest(ListPaymentsRequestSchema, req);
-    return payments.listPayments(requireRole(req, READ_ROLES).tenantId);
+  h(async (req, response) => {
+    const tenantId = requireRole(req, READ_ROLES).tenantId;
+    if (!isV1Request(req)) {
+      validateRequest(ListPaymentsRequestSchema, req);
+      return payments.listPayments(tenantId);
+    }
+
+    const { query } = validateRequest(ListPaymentsV1RequestSchema, req);
+    const page = await payments.listPaymentsPage(tenantId, query);
+    if (!page.ok) {
+      throw new RequestValidationError([
+        {
+          code: page.code,
+          path: "query.cursor",
+          message: "Cursor is invalid for this payment query",
+        },
+      ]);
+    }
+    const link = formatNextPageLink(req.originalUrl, page.page.page.nextCursor);
+    if (link !== undefined) response.append("Link", link);
+    return page.page;
   })
 );
 
