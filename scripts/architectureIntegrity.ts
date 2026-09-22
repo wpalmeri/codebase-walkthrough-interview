@@ -45,17 +45,6 @@ const CENTRALIZED_LEGACY_CONVERSION_BOUNDARIES = new Set([
 // Adding one requires an explicit review rather than silently widening this guard.
 const LEGACY_FINANCIAL_CONVERSION_LINES = new Set([
   "src/domain/pricing.ts:77",
-  "src/models/invoice.ts:52",
-  "src/models/invoice.ts:53",
-  "src/models/invoice.ts:57",
-  "src/models/invoice.ts:76",
-  "src/models/invoice.ts:77",
-  "src/models/invoice.ts:78",
-  "src/models/invoice.ts:87",
-  "src/models/payment.ts:28",
-  "src/models/payment.ts:55",
-  "src/models/payment.ts:60",
-  "src/models/payment.ts:61",
   "client/src/pages/ProductsPage.tsx:193",
 ]);
 
