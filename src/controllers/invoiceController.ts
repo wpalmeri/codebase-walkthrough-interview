@@ -1,4 +1,5 @@
 import { prisma } from "../db";
+import { parseRateTiers } from "../domain/rateTier";
 import { InvoiceModel, toInvoiceModel } from "../models/invoice";
 import { toTransmissionModel, TransmissionModel } from "../models/transmission";
 import { renderInvoicePdf } from "../services/pdf";
@@ -54,15 +55,12 @@ export async function createInvoiceForOrder(orderId: string): Promise<InvoiceMod
     [];
   for (const item of order.items) {
     let unitPrice = item.rate.unitPrice;
-    const tiers =
-      (item.rate.tiers as unknown as
-        | { upTo: number | null; unitPrice: number; floor?: number | null; ceiling?: number | null }[]
-        | null) ?? [];
+    const tiers = parseRateTiers(item.rate.tiers);
     if (tiers.length > 0 && item.quantity > 0) {
       // Blend the interval charges into one per-unit price.
       let total = 0;
       let lower = 0;
-      for (const interval of [...tiers].sort(
+      for (const interval of tiers.toSorted(
         (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
       )) {
         const upper = interval.upTo ?? Infinity;
@@ -146,14 +144,11 @@ export async function syncDraftInvoice(orderId: string): Promise<void> {
   const productIds = order.items.map((line) => line.productId);
   const freshLines = order.items.map((line) => {
     let price = line.rate.unitPrice;
-    const tierList =
-      (line.rate.tiers as unknown as
-        | { upTo: number | null; unitPrice: number; floor?: number | null; ceiling?: number | null }[]
-        | null) ?? [];
+    const tierList = parseRateTiers(line.rate.tiers);
     if (tierList.length > 0 && line.quantity > 0) {
-      const sorted = tierList
-        .slice()
-        .sort((a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity));
+      const sorted = tierList.toSorted(
+        (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
+      );
       let charged = 0;
       let from = 0;
       for (const band of sorted) {
@@ -213,14 +208,11 @@ export async function postInvoice(invoiceId: string): Promise<InvoiceModel> {
   const idsInOrder = order.items.map((item) => item.productId);
   const finalLines = order.items.map((item) => {
     let unitPrice = item.rate.unitPrice;
-    const tiers =
-      (item.rate.tiers as unknown as
-        | { upTo: number | null; unitPrice: number; floor?: number | null; ceiling?: number | null }[]
-        | null) ?? [];
+    const tiers = parseRateTiers(item.rate.tiers);
     if (tiers.length > 0 && item.quantity > 0) {
       let total = 0;
       let lower = 0;
-      for (const interval of [...tiers].sort(
+      for (const interval of tiers.toSorted(
         (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
       )) {
         const upper = interval.upTo ?? Infinity;

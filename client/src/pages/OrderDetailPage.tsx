@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiGet, apiPost, apiPut, dateTime, money, shortDate } from "../api";
+import { apiGet, apiPost, apiPut, dateTime, errorMessage, money, shortDate } from "../api";
 import { Card, EmptyState, PageHeader, StatusBadge, icons } from "../components";
 import { navigate } from "../router";
 import type { Customer, Order } from "../types";
@@ -26,11 +26,13 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
         setCustomerId(row.customerId);
         setQty(Object.fromEntries(row.items.map((item) => [item.id, String(item.quantity)])));
       })
-      .catch((e) => setError(e.message));
+      .catch((error) => setError(errorMessage(error)));
   };
   useEffect(load, [orderId]);
   useEffect(() => {
-    apiGet<Customer[]>("/customers").then(setCustomers).catch((e) => setError(e.message));
+    apiGet<Customer[]>("/customers")
+      .then(setCustomers)
+      .catch((error) => setError(errorMessage(error)));
   }, []);
 
   if (!order) {
@@ -51,8 +53,8 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
     try {
       await fn();
       load();
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (error) {
+      setError(errorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -68,11 +70,11 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
       })
     );
 
-  const addComment = () => {
+  const addComment = (): void => {
     const body = comment.trim();
     if (!body) return;
     setComment("");
-    return act(() =>
+    void act(() =>
       apiPut(`/orders/${order.id}`, { comment: { author: CURRENT_USER, body } })
     );
   };

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { apiGet, apiPost, apiPut, money, shortDate } from "../api";
+import { useCallback, useEffect, useState } from "react";
+import { apiGet, apiPost, apiPut, errorMessage, money, shortDate } from "../api";
 import { Card, Modal, PageHeader } from "../components";
 import type { ComboDiscount, Customer, Product, Rate, RateTier } from "../types";
 
@@ -42,25 +42,29 @@ export function ProductsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiGet<Product[]>("/products").then(setProducts).catch((e) => setError(e.message));
+    apiGet<Product[]>("/products")
+      .then(setProducts)
+      .catch((error) => setError(errorMessage(error)));
     apiGet<Customer[]>("/customers")
       .then((rows) => {
         setCustomers(rows);
         if (rows.length > 0) setCustomerId(rows[0].id);
       })
-      .catch((e) => setError(e.message));
+      .catch((error) => setError(errorMessage(error)));
   }, []);
 
   const customer = customers.find((row) => row.id === customerId);
 
-  const loadRates = (cid: string) => {
+  const loadRates = useCallback((cid: string) => {
     if (!cid) return;
-    apiGet<Rate[]>(`/rates?customerId=${cid}`).then(setRates).catch((e) => setError(e.message));
+    apiGet<Rate[]>(`/rates?customerId=${cid}`)
+      .then(setRates)
+      .catch((error) => setError(errorMessage(error)));
     apiGet<ComboDiscount[]>(`/rates/combos?customerId=${cid}`)
       .then(setCombos)
-      .catch((e) => setError(e.message));
-  };
-  useEffect(() => loadRates(customerId), [customerId]);
+      .catch((error) => setError(errorMessage(error)));
+  }, []);
+  useEffect(() => loadRates(customerId), [customerId, loadRates]);
 
   const openEditor = (rate: Rate) => {
     setEditor({
@@ -94,8 +98,8 @@ export function ProductsPage() {
       });
       setEditor(null);
       loadRates(customerId);
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (error) {
+      setError(errorMessage(error));
     }
   };
 
@@ -116,8 +120,8 @@ export function ProductsPage() {
       });
       setComboForm({ name: "", productIds: [], percentOff: "", scope: "customer" });
       loadRates(customerId);
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (error) {
+      setError(errorMessage(error));
     }
   };
 
@@ -172,7 +176,7 @@ export function ProductsPage() {
               <th className="num">Base price</th>
               <th>Quantity intervals</th>
               <th>Effective</th>
-              <th className="num"></th>
+              <th className="num"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -184,8 +188,8 @@ export function ProductsPage() {
                 <td className="num">{money(rate.unitPrice)}</td>
                 <td className="muted">
                   {rate.tiers.length > 0
-                    ? [...rate.tiers]
-                        .sort((a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity))
+                    ? rate.tiers
+                        .toSorted((a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity))
                         .map(tierLabel)
                         .join(" · ")
                     : "Flat rate"}
@@ -345,7 +349,7 @@ export function ProductsPage() {
                 <th className="num">Unit price</th>
                 <th className="num">Floor</th>
                 <th className="num">Ceiling</th>
-                <th></th>
+                <th><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -353,6 +357,7 @@ export function ProductsPage() {
                 <tr key={index}>
                   <td className="num">
                     <input
+                      aria-label={`Upper quantity bound for tier ${index + 1}`}
                       className="qty"
                       type="number"
                       placeholder="∞"
@@ -362,6 +367,7 @@ export function ProductsPage() {
                   </td>
                   <td className="num">
                     <input
+                      aria-label={`Unit price for tier ${index + 1}`}
                       className="qty"
                       type="number"
                       step="0.01"
@@ -371,6 +377,7 @@ export function ProductsPage() {
                   </td>
                   <td className="num">
                     <input
+                      aria-label={`Floor for tier ${index + 1}`}
                       className="qty"
                       type="number"
                       placeholder="—"
@@ -380,6 +387,7 @@ export function ProductsPage() {
                   </td>
                   <td className="num">
                     <input
+                      aria-label={`Ceiling for tier ${index + 1}`}
                       className="qty"
                       type="number"
                       placeholder="—"

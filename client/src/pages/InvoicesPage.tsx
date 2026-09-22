@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiGet, money, shortDate } from "../api";
+import { apiGet, errorMessage, money, shortDate } from "../api";
 import { Card, PageHeader, StatTile, StatusBadge } from "../components";
 import { navigate } from "../router";
 import type { Invoice } from "../types";
@@ -9,7 +9,9 @@ export function InvoicesPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiGet<Invoice[]>("/invoices").then(setInvoices).catch((e) => setError(e.message));
+    apiGet<Invoice[]>("/invoices")
+      .then(setInvoices)
+      .catch((error) => setError(errorMessage(error)));
   }, []);
 
   const outstanding = invoices.reduce((sum, invoice) => sum + invoice.balance, 0);

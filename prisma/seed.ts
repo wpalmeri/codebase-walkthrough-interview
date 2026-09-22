@@ -1,4 +1,5 @@
 import { prisma } from "../src/db";
+import { parseRateTiers } from "../src/domain/rateTier";
 
 async function wipe() {
   await prisma.transmission.deleteMany();
@@ -60,14 +61,11 @@ async function createOrder(
   const orderProductIds = order.items.map((i) => i.productId);
   for (const item of order.items) {
     let unitPrice = item.rate.unitPrice;
-    const tiers =
-      (item.rate.tiers as unknown as
-        | { upTo: number | null; unitPrice: number; floor?: number | null; ceiling?: number | null }[]
-        | null) ?? [];
+    const tiers = parseRateTiers(item.rate.tiers);
     if (tiers.length > 0 && item.quantity > 0) {
       let total = 0;
       let lower = 0;
-      for (const interval of [...tiers].sort(
+      for (const interval of tiers.toSorted(
         (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
       )) {
         const upper = interval.upTo ?? Infinity;
@@ -115,16 +113,13 @@ async function createInvoice(
   const productIds = order.items.map((line) => line.productId);
   const lines = order.items.map((line) => {
     let price = line.rate.unitPrice;
-    const tierList =
-      (line.rate.tiers as unknown as
-        | { upTo: number | null; unitPrice: number; floor?: number | null; ceiling?: number | null }[]
-        | null) ?? [];
+    const tierList = parseRateTiers(line.rate.tiers);
     if (tierList.length > 0 && line.quantity > 0) {
       let charged = 0;
       let from = 0;
-      for (const band of tierList
-        .slice()
-        .sort((a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity))) {
+      for (const band of tierList.toSorted(
+        (a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity)
+      )) {
         const to = band.upTo ?? Infinity;
         const unitsInBand = Math.min(line.quantity, to) - from;
         if (unitsInBand > 0) {

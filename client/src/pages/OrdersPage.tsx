@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiGet, money, shortDate } from "../api";
+import { apiGet, errorMessage, money, shortDate } from "../api";
 import { Card, PageHeader, StatTile, StatusBadge } from "../components";
 import { navigate } from "../router";
 import type { Order } from "../types";
@@ -9,7 +9,9 @@ export function OrdersPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiGet<Order[]>("/orders").then(setOrders).catch((e) => setError(e.message));
+    apiGet<Order[]>("/orders")
+      .then(setOrders)
+      .catch((error) => setError(errorMessage(error)));
   }, []);
 
   const openOrders = orders.filter((order) => !order.invoiceId);

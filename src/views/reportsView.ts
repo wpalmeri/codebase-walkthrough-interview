@@ -1,13 +1,13 @@
 import { Router } from "express";
 import * as reports from "../controllers/reportController";
-import { h } from "./helpers";
+import { h, optionalQueryString } from "./helpers";
 
 export const reportsView = Router();
 
 function period(req: { query: Record<string, unknown> }) {
   return {
-    from: req.query.from as string | undefined,
-    to: req.query.to as string | undefined,
+    from: optionalQueryString(req.query.from),
+    to: optionalQueryString(req.query.to),
   };
 }
 
