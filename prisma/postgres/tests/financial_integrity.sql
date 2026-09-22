@@ -53,11 +53,9 @@ BEGIN
   END;
 
   BEGIN
-    INSERT INTO "Order" ("id", "customerId", "currencyCode") VALUES ('order-eur', 'customer-usd', 'EUR');
-    INSERT INTO "Invoice" (
-      "id", "number", "customerId", "orderId", "status", "totalDecimal", "amountPaidDecimal", "currencyCode", "accountingDate"
-    ) VALUES ('invoice-eur', 'INV-PG-EUR', 'customer-usd', 'order-eur', 'DRAFT', 1.0000, 0.0000, 'USD', DATE '2026-09-22');
-    RAISE EXCEPTION 'cross-record currency mismatch was accepted';
+    INSERT INTO "Order" ("id", "customerId", "currencyCode")
+    VALUES ('order-unsupported-currency', 'customer-usd', 'EUR');
+    RAISE EXCEPTION 'unsupported currency was accepted';
   EXCEPTION WHEN check_violation THEN
     NULL;
   END;

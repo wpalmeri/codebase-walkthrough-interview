@@ -98,12 +98,12 @@ void describe("order pricing snapshots", () => {
     assert.equal(repriced.pricingCapturedAt, original.pricingCapturedAt);
   });
 
-  void test("rejects mismatched currencies, uncovered tiers, duplicate discounts, and zero quantity", () => {
+  void test("rejects unsupported currencies, uncovered tiers, duplicate discounts, and zero quantity", () => {
     const currencyMismatch = baseInput();
     currencyMismatch.rate.currencyCode = "EUR";
     assert.throws(
       () => captureOrderPricing(exactPricingInput(currencyMismatch)),
-      /product and rate currencies must match/
+      /Invalid input/
     );
 
     const uncovered = baseInput();

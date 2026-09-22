@@ -6,7 +6,7 @@ CREATE TYPE invoice_status AS ENUM ('DRAFT', 'POSTED', 'SENT', 'PAID', 'VOID');
 CREATE TYPE order_status AS ENUM ('OPEN', 'INVOICED', 'CLOSED');
 
 CREATE DOMAIN currency_code AS varchar(3)
-  CHECK (VALUE ~ '^[A-Z]{3}$');
+  CHECK (VALUE = 'USD');
 
 CREATE TABLE "Customer" (
   "id" text PRIMARY KEY,

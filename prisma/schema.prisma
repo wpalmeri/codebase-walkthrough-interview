@@ -30,7 +30,7 @@ model Product {
   unit             String // "seat", "GB", "1k calls", ...
   listPrice        Float // Legacy compatibility column; retire after the decimal cutover.
   listPriceDecimal Decimal? // DECIMAL(19,4) in the migration; nullable for expand/backfill/contract rollout.
-  currencyCode     String? // ISO 4217 list-price currency; nullable for the live expand/backfill/contract rollout.
+  currencyCode     String? // Supported list-price currency (currently USD); nullable during rollout.
 
   rates      Rate[]
   orderItems OrderItem[]
@@ -44,7 +44,7 @@ model Rate {
   productId        String
   unitPrice        Float // Legacy compatibility column; retire after the decimal cutover.
   unitPriceDecimal Decimal? // DECIMAL(19,4) in the migration.
-  currencyCode     String? // ISO 4217 contracted-rate currency; nullable for the live expand/backfill/contract rollout.
+  currencyCode     String? // Supported contracted-rate currency (currently USD); nullable during rollout.
   // Volume tiers, e.g. [{"minQty": 100, "unitPrice": 4.5}, {"minQty": 500, "unitPrice": 3.75}]
   tiers            Json?
   effectiveDate    DateTime @default(now())
@@ -77,7 +77,7 @@ model Order {
   status     String   @default("OPEN") // OPEN | INVOICED | CLOSED
   shipTo     String? // receiving party / delivery address
   notes      String?
-  currencyCode String? // ISO 4217 order-pricing currency; nullable until the bounded backfill and dual write complete.
+  currencyCode String? // Supported order-pricing currency (currently USD); nullable during rollout.
 
   customer Customer       @relation(fields: [customerId], references: [id])
   items    OrderItem[]
@@ -140,7 +140,7 @@ model Invoice {
   // An explicit UTC-calendar accounting date, independent of an instant's
   // display timezone. Nullable during the staged backfill rollout.
   accountingDate         String?
-  currencyCode           String? // ISO 4217 invoice currency; immutable after it is set on a finalized invoice.
+  currencyCode           String? // Supported invoice currency (currently USD); immutable once finalized.
 
   customer      Customer             @relation(fields: [customerId], references: [id])
   order         Order                @relation(fields: [orderId], references: [id])
@@ -208,7 +208,7 @@ model Payment {
   customerId    String
   amount        Float // Legacy compatibility column.
   amountDecimal Decimal? // DECIMAL(19,4) in the migration.
-  currencyCode  String? // ISO 4217 received-amount currency; nullable for the live expand/backfill/contract rollout.
+  currencyCode  String? // Supported received-amount currency (currently USD); nullable during rollout.
   receivedAt    DateTime @default(now())
   reference     String?
 

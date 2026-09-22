@@ -36,6 +36,12 @@ For a new empty database, run `bunx prisma migrate deploy`; Prisma will apply th
 
 `20260922010000_currency_foundation` adds nullable currency codes without defaults or table scans. Deploy application dual-writes before backfilling, then populate product/rate currency first, orders second, invoices third, and payments last in bounded batches. Reconcile that every invoice matches its order and every applied payment matches its invoices before making currency required in a later contract migration; database triggers reject mismatches as soon as both sides are populated.
 
+`20260922060000_usd_currency_policy` makes the current product policy explicit: only USD may
+be newly populated because the service has not implemented other currencies' minor units,
+rounding, display, or settlement semantics. The migration adds guards only and leaves rollout
+columns nullable, so it neither scans nor rewrites historical rows. Supporting another currency
+requires an explicit currency registry and versioned rounding policy before relaxing these guards.
+
 ## Exact order-line amounts
 
 `20260922020000_order_amount_foundation` adds a nullable `OrderItem.amountDecimal` without a default, constraint validation, or backfill. Deploy the snapshot dual-write before populating existing rows in the same bounded, restartable batches as the other order snapshots; reconcile each order's line-amount sum against its draft invoice before switching reads.

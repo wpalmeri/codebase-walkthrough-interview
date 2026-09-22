@@ -11,8 +11,8 @@ const isoDateTime = z.iso.datetime({ offset: true });
 const money = z.number().finite();
 const nonNegativeMoney = money.nonnegative();
 
-/** ISO 4217 storage code syntax; membership is enforced by the application code list. */
-export const CurrencyCodeSchema = z.string().regex(/^[A-Z]{3}$/);
+/** The only currency whose minor-unit and rounding policy the service currently supports. */
+export const CurrencyCodeSchema = z.literal("USD");
 export type CurrencyCode = z.infer<typeof CurrencyCodeSchema>;
 
 export const EmailAddressSchema = z.email();
