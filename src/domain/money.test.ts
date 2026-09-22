@@ -11,6 +11,7 @@ import {
   compareDecimal,
   decimalOrLegacy,
   legacyNumber,
+  subtractDecimal,
 } from "./money";
 
 const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "amount" } as const;
@@ -21,6 +22,8 @@ void describe("canonical financial decimal boundary", () => {
     assert.equal(addDecimal("0.1000", "0.2000", moneyFormat), "0.3000");
     assert.equal(compareDecimal("0.30", "0.3000", moneyFormat), 0);
     assert.equal(compareDecimal("0.3001", "0.30", moneyFormat), 1);
+    assert.equal(subtractDecimal("1.0000", "0.3000", moneyFormat), "0.7000");
+    assert.throws(() => subtractDecimal("0.3000", "1.0000", moneyFormat), /zero or greater/);
   });
 
   void test("returns a fixed canonical string at the requested scale without rounding", () => {

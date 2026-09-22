@@ -208,6 +208,17 @@ export function addDecimal(
   return fixed({ coefficient, scale: format.scale }, format);
 }
 
+/** Subtracts at one explicit scale and rejects a negative financial result. */
+export function subtractDecimal(
+  left: DecimalInput,
+  right: DecimalInput,
+  format: DecimalFormat
+): CanonicalDecimal {
+  validateFormat(format);
+  const coefficient = fixedCoefficient(left, format) - fixedCoefficient(right, format);
+  return fixed({ coefficient, scale: format.scale }, format);
+}
+
 /** Compares two values at one explicit scale without JavaScript floating-point arithmetic. */
 export function compareDecimal(left: DecimalInput, right: DecimalInput, format: DecimalFormat): number {
   validateFormat(format);
