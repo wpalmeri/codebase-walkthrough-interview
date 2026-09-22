@@ -5,6 +5,9 @@ import type { Server } from "node:http";
 import { join } from "node:path";
 import { createApp } from "../app";
 import type { Principal } from "../auth/principal";
+import { fingerprintIdempotencyKey } from "../audit/auditEvent";
+import { appendRequestAuditEvent, type RequestAuditMetadata } from "../audit/requestAudit";
+import { updateRate, type RateMutationAudit } from "../controllers/rateController";
 import { prisma } from "../db";
 import { z } from "zod";
 
@@ -34,6 +37,18 @@ const principals: Record<string, Principal> = {
 
 type ApiResponse = { readonly status: number; readonly body: unknown; readonly etag: string | null };
 
+type PersistedAuditEvent = {
+  readonly tenantId: string;
+  readonly action: string;
+  readonly principalKind: string;
+  readonly principalSubject: string;
+  readonly principalCredentialId: string;
+  readonly requestId: string;
+  readonly idempotencyKeyFingerprint: string | null;
+  readonly resourceKind: string;
+  readonly resourceId: string;
+};
+
 async function request(
   server: Server,
   version: "legacy" | "v1",
@@ -57,6 +72,40 @@ function problemCode(body: unknown): string {
 
 function responsePrice(body: unknown): string {
   return z.object({ unitPriceDecimal: z.string() }).passthrough().parse(body).unitPriceDecimal;
+}
+
+async function auditEvents(): Promise<PersistedAuditEvent[]> {
+  return prisma.auditEvent.findMany({
+    orderBy: { occurredAt: "asc" },
+    select: {
+      tenantId: true,
+      action: true,
+      principalKind: true,
+      principalSubject: true,
+      principalCredentialId: true,
+      requestId: true,
+      idempotencyKeyFingerprint: true,
+      resourceKind: true,
+      resourceId: true,
+    },
+  });
+}
+
+async function auditEventForRequest(requestId: string): Promise<PersistedAuditEvent | null> {
+  return prisma.auditEvent.findFirst({
+    where: { requestId },
+    select: {
+      tenantId: true,
+      action: true,
+      principalKind: true,
+      principalSubject: true,
+      principalCredentialId: true,
+      requestId: true,
+      idempotencyKeyFingerprint: true,
+      resourceKind: true,
+      resourceId: true,
+    },
+  });
 }
 
 async function close(server: Server): Promise<void> {
@@ -121,6 +170,9 @@ async function seedPreexistingRates(): Promise<void> {
         unitPrice: 9,
         unitPriceDecimal: "9.0000",
         currencyCode: "USD",
+        // Bypass the current Prisma-client create default to model a row that
+        // genuinely existed before the conditional-write migration.
+        resourceVersion: null,
       },
       {
         id: "conditional-rate-b",
@@ -129,6 +181,7 @@ async function seedPreexistingRates(): Promise<void> {
         unitPrice: 19,
         unitPriceDecimal: "19.0000",
         currencyCode: "USD",
+        resourceVersion: null,
       },
     ],
   });
@@ -139,8 +192,8 @@ async function main(): Promise<void> {
   await seedPreexistingRates();
   // This is deliberately separate from the pre-existing seed above.
   execFileSync(
-    process.execPath,
-    ["x", "prisma", "db", "execute", "--url", process.env.DATABASE_URL ?? "", "--file", migrationPath],
+    join(process.cwd(), "node_modules/.bin/prisma"),
+    ["db", "execute", "--url", process.env.DATABASE_URL ?? "", "--file", migrationPath],
     { cwd: process.cwd(), env: process.env, stdio: "pipe" }
   );
   await prisma.rate.create({
@@ -222,6 +275,9 @@ async function main(): Promise<void> {
     assert.equal(foreign.status, 404);
     assert.deepEqual(foreign.body, missing.body);
     assert.equal((await prisma.rate.findUniqueOrThrow({ where: { id: "conditional-rate-b" } })).unitPrice, 19);
+    // Validation, visibility failures, and failed If-Match checks never mutate
+    // and therefore cannot emit a lifecycle event.
+    assert.equal((await auditEvents()).length, 0);
 
     const staleTag = initial.etag;
     const [firstWriter, secondWriter] = await Promise.all([
@@ -247,6 +303,7 @@ async function main(): Promise<void> {
     const persistedPrice = persistedAfterRace.unitPriceDecimal?.toFixed(4);
     assert.ok(persistedPrice !== undefined);
     assert.equal(persistedPrice, responsePrice(successfulWriter[0]?.body));
+    assert.equal((await auditEvents()).length, 1);
 
     const current = await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a");
     assert.equal(current.status, 200);
@@ -255,6 +312,7 @@ async function main(): Promise<void> {
       "if-match": current.etag,
       "idempotency-key": "conditional-rate-replay",
       "idempotency-client": "rate-conditional-integration",
+      "x-request-id": "audit-conditional-request-1",
     };
     const idempotentFirst = await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a", {
       method: "PUT",
@@ -271,6 +329,20 @@ async function main(): Promise<void> {
     assert.equal(idempotentReplay.etag, idempotentFirst.etag);
     assert.deepEqual(idempotentReplay.body, idempotentFirst.body);
     assert.equal((await prisma.rate.findUniqueOrThrow({ where: { id: "conditional-rate-a" } })).resourceVersion, 2);
+    const conditionalAudits = await auditEvents();
+    assert.equal(conditionalAudits.length, 2);
+    assert.deepEqual(await auditEventForRequest("audit-conditional-request-1"), {
+      tenantId: tenantA,
+      action: "RATE_UPDATED",
+      principalKind: "TENANT_API_KEY",
+      principalSubject: "conditional-rate-admin-a",
+      principalCredentialId: "conditional-rate-key-a",
+      requestId: "audit-conditional-request-1",
+      idempotencyKeyFingerprint: fingerprintIdempotencyKey("conditional-rate-replay"),
+      resourceKind: "RATE",
+      resourceId: "conditional-rate-a",
+    });
+    assert.equal(JSON.stringify(conditionalAudits).includes("conditional-rate-replay"), false);
 
     const keyWithDifferentCondition = await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a", {
       method: "PUT",
@@ -282,6 +354,7 @@ async function main(): Promise<void> {
     });
     assert.equal(keyWithDifferentCondition.status, 409);
     assert.equal(problemCode(keyWithDifferentCondition.body), "IDEMPOTENCY_KEY_REUSED");
+    assert.equal((await auditEvents()).length, 2);
 
     const directEtag = (await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a")).etag;
     assert.ok(directEtag !== null);
@@ -293,11 +366,13 @@ async function main(): Promise<void> {
     });
     assert.equal(directWriteStale.status, 412);
     assert.equal(problemCode(directWriteStale.body), "ETAG_VERSION_MISMATCH");
+    assert.equal((await auditEvents()).length, 2);
 
     const beforeLegacyWrite = await request(server, "v1", "rate-admin-a", "/rates/conditional-rate-a");
     assert.ok(beforeLegacyWrite.etag !== null);
     const legacy = await request(server, "legacy", "rate-admin-a", "/rates/conditional-rate-a", {
       method: "PUT",
+      headers: { "x-request-id": "audit-legacy-request-1" },
       body: JSON.stringify({ unitPrice: "14.0000" }),
     });
     assert.equal(legacy.status, 200);
@@ -309,6 +384,73 @@ async function main(): Promise<void> {
     });
     assert.equal(staleAfterLegacyWrite.status, 412);
     assert.equal(problemCode(staleAfterLegacyWrite.body), "ETAG_VERSION_MISMATCH");
+
+    assert.deepEqual(await auditEventForRequest("audit-legacy-request-1"), {
+      tenantId: tenantA,
+      action: "RATE_UPDATED",
+      principalKind: "TENANT_API_KEY",
+      principalSubject: "conditional-rate-admin-a",
+      principalCredentialId: "conditional-rate-key-a",
+      requestId: "audit-legacy-request-1",
+      idempotencyKeyFingerprint: null,
+      resourceKind: "RATE",
+      resourceId: "conditional-rate-a",
+    });
+
+    const beforeFailedAudit = await prisma.rate.findUniqueOrThrow({ where: { id: "conditional-rate-a" } });
+    const existingAuditId = (
+      await prisma.auditEvent.findFirstOrThrow({ select: { id: true }, orderBy: { occurredAt: "asc" } })
+    ).id;
+    const failingAudit: RateMutationAudit = {
+      metadata: {
+        tenantId: tenantA,
+        principal: {
+          kind: "TENANT_API_KEY",
+          subjectId: "forced-audit-subject",
+          credentialId: "forced-audit-credential",
+        },
+        requestId: "audit-forced-failure-1",
+      } satisfies RequestAuditMetadata,
+      append: (repository, metadata, event) =>
+        appendRequestAuditEvent(repository, metadata, event, {
+          createId: () => existingAuditId,
+          now: () => new Date("2026-09-22T15:00:00.000Z"),
+        }),
+    };
+    await assert.rejects(
+      updateRate(tenantA, "conditional-rate-a", { unitPrice: "16.0000" }, failingAudit),
+      (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "P2002"
+    );
+    const afterFailedAudit = await prisma.rate.findUniqueOrThrow({ where: { id: "conditional-rate-a" } });
+    assert.equal(afterFailedAudit.unitPriceDecimal?.toFixed(4), beforeFailedAudit.unitPriceDecimal?.toFixed(4));
+    assert.equal(afterFailedAudit.resourceVersion, beforeFailedAudit.resourceVersion);
+    assert.equal(await auditEventForRequest("audit-forced-failure-1"), null);
+
+    const combo = await request(server, "v1", "rate-admin-a", "/rates/combos", {
+      method: "POST",
+      headers: {
+        "x-request-id": "audit-combo-request-1",
+        "idempotency-key": "combo-audit-idempotency-key",
+      },
+      body: JSON.stringify({
+        name: "Audit combo",
+        productIds: ["conditional-rate-product-a"],
+        percentOff: "5.0000",
+      }),
+    });
+    assert.equal(combo.status, 200);
+    const comboId = z.object({ id: z.string() }).passthrough().parse(combo.body).id;
+    assert.deepEqual(await auditEventForRequest("audit-combo-request-1"), {
+      tenantId: tenantA,
+      action: "COMBO_DISCOUNT_CREATED",
+      principalKind: "TENANT_API_KEY",
+      principalSubject: "conditional-rate-admin-a",
+      principalCredentialId: "conditional-rate-key-a",
+      requestId: "audit-combo-request-1",
+      idempotencyKeyFingerprint: fingerprintIdempotencyKey("combo-audit-idempotency-key"),
+      resourceKind: "COMBO_DISCOUNT",
+      resourceId: comboId,
+    });
   } finally {
     await close(server);
     await prisma.$disconnect();

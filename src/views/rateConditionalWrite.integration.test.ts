@@ -22,12 +22,16 @@ void test(
         recursive: true,
         filter: (source) => !source.includes("20260922110000_rate_conditional_writes"),
       });
+      // Run from the isolated directory so a root prisma.config.ts cannot
+      // redirect this historical migration rehearsal back to live migrations.
       execFileSync(
-        process.execPath,
-        ["x", "prisma", "migrate", "deploy", "--schema", join(temporaryPrismaDirectory, "schema.prisma")],
-        { cwd: process.cwd(), env: environment, stdio: "pipe" }
+        join(process.cwd(), "node_modules/.bin/prisma"),
+        ["migrate", "deploy", "--schema", join(temporaryPrismaDirectory, "schema.prisma")],
+        { cwd: temporaryDirectory, env: environment, stdio: "pipe" }
       );
-      execFileSync(process.execPath, [join(process.cwd(), "src/views/rateConditionalWrite.integration.scenario.ts")], {
+      // The scenario starts an HTTP server. Execute it with Node through tsx:
+      // Bun's test runtime cannot bind an ephemeral TCP port in this harness.
+      execFileSync("node", ["--import", "tsx", join(process.cwd(), "src/views/rateConditionalWrite.integration.scenario.ts")], {
         cwd: process.cwd(),
         env: environment,
         stdio: "pipe",

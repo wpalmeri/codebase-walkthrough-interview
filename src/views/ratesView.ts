@@ -9,6 +9,7 @@ import {
 } from "@meridian/contracts";
 import { Router } from "express";
 import { ADMIN_ROLES, READ_ROLES } from "../auth/authorization";
+import { requestAuditMetadata } from "../audit/requestAudit";
 import * as rates from "../controllers/rateController";
 import { isV1Request } from "../http/apiVersion";
 import {
@@ -63,11 +64,11 @@ const createComboDiscountOperation = defineOperation({
   roles: ADMIN_ROLES,
   errors: [400, 401, 403, 404, 409, 422, 500],
   requestHeaders: IdempotencyRequestHeadersSchema,
-  handler: async ({ input, principal }) =>
+  handler: async ({ input, principal, request }) =>
     rates.createComboDiscount(principal.tenantId, {
       ...input.body,
       customerId: input.body.customerId ?? null,
-    }),
+    }, { metadata: requestAuditMetadata(request, principal) }),
 });
 
 const getRateOperation = defineOperation({
@@ -106,13 +107,15 @@ const updateRateOperation = defineOperation({
   requestHeaders: IdempotencyRequestHeadersSchema.merge(RateConditionalRequestHeadersSchema),
   responseHeaders: EtagResponseHeadersSchema,
   handler: async ({ input, principal, request, response }) => {
-    if (!isV1Request(request)) return rates.updateRate(principal.tenantId, input.params.id, input.body);
+    const audit = { metadata: requestAuditMetadata(request, principal) };
+    if (!isV1Request(request)) return rates.updateRate(principal.tenantId, input.params.id, input.body, audit);
 
     const result = await rates.updateRateConditionally(
       principal.tenantId,
       input.params.id,
       input.body,
-      request.get("if-match")
+      request.get("if-match"),
+      audit
     );
     response.setHeader("ETag", result.etag);
     return result.rate;

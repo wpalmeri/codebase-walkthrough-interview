@@ -20,6 +20,12 @@ import {
 } from "../domain/money";
 import { serializeRateTiers, type RateTierInput } from "../domain/rateTier";
 import { MoneyStringSchema, PercentageStringSchema, type MoneyString, type PercentageString } from "@meridian/contracts";
+import {
+  appendRequestAuditEvent,
+  type RequestAuditAppender,
+  type RequestAuditMetadata,
+} from "../audit/requestAudit";
+import type { AuditEventRepository } from "../audit/auditEvent";
 
 export interface DualWrittenMoney {
   readonly legacy: number;
@@ -103,6 +109,18 @@ export interface VersionedRate {
 }
 
 /**
+ * Request-derived context required to make a business mutation auditable. The
+ * optional appender exists solely to make transaction rollback tests exercise
+ * a forced audit-storage failure; API handlers use the default implementation.
+ */
+export interface RateMutationAudit {
+  readonly metadata: RequestAuditMetadata;
+  readonly append?: RequestAuditAppender;
+}
+
+type RateTransaction = Pick<Prisma.TransactionClient, "rate" | "auditEvent">;
+
+/**
  * Reads one rate inside the authenticated tenant. A legacy null version is
  * intentionally exposed as logical version zero so old rows can opt into CAS
  * without an unsafe deploy-time data scan.
@@ -142,7 +160,7 @@ export async function createComboDiscount(tenantId: string, input: {
   productIds: string[];
   percentOff: DecimalInput;
   customerId?: string | null;
-}): Promise<ComboDiscountModel> {
+}, audit: RateMutationAudit): Promise<ComboDiscountModel> {
   const percentOff = dualWritePercentage(input.percentOff);
   return prisma.$transaction(async (transaction) => {
     if (input.customerId !== undefined && input.customerId !== null) {
@@ -170,6 +188,11 @@ export async function createComboDiscount(tenantId: string, input: {
       },
       include: { products: true },
     });
+    await appendMutationAudit(transaction, audit, {
+      action: "COMBO_DISCOUNT_CREATED",
+      resourceKind: "COMBO_DISCOUNT",
+      resourceId: row.id,
+    });
     return toComboDiscountModel(row);
   });
 }
@@ -179,19 +202,24 @@ export async function createComboDiscount(tenantId: string, input: {
 export async function updateRate(
   tenantId: string,
   rateId: string,
-  input: { unitPrice: DecimalInput; tiers?: RateTierInput[] }
+  input: { unitPrice: DecimalInput; tiers?: RateTierInput[] },
+  audit: RateMutationAudit
 ): Promise<RateModel> {
-  const result = await prisma.rate.updateMany({
-    where: { id: rateId, ...tenantRateWhere(tenantId) },
-    data: buildRateUpdateData(input),
+  return prisma.$transaction(async (transaction) => {
+    const result = await transaction.rate.updateMany({
+      where: { id: rateId, ...tenantRateWhere(tenantId) },
+      data: buildRateUpdateData(input),
+    });
+    if (result.count !== 1) throw new NotFoundError();
+    const rate = await findTenantRate(transaction, tenantId, rateId);
+    if (rate === null) throw new NotFoundError();
+    await appendMutationAudit(transaction, audit, {
+      action: "RATE_UPDATED",
+      resourceKind: "RATE",
+      resourceId: rate.id,
+    });
+    return toRateModel(rate);
   });
-  if (result.count !== 1) throw new NotFoundError();
-  const rate = await prisma.rate.findFirst({
-    where: { id: rateId, ...tenantRateWhere(tenantId) },
-    include: { product: true },
-  });
-  if (rate === null) throw new NotFoundError();
-  return toRateModel(rate);
 }
 
 /**
@@ -203,7 +231,8 @@ export async function updateRateConditionally(
   tenantId: string,
   rateId: string,
   input: { unitPrice: DecimalInput; tiers?: RateTierInput[] },
-  ifMatch: string | undefined
+  ifMatch: string | undefined,
+  audit: RateMutationAudit
 ): Promise<VersionedRate> {
   return prisma.$transaction(async (transaction) => {
     const existing = await findTenantRate(transaction, tenantId, rateId);
@@ -248,6 +277,11 @@ export async function updateRateConditionally(
     // therefore cannot advance the row between the representation and its ETag.
     const updated = await findTenantRate(transaction, tenantId, rateId);
     if (updated === null) throw new NotFoundError();
+    await appendMutationAudit(transaction, audit, {
+      action: "RATE_UPDATED",
+      resourceKind: "RATE",
+      resourceId: updated.id,
+    });
     return {
       rate: toRateModel(updated),
       etag: formatResourceEtag({ kind: "rate", id: updated.id, version: nextVersion }),
@@ -278,4 +312,25 @@ async function findTenantRate(database: Pick<Prisma.TransactionClient, "rate">, 
     where: { id: rateId, ...tenantRateWhere(tenantId) },
     include: { product: true },
   });
+}
+
+async function appendMutationAudit(
+  transaction: RateTransaction,
+  audit: RateMutationAudit,
+  event: Parameters<RequestAuditAppender>[2]
+): Promise<void> {
+  await (audit.append ?? appendRequestAuditEvent)(
+    auditRepository(transaction),
+    audit.metadata,
+    event
+  );
+}
+
+/** Adapts Prisma's generic delegate to the append-only audit boundary. */
+function auditRepository(transaction: RateTransaction): AuditEventRepository {
+  return {
+    auditEvent: {
+      create: async ({ data }) => transaction.auditEvent.create({ data }),
+    },
+  };
 }
