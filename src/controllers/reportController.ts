@@ -4,6 +4,7 @@ import {
   QuarterRevenueSchema,
   type AnnualRevenue,
   type CustomerRevenue,
+  type InvoiceStatus,
   type QuarterRevenue,
   type RevenueReportRequest,
 } from "@meridian/contracts";
@@ -19,6 +20,7 @@ import {
   addDecimal,
   compareDecimal,
   decimalOrLegacy,
+  legacyNumber,
   type DecimalInput,
 } from "../domain/money";
 
@@ -29,7 +31,7 @@ const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "re
 const zeroMoney = decimalOrLegacy({ decimal: "0", legacy: null }, moneyFormat);
 
 export interface ReportableInvoice {
-  status: string;
+  status: InvoiceStatus;
   issueDate: Date;
   accountingDate?: string | null;
   total: number;
@@ -70,13 +72,13 @@ export function toRecognizedRevenueRows(invoices: readonly ReportableInvoice[]):
             : parseAccountingDate(invoice.accountingDate),
         customerId: invoice.customerId,
         customerName: invoice.customer.name,
-        revenue: Number(revenueDecimal),
+        revenue: legacyNumber(revenueDecimal, moneyFormat),
         revenueDecimal,
       };
     });
 }
 
-async function invoiceRevenues(period: ReportPeriod): Promise<RevenueRow[]> {
+async function invoiceRevenues(tenantId: string, period: ReportPeriod): Promise<RevenueRow[]> {
   const from = period.from === undefined ? undefined : reportAccountingDate(period.from);
   const to = period.to === undefined ? undefined : reportAccountingDate(period.to);
   const accountingDate = {
@@ -90,6 +92,7 @@ async function invoiceRevenues(period: ReportPeriod): Promise<RevenueRow[]> {
   const hasPeriod = from !== undefined || to !== undefined;
   const invoices = await prisma.invoice.findMany({
     where: {
+      tenantId,
       status: { in: [...REVENUE_RECOGNIZED_STATUSES] },
       ...(hasPeriod
         ? {
@@ -131,8 +134,8 @@ function periodBounds(
 
 function yearAndMonth(accountingDate: AccountingDate): { year: number; month: number } {
   return {
-    year: Number(accountingDate.slice(0, 4)),
-    month: Number(accountingDate.slice(5, 7)),
+    year: Number.parseInt(accountingDate.slice(0, 4), 10),
+    month: Number.parseInt(accountingDate.slice(5, 7), 10),
   };
 }
 
@@ -168,7 +171,7 @@ export function summarizeRevenueByQuarter(
     result.push({
       quarter: key,
       invoiceCount: bucket.invoiceCount,
-      revenue: Number(bucket.revenueDecimal),
+      revenue: legacyNumber(bucket.revenueDecimal, moneyFormat),
       revenueDecimal: bucket.revenueDecimal,
     });
     quarter += 1;
@@ -200,7 +203,7 @@ export function summarizeRevenueByCustomer(rows: readonly RevenueRow[]): Custome
     .toSorted((left, right) => compareDecimal(right.revenueDecimal, left.revenueDecimal, moneyFormat))
     .map((bucket) => ({
       ...bucket,
-      revenue: Number(bucket.revenueDecimal),
+      revenue: legacyNumber(bucket.revenueDecimal, moneyFormat),
     }));
   return CustomerRevenueSchema.array().parse(result);
 }
@@ -231,21 +234,30 @@ export function summarizeAnnualRevenue(
     result.push({
       year,
       invoiceCount: bucket.invoiceCount,
-      revenue: Number(bucket.revenueDecimal),
+      revenue: legacyNumber(bucket.revenueDecimal, moneyFormat),
       revenueDecimal: bucket.revenueDecimal,
     });
   }
   return AnnualRevenueSchema.array().parse(result);
 }
 
-export async function revenueByQuarter(period: ReportPeriod): Promise<QuarterRevenue[]> {
-  return summarizeRevenueByQuarter(await invoiceRevenues(period), period);
+export async function revenueByQuarter(
+  tenantId: string,
+  period: ReportPeriod
+): Promise<QuarterRevenue[]> {
+  return summarizeRevenueByQuarter(await invoiceRevenues(tenantId, period), period);
 }
 
-export async function revenueByCustomer(period: ReportPeriod): Promise<CustomerRevenue[]> {
-  return summarizeRevenueByCustomer(await invoiceRevenues(period));
+export async function revenueByCustomer(
+  tenantId: string,
+  period: ReportPeriod
+): Promise<CustomerRevenue[]> {
+  return summarizeRevenueByCustomer(await invoiceRevenues(tenantId, period));
 }
 
-export async function annualRevenue(period: ReportPeriod): Promise<AnnualRevenue[]> {
-  return summarizeAnnualRevenue(await invoiceRevenues(period), period);
+export async function annualRevenue(
+  tenantId: string,
+  period: ReportPeriod
+): Promise<AnnualRevenue[]> {
+  return summarizeAnnualRevenue(await invoiceRevenues(tenantId, period), period);
 }

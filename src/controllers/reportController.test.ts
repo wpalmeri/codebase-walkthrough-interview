@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { InvoiceStatus } from "@meridian/contracts";
 import { describe, it } from "node:test";
 import {
   summarizeAnnualRevenue,
@@ -9,7 +10,7 @@ import {
 } from "./reportController";
 
 function invoice(
-  status: string,
+  status: InvoiceStatus,
   total: number,
   issueDate = new Date(2026, 0, 15),
   customerId = "customer-1",

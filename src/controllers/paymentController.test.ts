@@ -137,6 +137,7 @@ void describe("payment controller atomic workflow", () => {
   void test("dual-writes Decimal and legacy amounts and defaults legacy clients to documented USD", async () => {
     let created: unknown;
     const result = await createPaymentWithDependencies(
+      "tenant-1",
       { customerId: "customer-1", amount: "12.3400", reference: "wire-1" },
       {
         async createPayment(input) {
@@ -147,6 +148,7 @@ void describe("payment controller atomic workflow", () => {
     );
     assert.equal(result.id, "payment-1");
     assert.deepEqual(created, {
+      tenantId: "tenant-1",
       customerId: "customer-1",
       amount: 12.34,
       amountDecimal: "12.3400",

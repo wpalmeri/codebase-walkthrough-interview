@@ -115,6 +115,7 @@ export interface RecordPaymentInput {
 
 export interface PaymentRecordingDependencies {
   createPayment(input: {
+    readonly tenantId: string;
     readonly customerId: string;
     readonly amount: number;
     readonly amountDecimal: CanonicalDecimal;
@@ -628,11 +629,13 @@ export async function applyPaymentWithDependencies(
 }
 
 export async function createPaymentWithDependencies(
+  tenantId: string,
   input: RecordPaymentInput,
   dependencies: PaymentRecordingDependencies
 ): Promise<{ id: string }> {
   const amountDecimal = canonicalMoney(input.amount, "payment amount");
   return dependencies.createPayment({
+    tenantId,
     customerId: input.customerId,
     amount: legacyNumber(amountDecimal, moneyFormat),
     amountDecimal,
@@ -641,37 +644,72 @@ export async function createPaymentWithDependencies(
   });
 }
 
-export async function listPayments(): Promise<PaymentModel[]> {
-  const rows = await prisma.payment.findMany({ include: paymentInclude, orderBy: { receivedAt: "desc" }, take: 100 });
+export async function listPayments(tenantId: string): Promise<PaymentModel[]> {
+  const rows = await prisma.payment.findMany({
+    where: { tenantId },
+    include: paymentInclude,
+    orderBy: { receivedAt: "desc" },
+    take: 100,
+  });
   return rows.map(toPaymentModel);
 }
 
-export async function getPayment(paymentId: string): Promise<PaymentModel> {
-  const row = await prisma.payment.findUniqueOrThrow({ where: { id: paymentId }, include: paymentInclude });
+export async function getPayment(tenantId: string, paymentId: string): Promise<PaymentModel> {
+  const row = await prisma.payment.findFirst({
+    where: { id: paymentId, tenantId },
+    include: paymentInclude,
+  });
+  if (row === null) {
+    throw new NotFoundError("PAYMENT_NOT_FOUND", "The payment was not found");
+  }
   return toPaymentModel(row);
 }
 
-export async function recordPayment(input: RecordPaymentInput): Promise<PaymentModel> {
-  const payment = await createPaymentWithDependencies(input, {
+export async function recordPayment(tenantId: string, input: RecordPaymentInput): Promise<PaymentModel> {
+  const customer = await prisma.customer.findFirst({
+    where: { id: input.customerId, tenantId },
+    select: { id: true },
+  });
+  if (customer === null) {
+    throw new NotFoundError("PAYMENT_CUSTOMER_NOT_FOUND", "The payment customer was not found");
+  }
+  const payment = await createPaymentWithDependencies(tenantId, input, {
     createPayment: (data) => prisma.payment.create({ data }),
   });
-  return getPayment(payment.id);
+  return getPayment(tenantId, payment.id);
 }
 
-function prismaAllocationDependencies(): PaymentAllocationDependencies {
+function prismaAllocationDependencies(tenantId: string): PaymentAllocationDependencies {
   return {
     transaction: (operation) =>
       prisma.$transaction(
         async (transaction) =>
           operation({
-            loadPayment: (paymentId) => transaction.payment.findUniqueOrThrow({ where: { id: paymentId }, include: { applications: { include: { reversals: true } } } }),
+            async loadPayment(paymentId) {
+              const payment = await transaction.payment.findFirst({
+                where: { id: paymentId, tenantId },
+                include: { applications: { include: { reversals: true } } },
+              });
+              if (payment === null) {
+                throw new NotFoundError("PAYMENT_NOT_FOUND", "The payment was not found");
+              }
+              return payment;
+            },
             loadInvoices: (invoiceIds) =>
-              transaction.invoice.findMany({ where: { id: { in: [...invoiceIds] } }, include: { applications: { include: { reversals: true } } } }),
+              transaction.invoice.findMany({
+                where: { id: { in: [...invoiceIds] }, tenantId },
+                include: { applications: { include: { reversals: true } } },
+              }),
             persistAllocation: async ({ applications, invoiceBalances }) => {
               await transaction.paymentApplication.createMany({ data: [...applications] });
               for (const invoice of invoiceBalances) {
                 const updated = await transaction.invoice.updateMany({
-                  where: { id: invoice.invoiceId, amountPaid: invoice.expectedAmountPaid, amountPaidDecimal: invoice.expectedAmountPaidDecimal },
+                  where: {
+                    id: invoice.invoiceId,
+                    tenantId,
+                    amountPaid: invoice.expectedAmountPaid,
+                    amountPaidDecimal: invoice.expectedAmountPaidDecimal,
+                  },
                   data: { amountPaid: invoice.amountPaid, amountPaidDecimal: invoice.amountPaidDecimal, status: invoice.status },
                 });
                 if (updated.count !== 1) return false;
@@ -685,14 +723,15 @@ function prismaAllocationDependencies(): PaymentAllocationDependencies {
 }
 
 export async function applyPayment(
+  tenantId: string,
   paymentId: string,
   applications: readonly { invoiceId: string; amount: DecimalInput }[]
 ): Promise<PaymentModel> {
-  await applyPaymentWithDependencies(paymentId, applications, prismaAllocationDependencies());
-  return getPayment(paymentId);
+  await applyPaymentWithDependencies(paymentId, applications, prismaAllocationDependencies(tenantId));
+  return getPayment(tenantId, paymentId);
 }
 
-function prismaReversalDependencies(): PaymentReversalDependencies {
+function prismaReversalDependencies(tenantId: string): PaymentReversalDependencies {
   return {
     transaction: (operation) =>
       prisma.$transaction(
@@ -700,8 +739,12 @@ function prismaReversalDependencies(): PaymentReversalDependencies {
           operation({
             async loadApplication(applicationId) {
               const [application, control] = await Promise.all([
-                transaction.paymentApplication.findUnique({
-                  where: { id: applicationId },
+                transaction.paymentApplication.findFirst({
+                  where: {
+                    id: applicationId,
+                    payment: { tenantId },
+                    invoice: { tenantId },
+                  },
                   include: {
                     payment: true,
                     reversals: true,
@@ -713,8 +756,8 @@ function prismaReversalDependencies(): PaymentReversalDependencies {
                     },
                   },
                 }),
-                transaction.accountingPeriodControl.findUnique({
-                  where: { id: 1 },
+                transaction.tenantAccountingPeriodControl.findUnique({
+                  where: { tenantId },
                 }),
               ]);
               if (application === null) return null;
@@ -730,6 +773,7 @@ function prismaReversalDependencies(): PaymentReversalDependencies {
               const updated = await transaction.invoice.updateMany({
                 where: {
                   id: invoice.invoiceId,
+                  tenantId,
                   amountPaid: invoice.expectedAmountPaid,
                   amountPaidDecimal: invoice.expectedAmountPaidDecimal,
                   status: invoice.expectedStatus,
@@ -749,6 +793,7 @@ function prismaReversalDependencies(): PaymentReversalDependencies {
 }
 
 export async function reversePaymentApplication(
+  tenantId: string,
   paymentId: string,
   applicationId: string,
   input: ReversePaymentApplicationInput
@@ -757,10 +802,17 @@ export async function reversePaymentApplication(
     paymentId,
     applicationId,
     input,
-    prismaReversalDependencies()
+    prismaReversalDependencies(tenantId)
   );
-  const row = await prisma.paymentApplicationReversal.findUniqueOrThrow({
-    where: { id: reversalId },
+  const row = await prisma.paymentApplicationReversal.findFirst({
+    where: {
+      id: reversalId,
+      paymentApplication: {
+        payment: { tenantId },
+        invoice: { tenantId },
+      },
+    },
   });
+  if (row === null) throw new NotFoundError("PAYMENT_APPLICATION_NOT_FOUND", "The payment application was not found on this payment");
   return toPaymentApplicationReversalModel(row);
 }

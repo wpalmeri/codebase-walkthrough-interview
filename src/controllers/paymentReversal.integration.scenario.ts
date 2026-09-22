@@ -6,6 +6,8 @@ import {
 } from "./paymentController";
 import { NotFoundError, PreconditionError } from "../errors";
 
+const tenantId = "reversal-tenant";
+
 async function seedPaidApplication(input: {
   suffix: string;
   delivered?: boolean;
@@ -18,16 +20,18 @@ async function seedPaidApplication(input: {
   await prisma.customer.create({
     data: {
       id: customerId,
+      tenantId,
       name: `Reversal Customer ${input.suffix}`,
       email: `${input.suffix}@example.com`,
     },
   });
   await prisma.order.create({
-    data: { id: orderId, customerId, currencyCode: "USD" },
+    data: { id: orderId, tenantId, customerId, currencyCode: "USD" },
   });
   await prisma.invoice.create({
     data: {
       id: invoiceId,
+      tenantId,
       number: `REV-${input.suffix}`,
       customerId,
       orderId,
@@ -55,6 +59,7 @@ async function seedPaidApplication(input: {
   await prisma.payment.create({
     data: {
       id: paymentId,
+      tenantId,
       customerId,
       amount: 100,
       amountDecimal: "100.0000",
@@ -75,6 +80,9 @@ async function seedPaidApplication(input: {
 
 async function main(): Promise<void> {
   try {
+    await prisma.tenant.create({
+      data: { id: tenantId, slug: tenantId, name: "Payment reversal tenant" },
+    });
     const migrations = await prisma.$queryRaw<{ name: string }[]>`
       SELECT migration_name AS name
       FROM _prisma_migrations
@@ -89,6 +97,7 @@ async function main(): Promise<void> {
 
     const undelivered = await seedPaidApplication({ suffix: "undelivered" });
     const partial = await reversePaymentApplication(
+      tenantId,
       undelivered.paymentId,
       undelivered.applicationId,
       {
@@ -105,12 +114,13 @@ async function main(): Promise<void> {
     });
     assert.equal(invoice.amountPaidDecimal?.toFixed(4), "75.0000");
     assert.equal(invoice.status, "POSTED");
-    let payment = await getPayment(undelivered.paymentId);
+    let payment = await getPayment(tenantId, undelivered.paymentId);
     assert.equal(payment.appliedDecimal, "75.0000");
     assert.equal(payment.unappliedDecimal, "25.0000");
     assert.equal(payment.applications[0]?.netAmountDecimal, "75.0000");
 
     const full = await reversePaymentApplication(
+      tenantId,
       undelivered.paymentId,
       undelivered.applicationId,
       {
@@ -125,7 +135,7 @@ async function main(): Promise<void> {
     });
     assert.equal(invoice.amountPaidDecimal?.toFixed(4), "0.0000");
     assert.equal(invoice.status, "POSTED");
-    payment = await getPayment(undelivered.paymentId);
+    payment = await getPayment(tenantId, undelivered.paymentId);
     assert.equal(payment.appliedDecimal, "0.0000");
     assert.equal(payment.unappliedDecimal, "100.0000");
 
@@ -160,7 +170,7 @@ async function main(): Promise<void> {
       suffix: "delivered",
       delivered: true,
     });
-    await reversePaymentApplication(delivered.paymentId, delivered.applicationId, {
+    await reversePaymentApplication(tenantId, delivered.paymentId, delivered.applicationId, {
       amount: "25.0000",
       reason: "Delivered invoice correction",
       accountingDate: "2026-10-04",
@@ -174,15 +184,20 @@ async function main(): Promise<void> {
       "SENT"
     );
 
-    await prisma.accountingPeriodControl.create({
-      data: { id: 1, closedThroughDate: "2026-10-31" },
+    await prisma.tenantAccountingPeriodControl.create({
+      data: { id: "reversal-tenant-close", tenantId, closedThroughDate: "2026-10-31" },
     });
     await assert.rejects(
-      reversePaymentApplication(delivered.paymentId, delivered.applicationId, {
-        amount: "1.0000",
-        reason: "Closed-period correction",
-        accountingDate: "2026-10-31",
-      }),
+      reversePaymentApplication(
+        tenantId,
+        delivered.paymentId,
+        delivered.applicationId,
+        {
+          amount: "1.0000",
+          reason: "Closed-period correction",
+          accountingDate: "2026-10-31",
+        }
+      ),
       (error) => {
         assert.ok(error instanceof PreconditionError);
         assert.equal(error.problem.code, "ACCOUNTING_PERIOD_CLOSED");
@@ -191,6 +206,7 @@ async function main(): Promise<void> {
     );
     await assert.rejects(
       reversePaymentApplication(
+        tenantId,
         undelivered.paymentId,
         delivered.applicationId,
         {

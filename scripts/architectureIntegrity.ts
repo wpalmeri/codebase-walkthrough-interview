@@ -57,12 +57,6 @@ const LEGACY_FINANCIAL_CONVERSION_LINES = new Set([
   "src/models/payment.ts:55",
   "src/models/payment.ts:60",
   "src/models/payment.ts:61",
-  "src/controllers/reportController.ts:73",
-  "src/controllers/reportController.ts:134",
-  "src/controllers/reportController.ts:135",
-  "src/controllers/reportController.ts:171",
-  "src/controllers/reportController.ts:203",
-  "src/controllers/reportController.ts:234",
   "client/src/pages/ProductsPage.tsx:193",
 ]);
 
