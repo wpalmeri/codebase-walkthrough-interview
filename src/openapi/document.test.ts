@@ -7,6 +7,7 @@ import { orderOperations } from "../views/ordersView";
 import { paymentOperations } from "../views/paymentsView";
 import { productOperations } from "../views/productsView";
 import { rateOperations } from "../views/ratesView";
+import { reportOperations } from "../views/reportsView";
 
 const documentedOperations = [
   ...customerOperations,
@@ -14,6 +15,7 @@ const documentedOperations = [
   ...rateOperations,
   ...orderOperations,
   ...paymentOperations,
+  ...reportOperations,
 ] as const;
 
 const OperationSchema = z.object({
@@ -32,7 +34,7 @@ function operation(document: unknown, path: string, method: string) {
 }
 
 void describe("generated version-one OpenAPI contract", () => {
-  void test("is deterministic and inventories the exact mounted catalog, rate, order, and payment operations", () => {
+  void test("is deterministic and inventories the exact mounted catalog, rate, order, payment, and report operations", () => {
     const first = createOpenApiV1Document(documentedOperations);
     const second = createOpenApiV1Document(documentedOperations);
     assert.deepEqual(first, second);
@@ -58,6 +60,9 @@ void describe("generated version-one OpenAPI contract", () => {
         "get /rates",
         "get /rates/combos",
         "get /rates/{id}",
+        "get /reports/annual-revenue",
+        "get /reports/revenue-by-customer",
+        "get /reports/revenue-by-quarter",
         "patch /orders/{id}",
         "post /orders",
         "post /orders/{id}/invoice",
@@ -255,5 +260,44 @@ void describe("generated version-one OpenAPI contract", () => {
     }
     assert.equal("200" in paths["/orders/{id}/invoice"].post.responses, true);
     assert.equal("409" in paths["/orders/{id}/invoice"].post.responses, true);
+  });
+
+  void test("documents tenant-scoped exact-decimal revenue reports and bounded period filters", () => {
+    const document = createOpenApiV1Document(documentedOperations);
+    const quarter = operation(document, "/reports/revenue-by-quarter", "get");
+    const customer = operation(document, "/reports/revenue-by-customer", "get");
+    const annual = operation(document, "/reports/annual-revenue", "get");
+    for (const reportOperation of [quarter, customer, annual]) {
+      assert.deepEqual(reportOperation.security, [{ tenantBearer: [] }]);
+      assert.equal(
+        reportOperation.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"),
+        true
+      );
+      assert.equal(reportOperation.parameters.some((parameter) => parameter.name === "from" && parameter.in === "query"), true);
+      assert.equal(reportOperation.parameters.some((parameter) => parameter.name === "to" && parameter.in === "query"), true);
+      assert.equal("400" in reportOperation.responses, true);
+      assert.equal("401" in reportOperation.responses, true);
+      assert.equal("403" in reportOperation.responses, true);
+      assert.equal("500" in reportOperation.responses, true);
+    }
+    const paths = z
+      .object({
+        paths: z.object({
+          "/reports/revenue-by-quarter": z.object({ get: z.object({ responses: z.record(z.string(), z.unknown()) }) }),
+          "/reports/revenue-by-customer": z.object({ get: z.object({ responses: z.record(z.string(), z.unknown()) }) }),
+          "/reports/annual-revenue": z.object({ get: z.object({ responses: z.record(z.string(), z.unknown()) }) }),
+        }),
+      })
+      .parse(document).paths;
+    assert.match(JSON.stringify(paths["/reports/revenue-by-quarter"].get.responses["200"]), /quarter|revenueDecimal/u);
+    assert.match(JSON.stringify(paths["/reports/revenue-by-customer"].get.responses["200"]), /customerId|revenueDecimal/u);
+    assert.match(JSON.stringify(paths["/reports/annual-revenue"].get.responses["200"]), /year|revenueDecimal/u);
+    for (const response of [
+      paths["/reports/revenue-by-quarter"].get.responses["200"],
+      paths["/reports/revenue-by-customer"].get.responses["200"],
+      paths["/reports/annual-revenue"].get.responses["200"],
+    ]) {
+      assert.ok(z.object({ headers: z.object({ "X-Request-ID": z.unknown() }) }).parse(response).headers["X-Request-ID"]);
+    }
   });
 });

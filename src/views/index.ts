@@ -17,4 +17,4 @@ api.use(ratesView);
 api.use(ordersView);
 api.use("/invoices", invoicesView);
 api.use(paymentsView);
-api.use("/reports", reportsView);
+api.use(reportsView);
