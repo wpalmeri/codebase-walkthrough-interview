@@ -30,7 +30,11 @@ never run these commands against an unverified target.
    snapshot values remain null, then switch reads to the new fields in a separate release.
 
 `migrate resolve` is only appropriate when the target already has the exact baseline schema.
-For a new empty database, run `bunx prisma migrate deploy`; Prisma will apply both migrations.
+For a new empty database, run `bunx prisma migrate deploy`; Prisma will apply the baseline and every later additive migration in order.
+
+## Currency expansion
+
+`20260922010000_currency_foundation` adds nullable currency codes without defaults or table scans. Deploy application dual-writes before backfilling, then populate product/rate currency first, orders second, invoices third, and payments last in bounded batches. Reconcile that every invoice matches its order and every applied payment matches its invoices before making currency required in a later contract migration; database triggers reject mismatches as soon as both sides are populated.
 
 ## SQLite limitations and production path
 
