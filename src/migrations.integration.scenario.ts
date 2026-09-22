@@ -45,6 +45,7 @@ async function main(): Promise<void> {
       "20260922150000_customer_email_guard",
       "20260922160000_invoice_conditional_writes",
       "20260922170000_catalog_cursor_pagination",
+      "20260922180000_order_cursor_pagination",
     ]
   );
 
@@ -138,6 +139,13 @@ async function main(): Promise<void> {
     { name: "Customer_tenantId_name_id_idx" },
     { name: "Product_tenantId_sku_id_idx" },
   ]);
+
+  const orderPaginationIndex = await prisma.$queryRaw<NamedRow[]>`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'index' AND name = 'Order_tenantId_orderDate_id_idx'
+  `;
+  assert.deepEqual(orderPaginationIndex, [{ name: "Order_tenantId_orderDate_id_idx" }]);
 
   const auditIndexes = await prisma.$queryRaw<NamedRow[]>`
     SELECT name

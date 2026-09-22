@@ -276,6 +276,20 @@ remain bare arrays with their existing behavior. Cursors are bound to a resource
 and a fingerprint including normalized filters plus server-derived tenant
 identity; no plaintext tenant value appears in the cursor payload.
 
+### Order cursor pagination
+
+`20260922180000_order_cursor_pagination` adds one tenant-first keyset index on
+`Order(tenantId, orderDate DESC, id DESC)`. It does not alter, backfill, or
+rewrite business rows. SQLite scans the existing table while building the index
+and serializes writers during DDL, so rehearse on a production-sized copy and
+deploy in a controlled low-write window; SQLite has no concurrent-index mode.
+
+After deployment, `/api/v1/orders` uses an additive bounded cursor envelope in
+descending `(orderDate, id)` order. Its legacy `/api/orders` route remains the
+existing bare array. Cursors are bound to the `orders` resource and a tenant
+fingerprint derived from authentication; no plaintext tenant value appears in
+the cursor payload.
+
 ### Append-only audit events
 
 `20260922130000_audit_events` creates a new empty `AuditEvent` table and two

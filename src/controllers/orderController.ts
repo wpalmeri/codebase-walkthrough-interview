@@ -38,6 +38,16 @@ import {
 } from "../audit/requestAudit";
 import type { AuditEventRepository } from "../audit/auditEvent";
 import { syncDraftInvoiceInTransaction } from "./invoiceController";
+import {
+  fingerprintTenantPaginationBinding,
+  formatPaginationCursor,
+  OrderPageSchema,
+  parsePaginationCursor,
+  type ListOrdersV1Request,
+  type OrderPage,
+  type PaginationCursorFailureCode,
+} from "@meridian/contracts";
+import { z } from "zod";
 
 const DEFAULT_BILLING_CURRENCY = "USD";
 const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "amount" } as const;
@@ -65,6 +75,72 @@ export async function listOrders(tenantId: string): Promise<OrderModel[]> {
     orderBy: { orderDate: "desc" },
   });
   return rows.map(toOrderModel);
+}
+
+const OrderCursorOrderingSchema = z.tuple([
+  z.iso.datetime({ offset: true }),
+  z.string().min(1).max(1_024),
+]);
+
+export type OrderPageResult =
+  | { readonly ok: true; readonly page: OrderPage }
+  | { readonly ok: false; readonly code: PaginationCursorFailureCode };
+
+/**
+ * Lists a v1 tenant-scoped order page in descending `(orderDate, id)` order.
+ * The explicit id tie-breaker makes traversal deterministic for tied dates and
+ * prevents an insert before the cursor boundary from duplicating later rows.
+ */
+export async function listOrdersPage(
+  tenantId: string,
+  query: ListOrdersV1Request["query"]
+): Promise<OrderPageResult> {
+  const filterFingerprint = fingerprintTenantPaginationBinding({}, tenantId);
+  const parsedCursor = query.cursor === undefined
+    ? undefined
+    : parsePaginationCursor(query.cursor, { resource: "orders", filterFingerprint });
+  if (parsedCursor !== undefined && !parsedCursor.ok) return parsedCursor;
+
+  const ordering = parsedCursor === undefined
+    ? undefined
+    : OrderCursorOrderingSchema.safeParse(parsedCursor.ordering);
+  if (ordering !== undefined && !ordering.success) {
+    return { ok: false, code: "CURSOR_MALFORMED" };
+  }
+
+  const [orderDate, id] = ordering === undefined ? [] : ordering.data;
+  const rows = await prisma.order.findMany({
+    where: {
+      tenantId,
+      ...(orderDate === undefined || id === undefined
+        ? {}
+        : {
+            OR: [
+              { orderDate: { lt: new Date(orderDate) } },
+              { orderDate: new Date(orderDate), id: { lt: id } },
+            ],
+          }),
+    },
+    include: orderInclude,
+    orderBy: [{ orderDate: "desc" }, { id: "desc" }],
+    take: query.limit + 1,
+  });
+  const pageRows = rows.slice(0, query.limit);
+  const lastRow = pageRows.at(-1);
+  const nextCursor = rows.length > query.limit && lastRow !== undefined
+    ? formatPaginationCursor({
+        resource: "orders",
+        filterFingerprint,
+        ordering: [lastRow.orderDate.toISOString(), lastRow.id],
+      })
+    : null;
+  return {
+    ok: true,
+    page: OrderPageSchema.parse({
+      data: pageRows.map(toOrderModel),
+      page: { limit: query.limit, nextCursor },
+    }),
+  };
 }
 
 export async function getOrder(tenantId: string, orderId: string): Promise<OrderModel> {

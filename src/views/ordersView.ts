@@ -4,35 +4,68 @@ import {
   GetOrderRequestSchema,
   InvoiceSchema,
   ListOrdersRequestSchema,
+  ListOrdersV1RequestSchema,
   OrderConditionalRequestHeadersSchema,
+  OrderPageSchema,
   OrderSchema,
   UpdateOrderRequestSchema,
 } from "@meridian/contracts";
 import { Router } from "express";
+import { z } from "zod";
 import { BILLING_WRITE_ROLES, READ_ROLES } from "../auth/authorization";
 import { requestAuditMetadata } from "../audit/requestAudit";
 import * as invoices from "../controllers/invoiceController";
 import * as orders from "../controllers/orderController";
 import { isV1Request } from "../http/apiVersion";
+import { formatNextPageLink } from "../http/pagination";
 import {
   EtagResponseHeadersSchema,
   IdempotencyRequestHeadersSchema,
   defineOperation,
   mountOperation,
 } from "../openapi/operation";
+import { RequestValidationError, validateRequest } from "./helpers";
+
+const OrderListResponseSchema = z.union([OrderSchema.array(), OrderPageSchema]);
 
 const listOrdersOperation = defineOperation({
   method: "get",
   path: "/orders",
   operationId: "listOrders",
   summary: "List orders",
-  request: ListOrdersRequestSchema,
+  description:
+    "`/api/v1` returns cursor-paginated orders ordered by orderDate then id, both descending; the legacy `/api` adapter remains an array.",
+  request: ListOrdersV1RequestSchema,
   hasJsonBody: false,
-  success: { status: 200, description: "Orders visible to the tenant", schema: OrderSchema.array() },
+  success: {
+    status: 200,
+    description: "Cursor-paginated order page",
+    schema: OrderListResponseSchema,
+    openApiSchema: OrderPageSchema,
+  },
   security: "tenantBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 500],
-  handler: async ({ principal }) => orders.listOrders(principal.tenantId),
+  handler: async ({ input, principal, request, response }) => {
+    if (!isV1Request(request)) {
+      validateRequest(ListOrdersRequestSchema, request);
+      return orders.listOrders(principal.tenantId);
+    }
+
+    const page = await orders.listOrdersPage(principal.tenantId, input.query);
+    if (!page.ok) {
+      throw new RequestValidationError([
+        {
+          code: page.code,
+          path: "query.cursor",
+          message: "Cursor is invalid for this order query",
+        },
+      ]);
+    }
+    const link = formatNextPageLink(request.originalUrl, page.page.page.nextCursor);
+    if (link !== undefined) response.append("Link", link);
+    return page.page;
+  },
 });
 
 const getOrderOperation = defineOperation({

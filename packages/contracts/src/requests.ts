@@ -236,6 +236,14 @@ export type UpdateRateRequest = z.infer<typeof UpdateRateRequestSchema>;
 export const ListOrdersRequestSchema = EmptyRequestSchema;
 export type ListOrdersRequest = z.infer<typeof ListOrdersRequestSchema>;
 
+/** Pagination is additive on `/api/v1`; legacy `/api/orders` stays an array. */
+export const ListOrdersV1RequestSchema = requestSchema(
+  EmptyParamsSchema,
+  PaginationQuerySchema,
+  NoBodySchema
+);
+export type ListOrdersV1Request = z.infer<typeof ListOrdersV1RequestSchema>;
+
 export const GetOrderRequestSchema = requestSchema(
   IdParamsSchema,
   EmptyQuerySchema,

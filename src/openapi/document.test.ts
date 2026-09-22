@@ -248,7 +248,23 @@ void describe("generated version-one OpenAPI contract", () => {
         }),
       })
       .parse(document).paths;
-    assert.match(JSON.stringify(paths["/orders"].get.responses["200"]), /items|total/u);
+    const listSchema = z
+      .object({
+        content: z.object({
+          "application/json": z.object({
+            schema: z.object({
+              type: z.literal("object"),
+              required: z.array(z.string()),
+              properties: z.object({
+                data: z.object({ type: z.literal("array") }),
+                page: z.object({ properties: z.object({ nextCursor: z.unknown() }) }),
+              }),
+            }),
+          }),
+        }),
+      })
+      .parse(paths["/orders"].get.responses["200"]).content["application/json"].schema;
+    assert.deepEqual(listSchema.required.toSorted(), ["data", "page"]);
     assert.match(JSON.stringify(paths["/orders"].post.requestBody), /customerId/u);
     assert.match(JSON.stringify(paths["/orders"].post.requestBody), /productId/u);
     assert.match(JSON.stringify(paths["/orders/{id}"].put.requestBody), /notes|items/u);

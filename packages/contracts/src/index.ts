@@ -163,6 +163,10 @@ export const OrderSchema = z.object({
 });
 export type Order = z.infer<typeof OrderSchema>;
 
+/** Additive v1 envelope; legacy order lists remain bare arrays. */
+export const OrderPageSchema = PageEnvelopeSchema(OrderSchema);
+export type OrderPage = z.infer<typeof OrderPageSchema>;
+
 export const TransmissionSchema = z.object({
   id,
   invoiceId: id,
