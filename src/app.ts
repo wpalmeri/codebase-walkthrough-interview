@@ -3,6 +3,13 @@ import { timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { AuthenticationError, problemFromError, type ProblemDetails } from "./errors";
 import { createIdempotencyMiddleware, createPrismaIdempotencyStore, type IdempotencyStore } from "./idempotency";
+import { prisma } from "./db";
+import {
+  createPrismaReadinessProbe,
+  liveness,
+  readiness,
+  type ReadinessProbe,
+} from "./runtime/health";
 import { api } from "./views";
 
 type AppOptions = {
@@ -19,6 +26,8 @@ type AppOptions = {
   environment?: string;
   /** Replaces durable idempotency persistence for isolated HTTP-boundary tests. */
   idempotencyStore?: IdempotencyStore;
+  /** Replaces the production database readiness check for embedding and tests. */
+  readinessProbe?: ReadinessProbe;
 };
 
 function sendProblem(res: Response, problem: ProblemDetails): void {
@@ -56,6 +65,17 @@ export function createApp(options: AppOptions = {}): express.Express {
   app.disable("x-powered-by");
   app.use(express.json());
   const idempotency = createIdempotencyMiddleware(options.idempotencyStore ?? createPrismaIdempotencyStore());
+  const readinessProbe = options.readinessProbe ?? createPrismaReadinessProbe(prisma);
+
+  // These are intentionally public for orchestrators. They are registered
+  // ahead of authentication and do not disclose database error details.
+  app.get("/health/live", (_request, response) => {
+    response.json(liveness());
+  });
+  app.get("/health/ready", async (_request, response) => {
+    const result = await readiness(readinessProbe);
+    response.status(result.status === "ready" ? 200 : 503).json(result);
+  });
 
   const authenticate = (request: Request, response: Response, next: NextFunction) => {
     if (configuredApiKey.length === 0 || tokensMatch(bearerToken(request), configuredApiKey)) {
