@@ -158,6 +158,24 @@ must investigate stale `IN_PROGRESS` rows rather than deleting or replaying them
 Retain completed rows for at least the published client retry window, then archive or purge them
 in bounded primary-key batches under an explicit retention policy.
 
+## Tenant ownership foundation
+
+`20260922090000_tenant_foundation` is an expand-only tenancy migration. It creates empty
+tenant, API-key-hash, issuer-plus-subject external-user-identity, membership, and per-tenant accounting-control
+tables, then adds nullable `tenantId` columns and lookup indexes to existing customer, catalog,
+order, invoice, payment, and idempotency rows. It intentionally does not populate those columns,
+change existing uniqueness, or enable tenant-scoped authorization; those are separately deployed
+dual-write, bounded-reconciliation, and contract releases.
+
+The API-key table stores only a server-generated one-way digest and non-secret prefix—never a
+credential plaintext—and both API keys and memberships carry a constrained least-privilege role.
+The nullable SQLite columns include `REFERENCES Tenant(id)` constraints, while triggers additionally
+reject mixed-tenant commercial links, tenant reassignment after ownership is established, and deletion
+of a tenant that still owns business rows. Run the tenant backfill in small, checkpointed primary-key
+batches, reconcile every cross-table ownership edge, and only then make `tenantId` required and
+include it in idempotency uniqueness. Do not use this additive migration as permission to accept a
+client-supplied tenant ID: runtime principals must be authenticated and derive the scope server-side.
+
 ## Captured pricing and payment ledger immutability
 
 `20260922070000_ledger_immutability_guards` installs row-level triggers only; it adds no

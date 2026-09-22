@@ -11,6 +11,7 @@ const createdAt = new Date("2026-09-22T12:00:00.000Z");
 
 const product = {
   id: "product-1",
+  tenantId: null,
   sku: "LIVE-SKU",
   name: "Live product name",
   unit: "seat",
@@ -51,6 +52,7 @@ void describe("exact financial response models", () => {
   void test("uses captured order snapshots instead of changed live product data", () => {
     const model = toOrderModel({
       id: "order-1",
+      tenantId: null,
       reference: "SO-1",
       customerId: "customer-1",
       orderDate: createdAt,
@@ -99,6 +101,7 @@ void describe("exact financial response models", () => {
   void test("derives invoice and payment balances from exact Decimal-first values", () => {
     const payment = {
       id: "payment-1",
+      tenantId: null,
       customerId: "customer-1",
       amount: 999,
       amountDecimal: new Prisma.Decimal("25.0000"),
@@ -121,6 +124,7 @@ void describe("exact financial response models", () => {
     });
     const invoiceModel = toInvoiceModel({
       id: "invoice-1",
+      tenantId: null,
       number: "INV-1",
       customerId: "customer-1",
       orderId: "order-1",

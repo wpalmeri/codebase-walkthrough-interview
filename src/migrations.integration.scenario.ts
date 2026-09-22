@@ -5,6 +5,13 @@ interface NamedRow {
   readonly name: string;
 }
 
+interface ForeignKeyRow {
+  readonly table: string;
+  readonly from: string;
+  readonly on_update: string;
+  readonly on_delete: string;
+}
+
 async function main(): Promise<void> {
   const migrations = await prisma.$queryRaw<NamedRow[]>`
     SELECT migration_name AS name
@@ -25,6 +32,7 @@ async function main(): Promise<void> {
       "20260922060000_usd_currency_policy",
       "20260922070000_ledger_immutability_guards",
       "20260922080000_payment_application_reversals",
+      "20260922090000_tenant_foundation",
     ]
   );
 
@@ -39,6 +47,11 @@ async function main(): Promise<void> {
     "PaymentApplicationReversal_append_only_update_guard",
     "PaymentApplicationReversal_amount_guard",
     "Invoice_reversal_status_evidence_guard",
+    "Customer_tenant_update_guard",
+    "Order_tenant_guard",
+    "Rate_tenant_identity_guard",
+    "PaymentApplication_tenant_identity_guard",
+    "Tenant_referenced_delete_guard",
   ];
   const triggers = await prisma.$queryRaw<NamedRow[]>`
     SELECT name
@@ -49,6 +62,29 @@ async function main(): Promise<void> {
   const installed = new Set(triggers.map(({ name }) => name));
   for (const trigger of requiredTriggers) {
     assert.equal(installed.has(trigger), true, `missing migration trigger ${trigger}`);
+  }
+
+  const tenantForeignKeys = await Promise.all([
+    prisma.$queryRaw<ForeignKeyRow[]>`PRAGMA foreign_key_list("Customer")`,
+    prisma.$queryRaw<ForeignKeyRow[]>`PRAGMA foreign_key_list("Product")`,
+    prisma.$queryRaw<ForeignKeyRow[]>`PRAGMA foreign_key_list("ComboDiscount")`,
+    prisma.$queryRaw<ForeignKeyRow[]>`PRAGMA foreign_key_list("Order")`,
+    prisma.$queryRaw<ForeignKeyRow[]>`PRAGMA foreign_key_list("Invoice")`,
+    prisma.$queryRaw<ForeignKeyRow[]>`PRAGMA foreign_key_list("Payment")`,
+    prisma.$queryRaw<ForeignKeyRow[]>`PRAGMA foreign_key_list("IdempotencyRecord")`,
+  ]);
+  for (const foreignKeys of tenantForeignKeys) {
+    assert.equal(
+      foreignKeys.some(
+        (foreignKey) =>
+          foreignKey.table === "Tenant" &&
+          foreignKey.from === "tenantId" &&
+          foreignKey.on_update === "CASCADE" &&
+          foreignKey.on_delete === "RESTRICT"
+      ),
+      true,
+      "every nullable tenantId has an explicit SQLite Tenant foreign key"
+    );
   }
 
   await prisma.customer.create({
@@ -67,6 +103,119 @@ async function main(): Promise<void> {
       VALUES ('unsupported-currency-order', 'migration-customer', 'OPEN', 'EUR', CURRENT_TIMESTAMP)
     `,
     /Order\.currencyCode must be USD/u
+  );
+
+  // The tenant migration is expand-only: legacy rows still work with a null
+  // tenantId, but every populated ownership edge is checked at the database
+  // boundary, including a later backfill that would introduce a conflict.
+  await prisma.$executeRaw`
+    INSERT INTO "Tenant" ("id", "slug", "name") VALUES
+      ('tenant-a', 'tenant-a', 'Tenant A'),
+      ('tenant-b', 'tenant-b', 'Tenant B')
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      INSERT INTO "TenantApiKey" ("id", "tenantId", "name", "role", "keyPrefix", "keyHash")
+      VALUES ('invalid-role-key', 'tenant-a', 'invalid role', 'ROOT', 'invalid-role', '01234567890123456789012345678901')
+    `,
+    /TenantApiKey_role_check/u
+  );
+  await assert.rejects(
+    prisma.$executeRaw`
+      INSERT INTO "UserIdentity" ("id", "issuer", "subject")
+      VALUES ('invalid-identity', '', 'subject-1')
+    `,
+    /invalid UserIdentity input/u
+  );
+  await prisma.$executeRaw`
+    INSERT INTO "UserIdentity" ("id", "issuer", "subject") VALUES
+      ('oidc-identity', 'https://issuer.example/oidc', 'subject-1'),
+      ('saml-identity', 'https://issuer.example/saml', 'subject-1')
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      INSERT INTO "UserIdentity" ("id", "issuer", "subject")
+      VALUES ('duplicate-identity', 'https://issuer.example/oidc', 'subject-1')
+    `,
+    /UNIQUE constraint failed/u
+  );
+  await assert.rejects(
+    prisma.$executeRaw`
+      UPDATE "UserIdentity"
+      SET "subject" = 'reassigned-subject'
+      WHERE "id" = 'oidc-identity'
+    `,
+    /UserIdentity issuer and subject are immutable/u
+  );
+  await prisma.$executeRaw`
+    INSERT INTO "Customer" ("id", "tenantId", "name", "email")
+    VALUES ('tenant-customer-a', 'tenant-a', 'Tenant Customer A', 'tenant-a@example.com')
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO "Product" ("id", "tenantId", "sku", "name", "unit", "listPrice")
+    VALUES ('tenant-product-b', 'tenant-b', 'tenant-product-b', 'Tenant Product B', 'seat', 10)
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      INSERT INTO "Rate" ("id", "customerId", "productId", "unitPrice", "effectiveDate")
+      VALUES ('cross-tenant-rate', 'tenant-customer-a', 'tenant-product-b', 10, CURRENT_TIMESTAMP)
+    `,
+    /Rate customer and product must share a tenant/u
+  );
+  await assert.rejects(
+    prisma.$executeRaw`
+      INSERT INTO "Order" ("id", "tenantId", "customerId", "status", "orderDate")
+      VALUES ('cross-tenant-order', 'tenant-b', 'tenant-customer-a', 'OPEN', CURRENT_TIMESTAMP)
+    `,
+    /Order tenant conflicts with customer/u
+  );
+  await prisma.$executeRaw`
+    INSERT INTO "Order" ("id", "tenantId", "customerId", "status", "orderDate")
+    VALUES ('tenant-order-a', 'tenant-a', 'tenant-customer-a', 'OPEN', CURRENT_TIMESTAMP)
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO "Invoice" ("id", "tenantId", "number", "customerId", "orderId", "status", "dueDate")
+    VALUES ('tenant-invoice-a', 'tenant-a', 'TENANT-INV-A', 'tenant-customer-a', 'tenant-order-a', 'DRAFT', CURRENT_TIMESTAMP)
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO "Customer" ("id", "tenantId", "name", "email")
+    VALUES ('tenant-customer-b', 'tenant-b', 'Tenant Customer B', 'tenant-b@example.com')
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO "Payment" ("id", "tenantId", "customerId", "amount", "receivedAt")
+    VALUES ('tenant-payment-b', 'tenant-b', 'tenant-customer-b', 5, CURRENT_TIMESTAMP)
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      INSERT INTO "PaymentApplication" ("id", "paymentId", "invoiceId", "amount", "appliedAt")
+      VALUES ('cross-tenant-application', 'tenant-payment-b', 'tenant-invoice-a', 5, CURRENT_TIMESTAMP)
+    `,
+    /PaymentApplication payment and invoice must share a tenant/u
+  );
+  await prisma.$executeRaw`
+    INSERT INTO "Customer" ("id", "name", "email")
+    VALUES ('legacy-tenant-customer', 'Legacy Tenant Customer', 'legacy-tenant@example.com')
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO "Order" ("id", "tenantId", "customerId", "status", "orderDate")
+    VALUES ('legacy-tenant-order', 'tenant-a', 'legacy-tenant-customer', 'OPEN', CURRENT_TIMESTAMP)
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      UPDATE "Customer" SET "tenantId" = 'tenant-b' WHERE "id" = 'legacy-tenant-customer'
+    `,
+    /Customer tenant conflicts with related commercial records/u
+  );
+  await assert.rejects(
+    prisma.$executeRaw`
+      INSERT INTO "TenantAccountingPeriodControl" ("id", "tenantId", "closedThroughDate", "updatedAt")
+      VALUES ('tenant-a-period', 'tenant-a', 'not-a-date', CURRENT_TIMESTAMP)
+    `,
+    /invalid TenantAccountingPeriodControl\.closedThroughDate/u
+  );
+  await assert.rejects(
+    prisma.$executeRaw`DELETE FROM "Tenant" WHERE "id" = 'tenant-a'`,
+    /Tenant has referenced business records/u
   );
 }
 
