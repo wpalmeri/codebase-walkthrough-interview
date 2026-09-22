@@ -1,18 +1,13 @@
 import type { Transmission } from "@prisma/client";
+import {
+  TransmissionSchema,
+  type Transmission as ContractTransmission,
+} from "@meridian/contracts";
 
-export interface TransmissionModel {
-  id: string;
-  invoiceId: string;
-  method: string;
-  status: string;
-  externalJobId: string | null;
-  detail: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+export type TransmissionModel = ContractTransmission;
 
 export function toTransmissionModel(row: Transmission): TransmissionModel {
-  return {
+  return TransmissionSchema.parse({
     id: row.id,
     invoiceId: row.invoiceId,
     method: row.method,
@@ -21,5 +16,5 @@ export function toTransmissionModel(row: Transmission): TransmissionModel {
     detail: row.detail,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-  };
+  });
 }

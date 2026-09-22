@@ -1,43 +1,8 @@
 import type { Invoice, InvoiceLine, Payment, PaymentApplication, Transmission } from "@prisma/client";
-import { toTransmissionModel, TransmissionModel } from "./transmission";
+import { InvoiceSchema, type Invoice as ContractInvoice } from "@meridian/contracts";
+import { toTransmissionModel } from "./transmission";
 
-export interface InvoiceLineModel {
-  id: string;
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  amount: number;
-}
-
-export interface InvoicePaymentModel {
-  id: string;
-  paymentId: string;
-  amount: number;
-  receivedAt: string;
-  reference: string | null;
-}
-
-export interface InvoiceModel {
-  id: string;
-  number: string;
-  customerId: string;
-  customerName?: string;
-  customerEmail?: string;
-  billingAddress?: string | null;
-  orderId: string;
-  orderReference?: string | null;
-  status: string;
-  issueDate: string;
-  dueDate: string;
-  total: number;
-  amountPaid: number;
-  balance: number;
-  postedAt: string | null;
-  lines: InvoiceLineModel[];
-  payments: InvoicePaymentModel[];
-  transmissions: TransmissionModel[];
-  lastTransmission: TransmissionModel | null;
-}
+export type InvoiceModel = ContractInvoice;
 
 type InvoiceRow = Invoice & {
   customer?: { name: string; email: string; billingAddress: string | null };
@@ -50,7 +15,7 @@ type InvoiceRow = Invoice & {
 export function toInvoiceModel(row: InvoiceRow): InvoiceModel {
   const transmissions = row.transmissions ?? [];
   const last = transmissions.length > 0 ? transmissions[transmissions.length - 1] : null;
-  return {
+  return InvoiceSchema.parse({
     id: row.id,
     number: row.number,
     customerId: row.customerId,
@@ -82,5 +47,5 @@ export function toInvoiceModel(row: InvoiceRow): InvoiceModel {
     })),
     transmissions: transmissions.map(toTransmissionModel),
     lastTransmission: last ? toTransmissionModel(last) : null,
-  };
+  });
 }

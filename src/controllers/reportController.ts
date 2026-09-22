@@ -1,27 +1,16 @@
+import {
+  AnnualRevenueSchema,
+  CustomerRevenueSchema,
+  QuarterRevenueSchema,
+  type AnnualRevenue,
+  type CustomerRevenue,
+  type QuarterRevenue,
+} from "@meridian/contracts";
 import { prisma } from "../db";
 
 export interface ReportPeriod {
   from?: string;
   to?: string;
-}
-
-export interface QuarterRevenue {
-  quarter: string;
-  invoiceCount: number;
-  revenue: number;
-}
-
-export interface CustomerRevenue {
-  customerId: string;
-  customerName: string;
-  invoiceCount: number;
-  revenue: number;
-}
-
-export interface AnnualRevenue {
-  year: number;
-  invoiceCount: number;
-  revenue: number;
 }
 
 export const REVENUE_RECOGNIZED_STATUSES = ["POSTED", "SENT", "PAID"] as const;
@@ -133,7 +122,7 @@ export function summarizeRevenueByQuarter(
       year += 1;
     }
   }
-  return result;
+  return QuarterRevenueSchema.array().parse(result);
 }
 
 export function summarizeRevenueByCustomer(rows: readonly RevenueRow[]): CustomerRevenue[] {
@@ -149,7 +138,9 @@ export function summarizeRevenueByCustomer(rows: readonly RevenueRow[]): Custome
     bucket.revenue += row.revenue;
     buckets.set(row.customerId, bucket);
   }
-  return [...buckets.values()].toSorted((a, b) => b.revenue - a.revenue);
+  return CustomerRevenueSchema.array().parse(
+    [...buckets.values()].toSorted((a, b) => b.revenue - a.revenue)
+  );
 }
 
 export function summarizeAnnualRevenue(
@@ -179,7 +170,7 @@ export function summarizeAnnualRevenue(
       revenue: bucket?.revenue ?? 0,
     });
   }
-  return result;
+  return AnnualRevenueSchema.array().parse(result);
 }
 
 export async function revenueByQuarter(period: ReportPeriod): Promise<QuarterRevenue[]> {

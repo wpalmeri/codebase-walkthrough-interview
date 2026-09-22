@@ -1,21 +1,15 @@
 import type { Customer } from "@prisma/client";
+import { CustomerSchema, type Customer as ContractCustomer } from "@meridian/contracts";
 
-export interface CustomerModel {
-  id: string;
-  name: string;
-  email: string;
-  billingAddress: string | null;
-  portalAccount: string | null;
-  clearinghouseId: string | null;
-}
+export type CustomerModel = ContractCustomer;
 
 export function toCustomerModel(row: Customer): CustomerModel {
-  return {
+  return CustomerSchema.parse({
     id: row.id,
     name: row.name,
     email: row.email,
     billingAddress: row.billingAddress,
     portalAccount: row.portalAccount,
     clearinghouseId: row.clearinghouseId,
-  };
+  });
 }
