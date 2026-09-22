@@ -111,7 +111,7 @@ export async function revenueByCustomer(period: ReportPeriod): Promise<CustomerR
     bucket.revenue += revenue;
     buckets.set(invoice.customerId, bucket);
   }
-  return [...buckets.values()].sort((a, b) => b.revenue - a.revenue);
+  return [...buckets.values()].toSorted((a, b) => b.revenue - a.revenue);
 }
 
 export async function annualRevenue(period: ReportPeriod): Promise<AnnualRevenue[]> {

@@ -12,3 +12,7 @@ export function h(
       .catch(next);
   };
 }
+
+export function optionalQueryString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}

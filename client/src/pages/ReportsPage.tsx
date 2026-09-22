@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { apiGet, compactMoney, money } from "../api";
+import { useCallback, useEffect, useState } from "react";
+import { apiGet, compactMoney, errorMessage, money } from "../api";
 import { Card, EmptyState, PageHeader, StatTile } from "../components";
 import type { AnnualRevenue, CustomerRevenue, QuarterRevenue } from "../types";
 
@@ -77,7 +77,7 @@ export function ReportsPage() {
   const [to, setTo] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const load = (fromDate: string, toDate: string) => {
+  const load = useCallback((fromDate: string, toDate: string) => {
     setError(null);
     const params = new URLSearchParams();
     if (fromDate) params.set("from", fromDate);
@@ -85,15 +85,15 @@ export function ReportsPage() {
     const qs = params.toString() ? `?${params.toString()}` : "";
     apiGet<QuarterRevenue[]>(`/reports/revenue-by-quarter${qs}`)
       .then(setQuarters)
-      .catch((e) => setError(e.message));
+      .catch((error) => setError(errorMessage(error)));
     apiGet<CustomerRevenue[]>(`/reports/revenue-by-customer${qs}`)
       .then(setByCustomer)
-      .catch((e) => setError(e.message));
+      .catch((error) => setError(errorMessage(error)));
     apiGet<AnnualRevenue[]>(`/reports/annual-revenue${qs}`)
       .then(setAnnual)
-      .catch((e) => setError(e.message));
-  };
-  useEffect(() => load("", ""), []);
+      .catch((error) => setError(errorMessage(error)));
+  }, []);
+  useEffect(() => load("", ""), [load]);
 
   const totalRevenue = annual.reduce((sum, row) => sum + row.revenue, 0);
   const totalInvoices = annual.reduce((sum, row) => sum + row.invoiceCount, 0);

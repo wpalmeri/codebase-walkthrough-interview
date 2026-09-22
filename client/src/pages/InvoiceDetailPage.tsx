@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiGet, apiPost, apiPut, dateTime, money, shortDate } from "../api";
+import { apiGet, apiPost, apiPut, dateTime, errorMessage, money, shortDate } from "../api";
 import { Card, EmptyState, PageHeader, StatusBadge } from "../components";
 import type { Invoice } from "../types";
 
@@ -18,7 +18,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
         setIssueDate(row.issueDate.slice(0, 10));
         setDueDate(row.dueDate.slice(0, 10));
       })
-      .catch((e) => setError(e.message));
+      .catch((error) => setError(errorMessage(error)));
   };
   useEffect(load, [invoiceId]);
 
@@ -32,8 +32,8 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
     try {
       await fn();
       load();
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (error) {
+      setError(errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -162,7 +162,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: string }) {
                     <th>Method</th>
                     <th>Status</th>
                     <th>External job</th>
-                    <th></th>
+                    <th><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>

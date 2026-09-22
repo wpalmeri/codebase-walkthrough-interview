@@ -6,6 +6,10 @@ async function handle<T>(res: Response): Promise<T> {
   return res.json();
 }
 
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unexpected error";
+}
+
 export function apiGet<T>(path: string): Promise<T> {
   return fetch(`/api${path}`).then((res) => handle<T>(res));
 }

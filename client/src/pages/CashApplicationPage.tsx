@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiGet, apiPost, money, shortDate } from "../api";
+import { apiGet, apiPost, errorMessage, money, shortDate } from "../api";
 import { Card, EmptyState, Modal, PageHeader, StatTile, StatusBadge } from "../components";
 import { navigate } from "../router";
 import type { Customer, Invoice, Payment } from "../types";
@@ -17,9 +17,15 @@ export function CashApplicationPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const load = () => {
-    apiGet<Invoice[]>("/invoices").then(setInvoices).catch((e) => setError(e.message));
-    apiGet<Payment[]>("/payments").then(setPayments).catch((e) => setError(e.message));
-    apiGet<Customer[]>("/customers").then(setCustomers).catch((e) => setError(e.message));
+    apiGet<Invoice[]>("/invoices")
+      .then(setInvoices)
+      .catch((error) => setError(errorMessage(error)));
+    apiGet<Payment[]>("/payments")
+      .then(setPayments)
+      .catch((error) => setError(errorMessage(error)));
+    apiGet<Customer[]>("/customers")
+      .then(setCustomers)
+      .catch((error) => setError(errorMessage(error)));
   };
   useEffect(load, []);
 
@@ -42,8 +48,8 @@ export function CashApplicationPage() {
       load();
       setApplyAmounts({});
       setOpenPaymentId(payment.id);
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (error) {
+      setError(errorMessage(error));
     }
   };
 
@@ -74,8 +80,8 @@ export function CashApplicationPage() {
       setApplyAmounts({});
       setOpenPaymentId(null);
       load();
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (error) {
+      setError(errorMessage(error));
     }
   };
 
@@ -298,6 +304,7 @@ export function CashApplicationPage() {
                         <td className="num">{money(invoice.balance)}</td>
                         <td className="num">
                           <input
+                            aria-label={`Amount to apply to ${invoice.number}`}
                             className="qty"
                             type="number"
                             step="0.01"
