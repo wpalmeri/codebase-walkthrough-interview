@@ -2,10 +2,59 @@ import { prisma } from "../db";
 import {
   ComboDiscountModel,
   RateModel,
-  RateTier,
   toComboDiscountModel,
   toRateModel,
 } from "../models/rate";
+import { canonicalMoney, canonicalPercentage, legacyNumber } from "../domain/money";
+import { serializeRateTiers, type RateTier } from "../domain/rateTier";
+import { MoneyStringSchema, PercentageStringSchema, type MoneyString, type PercentageString } from "@meridian/contracts";
+
+export interface DualWrittenMoney {
+  readonly legacy: number;
+  readonly decimal: MoneyString;
+}
+
+export interface DualWrittenPercentage {
+  readonly legacy: number;
+  readonly decimal: PercentageString;
+}
+
+/** Produces matching legacy and DECIMAL(19,4) values without rounding either write. */
+export function dualWriteMoney(value: number): DualWrittenMoney {
+  const decimal = MoneyStringSchema.parse(canonicalMoney(value, "unit price"));
+  return {
+    legacy: legacyNumber(decimal, { scale: 4, precision: 19, field: "unit price" }),
+    decimal,
+  };
+}
+
+/** Produces matching legacy and DECIMAL(7,4) percentage values without rounding. */
+export function dualWritePercentage(value: number): DualWrittenPercentage {
+  const decimal = PercentageStringSchema.parse(canonicalPercentage(value, "percent off"));
+  return {
+    legacy: legacyNumber(decimal, { scale: 4, precision: 7, field: "percent off" }),
+    decimal,
+  };
+}
+
+export interface RateUpdateData {
+  readonly unitPrice: number;
+  readonly unitPriceDecimal: MoneyString;
+  readonly tiers?: ReturnType<typeof serializeRateTiers>;
+}
+
+/**
+ * This intentionally builds only Rate columns. Callers use it as the update
+ * boundary so rate changes cannot write or re-rate existing order snapshots.
+ */
+export function buildRateUpdateData(input: { unitPrice: number; tiers?: RateTier[] }): RateUpdateData {
+  const price = dualWriteMoney(input.unitPrice);
+  return {
+    unitPrice: price.legacy,
+    unitPriceDecimal: price.decimal,
+    ...(input.tiers === undefined ? {} : { tiers: serializeRateTiers(input.tiers) }),
+  };
+}
 
 export async function listRates(customerId?: string): Promise<RateModel[]> {
   const rows = await prisma.rate.findMany({
@@ -31,10 +80,12 @@ export async function createComboDiscount(input: {
   percentOff: number;
   customerId?: string | null;
 }): Promise<ComboDiscountModel> {
+  const percentOff = dualWritePercentage(input.percentOff);
   const row = await prisma.comboDiscount.create({
     data: {
       name: input.name,
-      percentOff: input.percentOff,
+      percentOff: percentOff.legacy,
+      percentOffDecimal: percentOff.decimal,
       customerId: input.customerId ?? null,
       products: { connect: (input.productIds ?? []).map((id) => ({ id })) },
     },
@@ -51,10 +102,7 @@ export async function updateRate(
 ): Promise<RateModel> {
   const rate = await prisma.rate.update({
     where: { id: rateId },
-    data: {
-      unitPrice: input.unitPrice,
-      tiers: input.tiers !== undefined ? (input.tiers as object[]) : undefined,
-    },
+    data: buildRateUpdateData(input),
     include: { product: true },
   });
   return toRateModel(rate);
