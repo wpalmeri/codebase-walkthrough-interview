@@ -10,6 +10,7 @@ import * as invoices from "../controllers/invoiceController";
 import * as orders from "../controllers/orderController";
 import { BILLING_WRITE_ROLES, READ_ROLES, requireRole } from "../auth/authorization";
 import { requestAuditMetadata } from "../audit/requestAudit";
+import { isV1Request } from "../http/apiVersion";
 import { h, validateRequest } from "./helpers";
 
 export const ordersView = Router();
@@ -24,9 +25,11 @@ ordersView.get(
 
 ordersView.get(
   "/:id",
-  h(async (req) => {
+  h(async (req, response) => {
     const { params } = validateRequest(GetOrderRequestSchema, req);
-    return orders.getOrder(requireRole(req, READ_ROLES).tenantId, params.id);
+    const result = await orders.getVersionedOrder(requireRole(req, READ_ROLES).tenantId, params.id);
+    if (isV1Request(req)) response.setHeader("ETag", result.etag);
+    return result.order;
   })
 );
 
@@ -39,10 +42,21 @@ ordersView.post(
   })
 );
 
-const updateOrder = h(async (req) => {
+const updateOrder = h(async (req, response) => {
   const { params, body } = validateRequest(UpdateOrderRequestSchema, req);
   const principal = requireRole(req, BILLING_WRITE_ROLES);
-  return orders.saveOrder(principal.tenantId, params.id, body, requestAuditMetadata(req, principal));
+  const audit = requestAuditMetadata(req, principal);
+  if (!isV1Request(req)) return orders.saveOrder(principal.tenantId, params.id, body, audit);
+
+  const result = await orders.saveOrderConditionally(
+    principal.tenantId,
+    params.id,
+    body,
+    req.get("if-match"),
+    audit
+  );
+  response.setHeader("ETag", result.etag);
+  return result.order;
 });
 
 ordersView.put("/:id", updateOrder);

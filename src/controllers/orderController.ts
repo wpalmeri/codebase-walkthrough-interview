@@ -18,11 +18,17 @@ import {
 } from "../domain/orderPricing";
 import { parseRateTiers } from "../domain/rateTier";
 import {
+  ApplicationError,
   ConflictError,
   DomainInvariantError,
   NotFoundError,
   PreconditionError,
 } from "../errors";
+import {
+  formatResourceEtag,
+  verifyResourceIfMatch,
+  type ResourceVersionPreconditionFailure,
+} from "../http/resourceVersion";
 import { OrderModel, toOrderModel } from "../models/order";
 import {
   appendRequestAuditEvent,
@@ -69,8 +75,30 @@ export async function getOrder(tenantId: string, orderId: string): Promise<Order
   return toOrderModel(row);
 }
 
+/** Legacy null versions are deliberately exposed as logical version zero. */
+export async function getVersionedOrder(tenantId: string, orderId: string): Promise<VersionedOrder> {
+  const order = await findTenantOrder(prisma, tenantId, orderId);
+  if (order === null) throw new NotFoundError();
+  return {
+    order: toOrderModel(order),
+    etag: formatResourceEtag({ kind: "order", id: order.id, version: logicalResourceVersion(order.resourceVersion) }),
+  };
+}
+
 type PricingTransaction = Prisma.TransactionClient;
 type OrderAuditTransaction = Pick<Prisma.TransactionClient, "auditEvent">;
+type OrderMutationInput = {
+  customerId?: string;
+  orderDate?: string;
+  notes?: string;
+  items?: { id: string; quantity: string | number }[];
+  comment?: { author?: string; body: string };
+};
+
+export interface VersionedOrder {
+  readonly order: OrderModel;
+  readonly etag: string;
+}
 
 async function capturedOrderLines(
   transaction: PricingTransaction,
@@ -249,22 +277,30 @@ export async function createOrder(tenantId: string, input: {
 export async function saveOrder(
   tenantId: string,
   orderId: string,
-  input: {
-    customerId?: string;
-    orderDate?: string;
-    notes?: string;
-    items?: { id: string; quantity: string | number }[];
-    comment?: { author?: string; body: string };
-  },
+  input: OrderMutationInput,
   audit: RequestAuditMetadata,
   appendAudit: RequestAuditAppender = appendRequestAuditEvent
 ): Promise<OrderModel> {
   const auditMetadata = requireOrderAudit(tenantId, audit);
   await prisma.$transaction(async (transaction) => {
-    const order = await transaction.order.findFirstOrThrow({
+    await saveOrderInTransaction(transaction, tenantId, orderId, input, auditMetadata, appendAudit);
+  });
+  return getOrder(tenantId, orderId);
+}
+
+async function saveOrderInTransaction(
+  transaction: Prisma.TransactionClient,
+  tenantId: string,
+  orderId: string,
+  input: OrderMutationInput,
+  auditMetadata: RequestAuditMetadata,
+  appendAudit: RequestAuditAppender
+): Promise<void> {
+    const order = await transaction.order.findFirst({
       where: { id: orderId, tenantId },
       include: { items: true, invoice: true },
     });
+    if (order === null) throw new NotFoundError();
     const hasFinancialChange =
       input.customerId !== undefined ||
       input.orderDate !== undefined ||
@@ -333,8 +369,92 @@ export async function saveOrder(
     }
     await syncDraftInvoiceInTransaction(transaction, tenantId, orderId);
     await appendOrderAudit(transaction, auditMetadata, appendAudit, "ORDER_UPDATED", order.id);
+}
+
+/**
+ * Acquires the aggregate Order version before any child write, then reads the
+ * final version in the same transaction because item/comment/invoice triggers
+ * may advance it further while producing the representation.
+ */
+export async function saveOrderConditionally(
+  tenantId: string,
+  orderId: string,
+  input: OrderMutationInput,
+  ifMatch: string | undefined,
+  audit: RequestAuditMetadata,
+  appendAudit: RequestAuditAppender = appendRequestAuditEvent
+): Promise<VersionedOrder> {
+  const auditMetadata = requireOrderAudit(tenantId, audit);
+  return prisma.$transaction(async (transaction) => {
+    const existing = await findTenantOrder(transaction, tenantId, orderId);
+    // Resolve ownership before parsing the client condition so foreign and
+    // missing resources have one indistinguishable tenant-safe response.
+    if (existing === null) throw new NotFoundError();
+
+    const currentVersion = logicalResourceVersion(existing.resourceVersion);
+    const precondition = verifyResourceIfMatch(ifMatch, { kind: "order", id: existing.id }, currentVersion);
+    if (!precondition.ok) throwPrecondition(precondition);
+    if (precondition.version === Number.MAX_SAFE_INTEGER) {
+      throw new PreconditionError("RESOURCE_VERSION_EXHAUSTED", "This resource version cannot be advanced safely");
+    }
+
+    const acquired = await transaction.order.updateMany({
+      where: {
+        id: existing.id,
+        tenantId,
+        ...(existing.resourceVersion === null
+          ? { resourceVersion: null }
+          : { resourceVersion: precondition.version }),
+      },
+      data: { resourceVersion: precondition.version + 1 },
+    });
+    if (acquired.count !== 1) {
+      const stillVisible = await findTenantOrder(transaction, tenantId, orderId);
+      if (stillVisible === null) throw new NotFoundError();
+      throw new PreconditionError("ETAG_VERSION_MISMATCH", "If-Match does not match the current resource version");
+    }
+
+    await saveOrderInTransaction(transaction, tenantId, orderId, input, auditMetadata, appendAudit);
+    const updated = await findTenantOrder(transaction, tenantId, orderId);
+    if (updated === null) throw new NotFoundError();
+    return {
+      order: toOrderModel(updated),
+      etag: formatResourceEtag({
+        kind: "order",
+        id: updated.id,
+        version: logicalResourceVersion(updated.resourceVersion),
+      }),
+    };
   });
-  return getOrder(tenantId, orderId);
+}
+
+function logicalResourceVersion(value: number | null): number {
+  return value ?? 0;
+}
+
+function throwPrecondition(failure: ResourceVersionPreconditionFailure): never {
+  if (failure.status === 412) throw new PreconditionError(failure.code, failure.detail);
+  throw new ApplicationError({
+    type:
+      failure.status === 428
+        ? "urn:meridian:problem:precondition-required"
+        : "urn:meridian:problem:invalid-if-match",
+    title: failure.status === 428 ? "Precondition Required" : "Bad Request",
+    status: failure.status,
+    code: failure.code,
+    detail: failure.detail,
+  });
+}
+
+async function findTenantOrder(
+  database: Pick<Prisma.TransactionClient, "order">,
+  tenantId: string,
+  orderId: string
+) {
+  return database.order.findFirst({
+    where: { id: orderId, tenantId },
+    include: orderInclude,
+  });
 }
 
 async function appendOrderAudit(

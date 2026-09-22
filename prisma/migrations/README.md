@@ -212,6 +212,23 @@ available during client migration. Retried idempotent writes store and replay
 the exact response ETag, and their fingerprints include `If-Match`, so a stale
 precondition can never silently replay a response for a different revision.
 
+### Order conditional writes and aggregate ETags
+
+`20260922140000_order_conditional_writes` adds SQLite triggers only. It does
+not scan, backfill, rebuild, or rewrite Order, OrderItem, OrderComment, or
+Invoice rows. New Orders initialize a version; historical null versions remain
+logical version zero until a direct, legacy, or conditional business write.
+The triggers invalidate the Order version for root fields, item/comment changes,
+and invoice identity/status changes because all are represented by `GET
+/api/v1/orders/:id`.
+
+Apply this migration before exposing Order ETags. SQLite serializes writers and
+each aggregate mutation performs one small parent-row version update, so deploy
+in a low-write window and rehearse on a production-sized copy. Keep headerless
+legacy `/api/orders/:id` writes during client migration. `/api/v1` requires a
+single exact strong `If-Match`; keyed retries include that header in their
+fingerprint and replay the persisted response ETag.
+
 ### Payment cursor pagination
 
 `20260922120000_payment_cursor_pagination` adds one tenant-first keyset index

@@ -276,6 +276,12 @@ export const UpdateOrderRequestSchema = requestSchema(
 );
 export type UpdateOrderRequest = z.infer<typeof UpdateOrderRequestSchema>;
 
+/** v1 Order writes require one strong resource ETag; legacy routes omit it. */
+export const OrderConditionalRequestHeadersSchema = z.strictObject({
+  "If-Match": z.string().min(1).max(2048),
+});
+export type OrderConditionalRequestHeaders = z.infer<typeof OrderConditionalRequestHeadersSchema>;
+
 export const CreateInvoiceForOrderRequestSchema = requestSchema(
   IdParamsSchema,
   EmptyQuerySchema,

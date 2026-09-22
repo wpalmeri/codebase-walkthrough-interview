@@ -41,6 +41,7 @@ async function main(): Promise<void> {
       "20260922110000_rate_conditional_writes",
       "20260922120000_payment_cursor_pagination",
       "20260922130000_audit_events",
+      "20260922140000_order_conditional_writes",
     ]
   );
 
@@ -77,6 +78,17 @@ async function main(): Promise<void> {
     "AuditEvent_append_only_update_guard",
     "AuditEvent_append_only_delete_guard",
     "AuditEvent_insert_guard",
+    "Order_resource_version_initialize",
+    "Order_resource_version_business_update_bump",
+    "OrderItem_order_version_insert_bump",
+    "OrderItem_order_version_update_bump",
+    "OrderItem_order_version_delete_bump",
+    "OrderComment_order_version_insert_bump",
+    "OrderComment_order_version_update_bump",
+    "OrderComment_order_version_delete_bump",
+    "Invoice_order_version_insert_bump",
+    "Invoice_order_version_update_bump",
+    "Invoice_order_version_delete_bump",
   ];
   const triggers = await prisma.$queryRaw<NamedRow[]>`
     SELECT name
@@ -343,6 +355,12 @@ async function main(): Promise<void> {
     SELECT "resourceVersion" FROM "Rate" WHERE "id" = 'versioned-rate'
   `;
   assert.equal(rateVersion[0]?.resourceVersion, 2);
+
+  // Order aggregate tags advance for root, child, comment, and invoice changes.
+  const orderVersion = await prisma.$queryRaw<NumericRow[]>`
+    SELECT "resourceVersion" FROM "Order" WHERE "id" = 'tenant-order-a'
+  `;
+  assert.ok((orderVersion[0]?.resourceVersion ?? 0) >= 1);
 }
 
 void main().finally(() => prisma.$disconnect());
