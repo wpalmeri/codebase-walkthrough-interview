@@ -1,6 +1,13 @@
 import {
   EmailAddressSchema,
+  fingerprintTenantPaginationBinding,
+  formatPaginationCursor,
+  InvoicePageSchema,
+  parsePaginationCursor,
   TransmissionMethodSchema,
+  type InvoicePage,
+  type ListInvoicesV1Request,
+  type PaginationCursorFailureCode,
   type TransmissionMethod,
   type TransmissionStatus,
 } from "@meridian/contracts";
@@ -54,6 +61,7 @@ import {
   RequestAuditMetadataSchema,
 } from "../audit/requestAudit";
 import type { AuditEventRepository } from "../audit/auditEvent";
+import { z } from "zod";
 
 const invoiceInclude = {
   customer: true,
@@ -177,6 +185,72 @@ export async function listInvoices(tenantId: string): Promise<InvoiceModel[]> {
     orderBy: { issueDate: "desc" },
   });
   return rows.map(toInvoiceModel);
+}
+
+const InvoiceCursorOrderingSchema = z.tuple([
+  z.iso.datetime({ offset: true }),
+  z.string().min(1).max(1_024),
+]);
+
+export type InvoicePageResult =
+  | { readonly ok: true; readonly page: InvoicePage }
+  | { readonly ok: false; readonly code: PaginationCursorFailureCode };
+
+/**
+ * Lists a v1 tenant-scoped invoice page in descending `(issueDate, id)` order.
+ * The explicit id tie-breaker keeps tied issue dates deterministic and prevents
+ * inserts before a cursor boundary from duplicating later rows.
+ */
+export async function listInvoicesPage(
+  tenantId: string,
+  query: ListInvoicesV1Request["query"]
+): Promise<InvoicePageResult> {
+  const filterFingerprint = fingerprintTenantPaginationBinding({}, tenantId);
+  const parsedCursor = query.cursor === undefined
+    ? undefined
+    : parsePaginationCursor(query.cursor, { resource: "invoices", filterFingerprint });
+  if (parsedCursor !== undefined && !parsedCursor.ok) return parsedCursor;
+
+  const ordering = parsedCursor === undefined
+    ? undefined
+    : InvoiceCursorOrderingSchema.safeParse(parsedCursor.ordering);
+  if (ordering !== undefined && !ordering.success) {
+    return { ok: false, code: "CURSOR_MALFORMED" };
+  }
+
+  const [issueDate, id] = ordering === undefined ? [] : ordering.data;
+  const rows = await prisma.invoice.findMany({
+    where: {
+      tenantId,
+      ...(issueDate === undefined || id === undefined
+        ? {}
+        : {
+            OR: [
+              { issueDate: { lt: new Date(issueDate) } },
+              { issueDate: new Date(issueDate), id: { lt: id } },
+            ],
+          }),
+    },
+    include: invoiceInclude,
+    orderBy: [{ issueDate: "desc" }, { id: "desc" }],
+    take: query.limit + 1,
+  });
+  const pageRows = rows.slice(0, query.limit);
+  const lastRow = pageRows.at(-1);
+  const nextCursor = rows.length > query.limit && lastRow !== undefined
+    ? formatPaginationCursor({
+        resource: "invoices",
+        filterFingerprint,
+        ordering: [lastRow.issueDate.toISOString(), lastRow.id],
+      })
+    : null;
+  return {
+    ok: true,
+    page: InvoicePageSchema.parse({
+      data: pageRows.map(toInvoiceModel),
+      page: { limit: query.limit, nextCursor },
+    }),
+  };
 }
 
 export async function getInvoice(tenantId: string, invoiceId: string): Promise<InvoiceModel> {

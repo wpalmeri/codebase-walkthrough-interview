@@ -318,6 +318,14 @@ export type CreateInvoiceForOrderRequest = z.infer<
 export const ListInvoicesRequestSchema = EmptyRequestSchema;
 export type ListInvoicesRequest = z.infer<typeof ListInvoicesRequestSchema>;
 
+/** Pagination is additive on `/api/v1`; legacy `/api/invoices` stays an array. */
+export const ListInvoicesV1RequestSchema = requestSchema(
+  EmptyParamsSchema,
+  PaginationQuerySchema,
+  NoBodySchema
+);
+export type ListInvoicesV1Request = z.infer<typeof ListInvoicesV1RequestSchema>;
+
 export const GetInvoiceRequestSchema = requestSchema(
   IdParamsSchema,
   EmptyQuerySchema,

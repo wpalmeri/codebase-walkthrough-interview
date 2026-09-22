@@ -331,23 +331,29 @@ void describe("generated version-one OpenAPI contract", () => {
       .parse(document).paths;
     const invoiceJson = JSON.stringify(paths["/invoices"].get.responses["200"]);
     assert.match(invoiceJson, /totalDecimal|amountPaidDecimal|balanceDecimal/u);
+    assert.equal(list.parameters.some((parameter) => parameter.name === "limit" && parameter.in === "query"), true);
+    assert.equal(list.parameters.some((parameter) => parameter.name === "cursor" && parameter.in === "query"), true);
     const invoiceProperties = z
       .object({
         content: z.object({
           "application/json": z.object({
             schema: z.object({
-              items: z.object({
-                properties: z.object({
-                  totalDecimal: z.object({ pattern: z.string() }),
-                  amountPaidDecimal: z.object({ pattern: z.string() }),
-                  balanceDecimal: z.object({ pattern: z.string() }),
+              properties: z.object({
+                data: z.object({
+                  items: z.object({
+                    properties: z.object({
+                      totalDecimal: z.object({ pattern: z.string() }),
+                      amountPaidDecimal: z.object({ pattern: z.string() }),
+                      balanceDecimal: z.object({ pattern: z.string() }),
+                    }),
+                  }),
                 }),
               }),
             }),
           }),
         }),
       })
-      .parse(paths["/invoices"].get.responses["200"]).content["application/json"].schema.items.properties;
+      .parse(paths["/invoices"].get.responses["200"]).content["application/json"].schema.properties.data.items.properties;
     for (const decimal of [
       invoiceProperties.totalDecimal,
       invoiceProperties.amountPaidDecimal,

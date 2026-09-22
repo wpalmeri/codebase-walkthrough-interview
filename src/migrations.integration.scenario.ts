@@ -46,6 +46,7 @@ async function main(): Promise<void> {
       "20260922160000_invoice_conditional_writes",
       "20260922170000_catalog_cursor_pagination",
       "20260922180000_order_cursor_pagination",
+      "20260922190000_invoice_cursor_pagination",
     ]
   );
 

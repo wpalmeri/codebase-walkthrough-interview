@@ -1,7 +1,9 @@
 import {
   GetInvoiceRequestSchema,
+  InvoicePageSchema,
   InvoiceSchema,
   ListInvoicesRequestSchema,
+  ListInvoicesV1RequestSchema,
   PostInvoiceRequestSchema,
   RefreshTransmissionRequestSchema,
   SendInvoiceRequestSchema,
@@ -9,10 +11,12 @@ import {
   UpdateInvoiceRequestSchema,
 } from "@meridian/contracts";
 import { Router } from "express";
+import { z } from "zod";
 import { BILLING_WRITE_ROLES, READ_ROLES } from "../auth/authorization";
 import { requestAuditMetadata } from "../audit/requestAudit";
 import * as invoices from "../controllers/invoiceController";
 import { isV1Request } from "../http/apiVersion";
+import { formatNextPageLink } from "../http/pagination";
 import {
   EtagResponseHeadersSchema,
   IdempotencyRequestHeadersSchema,
@@ -20,23 +24,49 @@ import {
   defineOperation,
   mountOperation,
 } from "../openapi/operation";
+import { RequestValidationError, validateRequest } from "./helpers";
 
 // The header syntax is identical for every versioned resource ETag. Keep the
 // invoice name at this boundary while reusing the committed shared schema.
 const InvoiceConditionalRequestHeadersSchema = RateConditionalRequestHeadersSchema;
+const InvoiceListResponseSchema = z.union([InvoiceSchema.array(), InvoicePageSchema]);
 
 const listInvoicesOperation = defineOperation({
   method: "get",
   path: "/invoices",
   operationId: "listInvoices",
   summary: "List invoices",
-  request: ListInvoicesRequestSchema,
+  request: ListInvoicesV1RequestSchema,
   hasJsonBody: false,
-  success: { status: 200, description: "Invoices visible to the tenant", schema: InvoiceSchema.array() },
+  success: {
+    status: 200,
+    description: "Cursor-paginated invoice page",
+    schema: InvoiceListResponseSchema,
+    openApiSchema: InvoicePageSchema,
+  },
   security: "tenantBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 500],
-  handler: async ({ principal }) => invoices.listInvoices(principal.tenantId),
+  handler: async ({ input, principal, request, response }) => {
+    if (!isV1Request(request)) {
+      validateRequest(ListInvoicesRequestSchema, request);
+      return invoices.listInvoices(principal.tenantId);
+    }
+
+    const page = await invoices.listInvoicesPage(principal.tenantId, input.query);
+    if (!page.ok) {
+      throw new RequestValidationError([
+        {
+          code: page.code,
+          path: "query.cursor",
+          message: "Cursor is invalid for this invoice query",
+        },
+      ]);
+    }
+    const link = formatNextPageLink(request.originalUrl, page.page.page.nextCursor);
+    if (link !== undefined) response.append("Link", link);
+    return page.page;
+  },
 });
 
 const getInvoiceOperation = defineOperation({

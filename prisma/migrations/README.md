@@ -290,6 +290,20 @@ existing bare array. Cursors are bound to the `orders` resource and a tenant
 fingerprint derived from authentication; no plaintext tenant value appears in
 the cursor payload.
 
+### Invoice cursor pagination
+
+`20260922190000_invoice_cursor_pagination` adds one tenant-first keyset index on
+`Invoice(tenantId, issueDate DESC, id DESC)`. It does not alter, backfill, or
+rewrite business rows. SQLite scans the existing table to build this index and
+blocks writers during DDL, so time it against a production-sized copy and apply
+it in a controlled low-write window; SQLite has no concurrent-index mode.
+
+After deployment, `/api/v1/invoices` uses an additive bounded cursor envelope
+in descending `(issueDate, id)` order. Its legacy `/api/invoices` route remains
+the existing bare array. Cursors are bound to the `invoices` resource and a
+tenant fingerprint derived from authentication; no plaintext tenant value
+appears in the cursor payload.
+
 ### Append-only audit events
 
 `20260922130000_audit_events` creates a new empty `AuditEvent` table and two

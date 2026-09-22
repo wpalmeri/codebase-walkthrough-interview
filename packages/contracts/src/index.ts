@@ -234,6 +234,10 @@ export const InvoiceSchema = z.object({
 });
 export type Invoice = z.infer<typeof InvoiceSchema>;
 
+/** Additive v1 envelope; legacy invoice lists remain bare arrays. */
+export const InvoicePageSchema = PageEnvelopeSchema(InvoiceSchema);
+export type InvoicePage = z.infer<typeof InvoicePageSchema>;
+
 export const PaymentApplicationSchema = z.object({
   id,
   invoiceId: id,

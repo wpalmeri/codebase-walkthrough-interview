@@ -353,6 +353,7 @@ model Invoice {
   tenant        Tenant?              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([tenantId])
+  @@index([tenantId, issueDate(sort: Desc), id(sort: Desc)])
 }
 
 // This table has exactly one permitted row (id = 1). Its nullable close date
