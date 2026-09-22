@@ -53,7 +53,8 @@ class IdempotencyHeaderError extends ApplicationError {
     code:
       | "INVALID_IDEMPOTENCY_KEY"
       | "INVALID_IDEMPOTENCY_CLIENT"
-      | "IDEMPOTENCY_PRINCIPAL_REQUIRED",
+      | "IDEMPOTENCY_PRINCIPAL_REQUIRED"
+      | "IDEMPOTENCY_NOT_SUPPORTED",
     detail: string
   ) {
     super({
@@ -110,6 +111,17 @@ function recordFor(request: Request): IdempotencyRecord | null {
     throw new IdempotencyHeaderError("INVALID_IDEMPOTENCY_KEY", "Idempotency-Key must be a 1-128 character printable ASCII value");
   }
 
+  // This endpoint returns a one-time plaintext credential. Capturing its
+  // response would retain the secret in IdempotencyRecord, so reject the
+  // header before any reservation is attempted.
+  const route = routeFor(request);
+  if (request.method === idempotencyHttpMethod.POST && route === "/api/tenant-api-keys") {
+    throw new IdempotencyHeaderError(
+      "IDEMPOTENCY_NOT_SUPPORTED",
+      "Idempotency-Key is not supported when issuing one-time credentials"
+    );
+  }
+
   const suppliedClient = request.get("idempotency-client");
   const parsedClient = suppliedClient === undefined ? undefined : IdempotencyClientSchema.safeParse(suppliedClient);
   if (parsedClient !== undefined && !parsedClient.success) {
@@ -127,7 +139,6 @@ function recordFor(request: Request): IdempotencyRecord | null {
     );
   }
 
-  const route = routeFor(request);
   return IdempotencyRecordSchema.parse({
     tenantId: principal.data.tenantId,
     // Never persist a bearer credential, its secret, or a hash derived from

@@ -84,6 +84,8 @@ void describe("generated version-one OpenAPI contract", () => {
         "post /payments",
         "post /payments/{id}/apply",
         "post /payments/{id}/applications/{applicationId}/reversals",
+        "post /tenant-api-keys",
+        "post /tenant-api-keys/revoke",
         "put /rates/{id}",
         "put /invoices/{id}",
         "put /orders/{id}",
@@ -142,6 +144,22 @@ void describe("generated version-one OpenAPI contract", () => {
       .parse(parsed.paths["/rates/{id}"].put.responses["400"]);
     assert.equal("application/json" in badRequest.content, true);
     assert.equal("application/problem+json" in badRequest.content, true);
+  });
+
+  void test("documents one-time tenant-key issuance as non-cacheable and non-replayable", () => {
+    const document = createOpenApiV1Document(openApiV1Operations);
+    const issue = operation(document, "/tenant-api-keys", "post");
+    const revoke = operation(document, "/tenant-api-keys/revoke", "post");
+    assert.equal(issue.parameters.some((parameter) => parameter.name === "Idempotency-Key"), false);
+    assert.equal(revoke.parameters.some((parameter) => parameter.name === "Idempotency-Key"), true);
+    assert.equal("409" in revoke.responses, true);
+    const paths = z
+      .object({ paths: z.record(z.string(), z.record(z.string(), z.unknown())) })
+      .parse(document).paths;
+    const issueResponse = z.object({ responses: z.record(z.string(), z.unknown()) }).parse(paths["/tenant-api-keys"]?.post).responses["201"];
+    const response = z.object({ headers: z.record(z.string(), z.unknown()) }).parse(issueResponse);
+    assert.ok(response.headers["Cache-Control"]);
+    assert.ok(response.headers.Pragma);
   });
 
   void test("documents payment pagination, bodies, replay headers, statuses, and public error contracts", () => {

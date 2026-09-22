@@ -75,6 +75,12 @@ export const PercentageInputSchema = z.union([
 const EmptyParamsSchema = EmptyObjectSchema;
 const EmptyQuerySchema = EmptyObjectSchema;
 const IdParamsSchema = z.strictObject({ id: IdentifierSchema });
+const TenantApiKeyPrefixSchema = z.string().regex(/^mrd_[A-Za-z0-9]{8,32}$/u);
+/** Prisma uses a 191-character identifier ceiling for persisted tenant credentials. */
+export const TenantApiKeyIdSchema = z.string().min(1).max(191);
+/** Shared wire vocabulary for tenant credentials and their administration requests. */
+export const TenantApiKeyRoleSchema = z.enum(["ADMIN", "BILLING", "VIEWER"]);
+export type TenantApiKeyRole = z.infer<typeof TenantApiKeyRoleSchema>;
 const PaymentApplicationParamsSchema = z.strictObject({
   id: IdentifierSchema,
   applicationId: IdentifierSchema,
@@ -325,6 +331,31 @@ export const ListInvoicesV1RequestSchema = requestSchema(
   NoBodySchema
 );
 export type ListInvoicesV1Request = z.infer<typeof ListInvoicesV1RequestSchema>;
+
+/** Tenant is always derived from the authenticated ADMIN credential. */
+export const IssueTenantApiKeyRequestSchema = requestSchema(
+  EmptyParamsSchema,
+  EmptyQuerySchema,
+  z.strictObject({
+    name: z.string().trim().min(1).max(160),
+    role: TenantApiKeyRoleSchema,
+  })
+);
+export type IssueTenantApiKeyRequest = z.infer<typeof IssueTenantApiKeyRequestSchema>;
+
+/** Exactly one opaque operator-facing identifier is accepted for revocation. */
+export const RevokeTenantApiKeyRequestSchema = requestSchema(
+  EmptyParamsSchema,
+  EmptyQuerySchema,
+  z
+    .strictObject({ keyId: TenantApiKeyIdSchema.optional(), keyPrefix: TenantApiKeyPrefixSchema.optional() })
+    .superRefine((value, context) => {
+      if ((value.keyId === undefined) === (value.keyPrefix === undefined)) {
+        context.addIssue({ code: "custom", message: "provide exactly one of keyId or keyPrefix" });
+      }
+    })
+);
+export type RevokeTenantApiKeyRequest = z.infer<typeof RevokeTenantApiKeyRequestSchema>;
 
 export const GetInvoiceRequestSchema = requestSchema(
   IdParamsSchema,

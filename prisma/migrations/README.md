@@ -304,6 +304,20 @@ the existing bare array. Cursors are bound to the `invoices` resource and a
 tenant fingerprint derived from authentication; no plaintext tenant value
 appears in the cursor payload.
 
+### Tenant API-key administrator lockout guard
+
+`20260922200000_tenant_api_key_admin_guard` installs two row-scoped triggers
+that prevent an update or delete from removing a tenant's final active ADMIN
+credential. The migration is expand-only and performs no deployment-time scan,
+rewrite, backfill, index build, or table rebuild; the small indexed existence
+check runs only when an active ADMIN key is revoked, demoted, moved, or deleted.
+
+Deploy this guard before exposing authenticated key administration. The API
+also rejects self-revocation, while the database trigger is the concurrency and
+direct-SQL backstop. Existing tenants without an active ADMIN are not blocked
+from unrelated writes, but must be reconciled through the explicit bootstrap
+procedure before they can use the authenticated administration endpoints.
+
 ### Append-only audit events
 
 `20260922130000_audit_events` creates a new empty `AuditEvent` table and two

@@ -4,6 +4,7 @@ import { problemFromError, type ProblemDetails } from "./errors";
 import {
   createAuthenticationMiddleware,
   createPrismaTenantPrincipalResolver,
+  ApiKeyPepperSchema,
   type TenantPrincipalResolver,
 } from "./auth/tenantPrincipal";
 import { createIdempotencyMiddleware, createPrismaIdempotencyStore, type IdempotencyStore } from "./idempotency";
@@ -75,6 +76,11 @@ export function createApp(options: AppOptions = {}): express.Express {
   }
   const app = express();
   app.disable("x-powered-by");
+  // Route handlers receive this already-validated secret through app-local
+  // configuration rather than by consulting ambient environment at request time.
+  if (configuredApiKeyPepper.length > 0) {
+    app.locals.meridianApiKeyPepper = ApiKeyPepperSchema.parse(configuredApiKeyPepper);
+  }
   app.use(createRequestContextMiddleware());
   app.use(express.json());
   const idempotency = createIdempotencyMiddleware(options.idempotencyStore ?? createPrismaIdempotencyStore());

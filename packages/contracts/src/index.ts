@@ -5,7 +5,7 @@ import {
   QuantityStringSchema,
 } from "./decimal.js";
 import { PageEnvelopeSchema } from "./paginationSchemas.js";
-import { TransmissionMethodSchema } from "./requests.js";
+import { TenantApiKeyRoleSchema, TransmissionMethodSchema } from "./requests.js";
 
 const id = z.string().min(1);
 const isoDateTime = z.iso.datetime({ offset: true });
@@ -237,6 +237,36 @@ export type Invoice = z.infer<typeof InvoiceSchema>;
 /** Additive v1 envelope; legacy invoice lists remain bare arrays. */
 export const InvoicePageSchema = PageEnvelopeSchema(InvoiceSchema);
 export type InvoicePage = z.infer<typeof InvoicePageSchema>;
+
+/** Public metadata for an opaque tenant API key; neither the secret nor its digest is exposed. */
+export { TenantApiKeyRoleSchema } from "./requests.js";
+export type { TenantApiKeyRole } from "./requests.js";
+
+export const TenantApiKeySchema = z.strictObject({
+  id,
+  name: z.string().min(1).max(160),
+  role: TenantApiKeyRoleSchema,
+  keyPrefix: z.string().regex(/^mrd_[A-Za-z0-9]{8,32}$/u),
+  createdAt: isoDateTime,
+});
+export type TenantApiKey = z.infer<typeof TenantApiKeySchema>;
+
+/** The token is returned at issue time only and must never be persisted for replay. */
+export const IssueTenantApiKeyResponseSchema = z.strictObject({
+  key: TenantApiKeySchema,
+  token: z.string().regex(/^mrd_[A-Za-z0-9]{8,32}_[A-Za-z0-9-]{32,128}$/u),
+});
+export type IssueTenantApiKeyResponse = z.infer<typeof IssueTenantApiKeyResponseSchema>;
+
+export const RevokeTenantApiKeyResponseSchema = z.strictObject({
+  key: z.strictObject({
+    id,
+    keyPrefix: z.string().regex(/^mrd_[A-Za-z0-9]{8,32}$/u),
+    state: z.enum(["REVOKED", "ALREADY_REVOKED"]),
+    revokedAt: isoDateTime,
+  }),
+});
+export type RevokeTenantApiKeyResponse = z.infer<typeof RevokeTenantApiKeyResponseSchema>;
 
 export const PaymentApplicationSchema = z.object({
   id,

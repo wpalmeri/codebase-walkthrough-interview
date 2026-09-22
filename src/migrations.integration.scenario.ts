@@ -47,6 +47,7 @@ async function main(): Promise<void> {
       "20260922170000_catalog_cursor_pagination",
       "20260922180000_order_cursor_pagination",
       "20260922190000_invoice_cursor_pagination",
+      "20260922200000_tenant_api_key_admin_guard",
     ]
   );
 
@@ -110,6 +111,8 @@ async function main(): Promise<void> {
     "Transmission_invoice_version_insert_bump",
     "Transmission_invoice_version_update_bump",
     "Transmission_invoice_version_delete_bump",
+    "TenantApiKey_retain_active_admin_update_guard",
+    "TenantApiKey_retain_active_admin_delete_guard",
   ];
   const triggers = await prisma.$queryRaw<NamedRow[]>`
     SELECT name
@@ -401,6 +404,36 @@ async function main(): Promise<void> {
     SELECT "resourceVersion" FROM "Order" WHERE "id" = 'tenant-order-a'
   `;
   assert.ok((orderVersion[0]?.resourceVersion ?? 0) >= 1);
+
+  await prisma.tenant.create({ data: { id: "admin-guard-tenant", slug: "admin-guard-tenant", name: "Admin Guard" } });
+  await prisma.tenantApiKey.create({
+    data: {
+      id: "admin-guard-one", tenantId: "admin-guard-tenant", name: "only admin", role: "ADMIN",
+      keyPrefix: "mrd_adminguardone", keyHash: "hmac-sha256:v1:1111111111111111111111111111111111111111111111111111111111111111",
+    },
+  });
+  await assert.rejects(
+    prisma.tenantApiKey.update({ where: { id: "admin-guard-one" }, data: { revokedAt: new Date() } }),
+    (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "P2003"
+  );
+  assert.equal((await prisma.tenantApiKey.findUniqueOrThrow({ where: { id: "admin-guard-one" } })).revokedAt, null);
+  await assert.rejects(
+    prisma.tenantApiKey.delete({ where: { id: "admin-guard-one" } }),
+    (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "P2003"
+  );
+  assert.equal(await prisma.tenantApiKey.count({ where: { id: "admin-guard-one" } }), 1);
+  await prisma.tenantApiKey.create({
+    data: {
+      id: "admin-guard-two", tenantId: "admin-guard-tenant", name: "second admin", role: "ADMIN",
+      keyPrefix: "mrd_adminguardtwo", keyHash: "hmac-sha256:v1:2222222222222222222222222222222222222222222222222222222222222222",
+    },
+  });
+  await prisma.tenantApiKey.update({ where: { id: "admin-guard-one" }, data: { revokedAt: new Date() } });
+  await assert.rejects(
+    prisma.tenantApiKey.update({ where: { id: "admin-guard-two" }, data: { role: "VIEWER" } }),
+    (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "P2003"
+  );
+  assert.equal((await prisma.tenantApiKey.findUniqueOrThrow({ where: { id: "admin-guard-two" } })).role, "ADMIN");
 }
 
 void main().finally(() => prisma.$disconnect());

@@ -388,6 +388,46 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/tenant-api-keys": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Issue a tenant API key
+         * @description Requires an active ADMIN tenant API key. The plaintext token is returned exactly once and Idempotency-Key is deliberately unsupported.
+         */
+        readonly post: operations["issueTenantApiKey"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/tenant-api-keys/revoke": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Revoke a tenant API key
+         * @description Requires an active ADMIN tenant API key. Revocation is tenant-scoped and monotonic.
+         */
+        readonly post: operations["revokeTenantApiKey"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3945,6 +3985,192 @@ export interface operations {
             };
             /** @description Error 403 */
             readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 500 */
+            readonly 500: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    readonly issueTenantApiKey: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                readonly "X-Request-ID"?: string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": {
+                    readonly name: string;
+                    /** @enum {string} */
+                    readonly role: "ADMIN" | "BILLING" | "VIEWER";
+                };
+            };
+        };
+        readonly responses: {
+            /** @description Issued tenant API key and one-time token */
+            readonly 201: {
+                headers: {
+                    readonly "Cache-Control": "no-store";
+                    readonly Pragma: "no-cache";
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly key: {
+                            /** Format: date-time */
+                            readonly createdAt: string;
+                            readonly id: string;
+                            readonly keyPrefix: string;
+                            readonly name: string;
+                            /** @enum {string} */
+                            readonly role: "ADMIN" | "BILLING" | "VIEWER";
+                        };
+                        readonly token: string;
+                    };
+                };
+            };
+            /** @description Invalid request syntax, headers, or validated input */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ValidationError"];
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 401 */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 403 */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 409 */
+            readonly 409: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 500 */
+            readonly 500: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    readonly revokeTenantApiKey: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                readonly "Idempotency-Client"?: string;
+                readonly "Idempotency-Key"?: string;
+                readonly "X-Request-ID"?: string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": {
+                    readonly keyId?: string;
+                    readonly keyPrefix?: string;
+                };
+            };
+        };
+        readonly responses: {
+            /** @description Tenant API key revocation result */
+            readonly 200: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly key: {
+                            readonly id: string;
+                            readonly keyPrefix: string;
+                            /** Format: date-time */
+                            readonly revokedAt: string;
+                            /** @enum {string} */
+                            readonly state: "REVOKED" | "ALREADY_REVOKED";
+                        };
+                    };
+                };
+            };
+            /** @description Invalid request syntax, headers, or validated input */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ValidationError"];
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 401 */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 403 */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 404 */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 409 */
+            readonly 409: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
