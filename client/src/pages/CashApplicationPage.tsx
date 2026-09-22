@@ -39,7 +39,7 @@ export function CashApplicationPage() {
     try {
       const payment = await apiPost<Payment>("/payments", {
         customerId,
-        amount: Number(amount),
+        amount,
         reference: reference || undefined,
       });
       setMessage(`Recorded ${money(payment.amount)} from ${payment.customerName}.`);
@@ -66,14 +66,14 @@ export function CashApplicationPage() {
     setError(null);
     setMessage(null);
     const applications = Object.entries(applyAmounts)
-      .map(([invoiceId, value]) => ({ invoiceId, amount: Number(value) }))
-      .filter((application) => application.amount > 0);
+      .filter(([, value]) => /[1-9]/.test(value))
+      .map(([invoiceId, value]) => ({ invoiceId, amount: value }));
     try {
       const updated = await apiPost<Payment>(`/payments/${openPayment.id}/apply`, {
         applications,
       });
       setMessage(
-        `Applied ${money(applications.reduce((sum, a) => sum + a.amount, 0))} from ${
+        `Applied ${money(applyTotal)} from ${
           updated.customerName
         } — ${money(updated.unapplied)} remains unapplied.`
       );

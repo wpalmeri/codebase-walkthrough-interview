@@ -66,7 +66,7 @@ export function OrderDetailPage({ orderId }: { orderId: string }) {
         customerId,
         orderDate,
         notes,
-        items: order.items.map((item) => ({ id: item.id, quantity: Number(qty[item.id]) })),
+        items: order.items.map((item) => ({ id: item.id, quantity: qty[item.id] })),
       })
     );
 

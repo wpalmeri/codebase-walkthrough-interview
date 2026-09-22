@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  MoneyInputStringSchema,
+  PercentageInputStringSchema,
+  QuantityInputStringSchema,
+} from "./decimal.js";
 
 export const TransmissionMethodSchema = z.enum(["EMAIL", "PORTAL", "API"]);
 
@@ -30,9 +35,41 @@ export const IsoDateInputSchema = z.union([
   z.iso.datetime({ offset: true }),
 ]);
 
-const NonNegativeMoneyInputSchema = z.number().finite().nonnegative();
-const PositiveMoneyInputSchema = z.number().finite().positive();
-const PositiveQuantityInputSchema = z.number().finite().positive();
+function isPositiveDecimal(value: string): boolean {
+  return /[1-9]/.test(value);
+}
+
+function decimalCoefficient(value: string, scale: number): bigint {
+  const [whole, fraction = ""] = value.split(".");
+  return BigInt(`${whole}${fraction.padEnd(scale, "0")}`);
+}
+
+function lessThanOrEqual(
+  left: string | number,
+  right: string | number,
+  scale: number
+): boolean {
+  return typeof left === "string" && typeof right === "string"
+    ? decimalCoefficient(left, scale) <= decimalCoefficient(right, scale)
+    : Number(left) <= Number(right);
+}
+
+export const NonNegativeMoneyInputSchema = z.union([
+  z.number().finite().nonnegative(),
+  MoneyInputStringSchema,
+]);
+export const PositiveMoneyInputSchema = z.union([
+  z.number().finite().positive(),
+  MoneyInputStringSchema.refine(isPositiveDecimal, "Must be greater than zero"),
+]);
+export const PositiveQuantityInputSchema = z.union([
+  z.number().finite().positive(),
+  QuantityInputStringSchema.refine(isPositiveDecimal, "Must be greater than zero"),
+]);
+export const PercentageInputSchema = z.union([
+  z.number().finite().min(0).max(100),
+  PercentageInputStringSchema,
+]);
 
 const EmptyParamsSchema = EmptyObjectSchema;
 const EmptyQuerySchema = EmptyObjectSchema;
@@ -68,13 +105,14 @@ const ReportPeriodQuerySchema = z
 
 const RateTierInputSchema = z
   .strictObject({
-    upTo: z.number().finite().positive().nullable(),
+    upTo: PositiveQuantityInputSchema.nullable(),
     unitPrice: NonNegativeMoneyInputSchema,
     floor: NonNegativeMoneyInputSchema.nullish(),
     ceiling: NonNegativeMoneyInputSchema.nullish(),
   })
   .refine(
-    ({ floor, ceiling }) => floor == null || ceiling == null || floor <= ceiling,
+    ({ floor, ceiling }) =>
+      floor == null || ceiling == null || lessThanOrEqual(floor, ceiling, 4),
     { path: ["ceiling"], message: "Must be greater than or equal to floor" }
   );
 
@@ -82,7 +120,7 @@ const RateTiersInputSchema = z
   .array(RateTierInputSchema)
   .max(100)
   .superRefine((tiers, context) => {
-    let previousLimit = 0;
+    let previousLimit: string | number = 0;
     for (const [index, tier] of tiers.entries()) {
       if (tier.upTo === null) {
         if (index !== tiers.length - 1) {
@@ -94,14 +132,15 @@ const RateTiersInputSchema = z
         }
         continue;
       }
-      if (tier.upTo <= previousLimit) {
+      const currentLimit = tier.upTo;
+      if (lessThanOrEqual(currentLimit, previousLimit, 6)) {
         context.addIssue({
           code: "custom",
           path: [index, "upTo"],
           message: "Tier limits must be strictly increasing",
         });
       }
-      previousLimit = tier.upTo;
+      previousLimit = currentLimit;
     }
   });
 
@@ -148,7 +187,7 @@ export const CreateComboDiscountRequestSchema = requestSchema(
       .min(1)
       .max(100)
       .refine((ids) => new Set(ids).size === ids.length, "Product IDs must be unique"),
-    percentOff: z.number().finite().min(0).max(100),
+    percentOff: PercentageInputSchema,
     customerId: IdentifierSchema.nullable().optional(),
   })
 );

@@ -87,13 +87,13 @@ export function ProductsPage() {
       const tiers = editor.tiers
         .filter((row) => row.unitPrice !== "")
         .map((row) => ({
-          upTo: row.upTo === "" ? null : Number(row.upTo),
-          unitPrice: Number(row.unitPrice),
-          floor: row.floor === "" ? null : Number(row.floor),
-          ceiling: row.ceiling === "" ? null : Number(row.ceiling),
+          upTo: row.upTo === "" ? null : row.upTo,
+          unitPrice: row.unitPrice,
+          floor: row.floor === "" ? null : row.floor,
+          ceiling: row.ceiling === "" ? null : row.ceiling,
         }));
       await apiPut(`/rates/${editor.rateId}`, {
-        unitPrice: Number(editor.unitPrice),
+        unitPrice: editor.unitPrice,
         tiers,
       });
       setEditor(null);
@@ -115,7 +115,7 @@ export function ProductsPage() {
       await apiPost("/rates/combos", {
         name: comboForm.name,
         productIds: comboForm.productIds,
-        percentOff: Number(comboForm.percentOff),
+        percentOff: comboForm.percentOff,
         customerId: comboForm.scope === "global" ? null : customerId,
       });
       setComboForm({ name: "", productIds: [], percentOff: "", scope: "customer" });

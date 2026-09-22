@@ -18,6 +18,13 @@ import {
 
 export type { ExactRateTier, RateTier } from "@meridian/contracts";
 
+export interface RateTierInput {
+  readonly upTo: number | string | null;
+  readonly unitPrice: number | string;
+  readonly floor?: number | string | null;
+  readonly ceiling?: number | string | null;
+}
+
 const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "tier unit price" } as const;
 const quantityFormat = {
   scale: QUANTITY_SCALE,
@@ -47,7 +54,9 @@ function toLegacyRateTier(tier: PersistedRateTier): RateTier {
   });
 }
 
-function canonicalOptionalMoney(value: number | null | undefined): string | null | undefined {
+function canonicalOptionalMoney(
+  value: number | string | null | undefined
+): string | null | undefined {
   if (value === null || value === undefined) return value;
   return MoneyStringSchema.parse(canonicalMoney(value, "tier unit price"));
 }
@@ -57,7 +66,7 @@ function canonicalOptionalMoney(value: number | null | undefined): string | null
  * persisted in Rate.tiers. Monetary values and quantities are strings so JSON
  * cannot turn a decimal into a binary float on a later read.
  */
-export function serializeRateTiers(tiers: readonly RateTier[]): ExactRateTier[] {
+export function serializeRateTiers(tiers: readonly RateTierInput[]): ExactRateTier[] {
   return tiers.map((tier) => {
     const floor = canonicalOptionalMoney(tier.floor);
     const ceiling = canonicalOptionalMoney(tier.ceiling);

@@ -61,7 +61,7 @@ async function capturedOrderLines(
   transaction: PricingTransaction,
   input: {
     customerId: string;
-    items: readonly { productId: string; quantity: number }[];
+    items: readonly { productId: string; quantity: string | number }[];
     capturedAt: Date;
   }
 ): Promise<CapturedOrderPricing[]> {
@@ -178,7 +178,7 @@ function orderItemCreateData(orderId: string, captured: CapturedOrderPricing) {
 
 export async function createOrder(input: {
   customerId: string;
-  items: { productId: string; quantity: number }[];
+  items: { productId: string; quantity: string | number }[];
   notes?: string;
 }): Promise<OrderModel> {
   const orderId = randomUUID();
@@ -215,7 +215,7 @@ export async function saveOrder(
     customerId?: string;
     orderDate?: string;
     notes?: string;
-    items?: { id: string; quantity: number }[];
+    items?: { id: string; quantity: string | number }[];
     comment?: { author?: string; body: string };
   }
 ): Promise<OrderModel> {

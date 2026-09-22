@@ -1,39 +1,15 @@
 import { z } from "zod";
+import {
+  MoneyStringSchema,
+  PercentageStringSchema,
+  QuantityStringSchema,
+} from "./decimal.js";
 import { TransmissionMethodSchema } from "./requests.js";
 
 const id = z.string().min(1);
 const isoDateTime = z.iso.datetime({ offset: true });
 const money = z.number().finite();
 const nonNegativeMoney = money.nonnegative();
-
-/** A nonnegative JSON decimal without a sign, exponent, or ambiguous leading zero. */
-export const DecimalStringSchema = z.string().regex(/^(?:0|[1-9]\d*)(?:\.\d+)?$/);
-export type DecimalString = z.infer<typeof DecimalStringSchema>;
-
-function fixedDecimalString(precision: number, scale: number) {
-  const integerDigits = precision - scale;
-  return z
-    .string()
-    .regex(new RegExp(`^(?:0|[1-9]\\d{0,${integerDigits - 1}})\\.\\d{${scale}}$`));
-}
-
-/** Canonical DECIMAL(19,4) monetary JSON value. */
-export const MoneyStringSchema = fixedDecimalString(19, 4);
-export type MoneyString = z.infer<typeof MoneyStringSchema>;
-
-/** Canonical DECIMAL(19,6) quantity JSON value. */
-export const QuantityStringSchema = fixedDecimalString(19, 6);
-export type QuantityString = z.infer<typeof QuantityStringSchema>;
-
-/** Canonical DECIMAL(7,4) percentage JSON value from 0 through 100 inclusive. */
-export const PercentageStringSchema = fixedDecimalString(7, 4).refine(
-  (value) => {
-    const coefficient = value.replace(".", "");
-    return /^\d+$/.test(coefficient) && BigInt(coefficient) <= 1_000_000n;
-  },
-  "percentage must not exceed 100.0000"
-);
-export type PercentageString = z.infer<typeof PercentageStringSchema>;
 
 /** ISO 4217 storage code syntax; membership is enforced by the application code list. */
 export const CurrencyCodeSchema = z.string().regex(/^[A-Z]{3}$/);
@@ -282,3 +258,4 @@ export const AnnualRevenueSchema = z.object({
 export type AnnualRevenue = z.infer<typeof AnnualRevenueSchema>;
 
 export * from "./requests.js";
+export * from "./decimal.js";
