@@ -40,13 +40,12 @@ async function request(
 ): Promise<{ status: number; body: unknown }> {
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("catalog test server has no TCP address");
+  const headers = new Headers(init.headers);
+  headers.set("authorization", `Bearer ${token}`);
+  if (init.body !== undefined) headers.set("content-type", "application/json");
   const response = await fetch(`http://127.0.0.1:${address.port}/api${path}`, {
     ...init,
-    headers: {
-      authorization: `Bearer ${token}`,
-      ...(init.body === undefined ? {} : { "content-type": "application/json" }),
-      ...init.headers,
-    },
+    headers,
   });
   return { status: response.status, body: await response.json() };
 }
