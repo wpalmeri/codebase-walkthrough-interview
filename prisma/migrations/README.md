@@ -193,6 +193,25 @@ version in the same transaction, and return the new strong ETag. Do not accept
 wildcard, weak, or multi-value `If-Match` headers for a mutation that needs a
 single-resource compare-and-swap contract.
 
+### Rate conditional writes and ETag replay
+
+`20260922110000_rate_conditional_writes` adds only a nullable response-ETag
+column to the empty idempotency table plus SQLite triggers on new and updated
+Rate rows. It does not scan, rebuild, or rewrite existing rates. New rates are
+initialized at version 1 after insertion; an older null rate remains logically
+version 0 until its first business update or conditional write. The trigger
+advances versions for legacy/direct business updates, while a versioned API
+write advances its value in the compare-and-swap statement and therefore does
+not double-increment.
+
+Deploy this migration before exposing `/api/v1/rates/:id` ETags. Test it on a
+production-sized copy because SQLite writers are serialized; although this
+deploy itself is metadata plus triggers, high-rate direct catalog writes will
+now perform one small additional row update. Keep the legacy `/api` write path
+available during client migration. Retried idempotent writes store and replay
+the exact response ETag, and their fingerprints include `If-Match`, so a stale
+precondition can never silently replay a response for a different revision.
+
 ### Legacy ownership backfill
 
 `bun run db:backfill:tenant-ownership` is preview-only by default. It reports stable ownership-conflict

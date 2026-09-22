@@ -1,5 +1,11 @@
 import { prisma } from "../db";
-import { NotFoundError } from "../errors";
+import type { Prisma } from "@prisma/client";
+import { ApplicationError, NotFoundError, PreconditionError } from "../errors";
+import {
+  formatResourceEtag,
+  verifyResourceIfMatch,
+  type ResourceVersionPreconditionFailure,
+} from "../http/resourceVersion";
 import {
   ComboDiscountModel,
   RateModel,
@@ -91,6 +97,25 @@ export async function listRates(tenantId: string, customerId?: string): Promise<
   return rows.map(toRateModel);
 }
 
+export interface VersionedRate {
+  readonly rate: RateModel;
+  readonly etag: string;
+}
+
+/**
+ * Reads one rate inside the authenticated tenant. A legacy null version is
+ * intentionally exposed as logical version zero so old rows can opt into CAS
+ * without an unsafe deploy-time data scan.
+ */
+export async function getVersionedRate(tenantId: string, rateId: string): Promise<VersionedRate> {
+  const rate = await findTenantRate(prisma, tenantId, rateId);
+  if (rate === null) throw new NotFoundError();
+  return {
+    rate: toRateModel(rate),
+    etag: formatResourceEtag({ kind: "rate", id: rate.id, version: logicalResourceVersion(rate.resourceVersion) }),
+  };
+}
+
 // Combos scoped to the tenant, optionally to a tenant customer plus its tenant-wide ones.
 export async function listComboDiscounts(
   tenantId: string,
@@ -149,8 +174,8 @@ export async function createComboDiscount(tenantId: string, input: {
   });
 }
 
-// Update a customer's rate. Orders pick up the new price the next time they are
-// re-rated (on save, or when an invoice is generated).
+// Update a customer's rate. Existing captured order and invoice prices remain
+// immutable; only future order pricing captures can use this commercial term.
 export async function updateRate(
   tenantId: string,
   rateId: string,
@@ -167,4 +192,90 @@ export async function updateRate(
   });
   if (rate === null) throw new NotFoundError();
   return toRateModel(rate);
+}
+
+/**
+ * Performs a tenant-scoped compare-and-swap update. The predicate includes the
+ * stored nullable version, so two callers holding the same ETag cannot both
+ * modify a legacy or already-versioned row.
+ */
+export async function updateRateConditionally(
+  tenantId: string,
+  rateId: string,
+  input: { unitPrice: DecimalInput; tiers?: RateTierInput[] },
+  ifMatch: string | undefined
+): Promise<VersionedRate> {
+  return prisma.$transaction(async (transaction) => {
+    const existing = await findTenantRate(transaction, tenantId, rateId);
+    // Resolve visibility before inspecting a precondition so foreign and
+    // missing IDs remain indistinguishable to a tenant principal.
+    if (existing === null) throw new NotFoundError();
+
+    const currentVersion = logicalResourceVersion(existing.resourceVersion);
+    const precondition = verifyResourceIfMatch(ifMatch, { kind: "rate", id: existing.id }, currentVersion);
+    if (!precondition.ok) throwPrecondition(precondition);
+    if (precondition.version === Number.MAX_SAFE_INTEGER) {
+      throw new PreconditionError(
+        "RESOURCE_VERSION_EXHAUSTED",
+        "This resource version cannot be advanced safely"
+      );
+    }
+
+    const nextVersion = precondition.version + 1;
+    const result = await transaction.rate.updateMany({
+      where: {
+        id: existing.id,
+        ...tenantRateWhere(tenantId),
+        ...(existing.resourceVersion === null
+          ? { resourceVersion: null }
+          : { resourceVersion: precondition.version }),
+      },
+      data: {
+        ...buildRateUpdateData(input),
+        resourceVersion: nextVersion,
+      },
+    });
+    if (result.count !== 1) {
+      // A concurrent delete should retain the ordinary not-found shape. Every
+      // other failed predicate is a stale representation, including an update
+      // that initialized a formerly-null version.
+      const stillVisible = await findTenantRate(transaction, tenantId, rateId);
+      if (stillVisible === null) throw new NotFoundError();
+      throw new PreconditionError("ETAG_VERSION_MISMATCH", "If-Match does not match the current resource version");
+    }
+
+    // This read stays in the same transaction as the CAS. Another writer
+    // therefore cannot advance the row between the representation and its ETag.
+    const updated = await findTenantRate(transaction, tenantId, rateId);
+    if (updated === null) throw new NotFoundError();
+    return {
+      rate: toRateModel(updated),
+      etag: formatResourceEtag({ kind: "rate", id: updated.id, version: nextVersion }),
+    };
+  });
+}
+
+function logicalResourceVersion(value: number | null): number {
+  return value ?? 0;
+}
+
+function throwPrecondition(failure: ResourceVersionPreconditionFailure): never {
+  if (failure.status === 412) throw new PreconditionError(failure.code, failure.detail);
+  throw new ApplicationError({
+    type:
+      failure.status === 428
+        ? "urn:meridian:problem:precondition-required"
+        : "urn:meridian:problem:invalid-if-match",
+    title: failure.status === 428 ? "Precondition Required" : "Bad Request",
+    status: failure.status,
+    code: failure.code,
+    detail: failure.detail,
+  });
+}
+
+async function findTenantRate(database: Pick<Prisma.TransactionClient, "rate">, tenantId: string, rateId: string) {
+  return database.rate.findFirst({
+    where: { id: rateId, ...tenantRateWhere(tenantId) },
+    include: { product: true },
+  });
 }

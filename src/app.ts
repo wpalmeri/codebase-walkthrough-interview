@@ -21,6 +21,7 @@ import {
   type PrivateErrorLogSink,
 } from "./runtime/requestContext";
 import { api } from "./views";
+import { assignApiVersion } from "./http/apiVersion";
 
 export type AppOptions = {
   /**
@@ -96,9 +97,10 @@ export function createApp(options: AppOptions = {}): express.Express {
     principalResolver,
   });
 
-  app.use("/api/v1", authenticate, idempotency, api);
+  app.use("/api/v1", assignApiVersion("v1"), authenticate, idempotency, api);
   app.use(
     "/api",
+    assignApiVersion("legacy"),
     (_req: Request, res: Response, next: NextFunction) => {
       res.append("Link", '</api/v1>; rel="successor-version"');
       next();

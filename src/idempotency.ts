@@ -20,6 +20,7 @@ export const IdempotencyResponseSchema = z.object({
   status: z.number().int().min(100).max(599),
   contentType: z.string().min(1).max(255).nullable(),
   bodyBase64: z.string(),
+  etag: z.string().min(1).max(2048).nullable(),
 });
 export type IdempotencyResponse = z.infer<typeof IdempotencyResponseSchema>;
 
@@ -149,6 +150,7 @@ function recordFor(request: Request): IdempotencyRecord | null {
         query: request.query,
         body: request.body,
         contentType: request.get("content-type") ?? null,
+        ifMatch: request.get("if-match") ?? null,
       })
     ),
   });
@@ -189,6 +191,7 @@ export function createPrismaIdempotencyStore(): IdempotencyStore {
           status: existing.responseStatus,
           contentType: existing.responseContentType,
           bodyBase64: existing.responseBodyBase64,
+          etag: existing.responseEtag,
         }),
       };
     },
@@ -200,6 +203,7 @@ export function createPrismaIdempotencyStore(): IdempotencyStore {
           responseStatus: response.status,
           responseContentType: response.contentType,
           responseBodyBase64: response.bodyBase64,
+          responseEtag: response.etag,
           completedAt: new Date(),
         },
       });
@@ -212,9 +216,15 @@ function contentType(response: Response): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function etag(response: Response): string | null {
+  const value = response.getHeader("etag");
+  return typeof value === "string" ? value : null;
+}
+
 function replay(response: Response, stored: IdempotencyResponse): void {
   response.status(stored.status);
   if (stored.contentType !== null) response.setHeader("content-type", stored.contentType);
+  if (stored.etag !== null) response.setHeader("etag", stored.etag);
   response.end(Buffer.from(stored.bodyBase64, "base64"));
 }
 
@@ -304,6 +314,7 @@ function captureAndPersistResponse(response: Response, store: IdempotencyStore, 
         status: response.statusCode,
         contentType: contentType(response),
         bodyBase64: body.toString("base64"),
+        etag: etag(response),
       });
       void store.complete(recordId, stored).then(
         () => {

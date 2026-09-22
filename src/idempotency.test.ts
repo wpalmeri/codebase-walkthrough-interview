@@ -95,6 +95,7 @@ void describe("durable idempotency HTTP boundary", () => {
       configure(testApp) {
         testApp.post("/api/idempotency-test", (_request, response) => {
           applies += 1;
+          response.setHeader("etag", '"receipt-r-1"');
           response.status(201).type("application/vnd.meridian.receipt+json").send('{"receipt":"r-1"}');
         });
       },
@@ -108,6 +109,8 @@ void describe("durable idempotency HTTP boundary", () => {
       assert.equal(second.status, 201);
       assert.equal(first.headers.get("content-type"), "application/vnd.meridian.receipt+json; charset=utf-8");
       assert.equal(second.headers.get("content-type"), first.headers.get("content-type"));
+      assert.equal(first.headers.get("etag"), '"receipt-r-1"');
+      assert.equal(second.headers.get("etag"), first.headers.get("etag"));
       assert.equal(await second.text(), await first.text());
       assert.equal(applies, 1);
     });

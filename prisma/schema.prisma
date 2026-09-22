@@ -337,6 +337,7 @@ model IdempotencyRecord {
   responseStatus      Int?
   responseContentType String?
   responseBodyBase64  String?
+  responseEtag        String?
   createdAt           DateTime               @default(now())
   completedAt         DateTime?
   tenant              Tenant?                @relation(fields: [tenantId], references: [id], onDelete: Restrict)

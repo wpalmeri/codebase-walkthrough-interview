@@ -5,6 +5,10 @@ interface NamedRow {
   readonly name: string;
 }
 
+interface NumericRow {
+  readonly resourceVersion: number | null;
+}
+
 interface ForeignKeyRow {
   readonly table: string;
   readonly from: string;
@@ -34,6 +38,7 @@ async function main(): Promise<void> {
       "20260922080000_payment_application_reversals",
       "20260922090000_tenant_foundation",
       "20260922100000_resource_versions",
+      "20260922110000_rate_conditional_writes",
     ]
   );
 
@@ -65,6 +70,8 @@ async function main(): Promise<void> {
     "Order_resource_version_update_guard",
     "Invoice_resource_version_insert_guard",
     "Invoice_resource_version_update_guard",
+    "Rate_resource_version_initialize",
+    "Rate_resource_version_business_update_bump",
   ];
   const triggers = await prisma.$queryRaw<NamedRow[]>`
     SELECT name
@@ -289,6 +296,24 @@ async function main(): Promise<void> {
     `,
     /Invoice\.resourceVersion must increase monotonically/u
   );
+
+  // Conditional-write rollout does not scan old Rates, but every future row
+  // gets version 1 and a legacy/direct business update invalidates its ETag.
+  await prisma.$executeRaw`
+    INSERT INTO "Rate" ("id", "customerId", "productId", "unitPrice", "effectiveDate")
+    VALUES ('versioned-rate', 'version-customer', 'version-product', 1, CURRENT_TIMESTAMP)
+  `;
+  let rateVersion = await prisma.$queryRaw<NumericRow[]>`
+    SELECT "resourceVersion" FROM "Rate" WHERE "id" = 'versioned-rate'
+  `;
+  assert.equal(rateVersion[0]?.resourceVersion, 1);
+  await prisma.$executeRaw`
+    UPDATE "Rate" SET "unitPrice" = 2 WHERE "id" = 'versioned-rate'
+  `;
+  rateVersion = await prisma.$queryRaw<NumericRow[]>`
+    SELECT "resourceVersion" FROM "Rate" WHERE "id" = 'versioned-rate'
+  `;
+  assert.equal(rateVersion[0]?.resourceVersion, 2);
 }
 
 void main().finally(() => prisma.$disconnect());

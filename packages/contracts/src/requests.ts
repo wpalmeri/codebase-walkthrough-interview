@@ -181,6 +181,13 @@ export type ListRatesRequest = z.infer<typeof ListRatesRequestSchema>;
 export const ListComboDiscountsRequestSchema = ListRatesRequestSchema;
 export type ListComboDiscountsRequest = z.infer<typeof ListComboDiscountsRequestSchema>;
 
+export const GetRateRequestSchema = requestSchema(
+  IdParamsSchema,
+  EmptyQuerySchema,
+  NoBodySchema
+);
+export type GetRateRequest = z.infer<typeof GetRateRequestSchema>;
+
 export const CreateComboDiscountRequestSchema = requestSchema(
   EmptyParamsSchema,
   EmptyQuerySchema,
