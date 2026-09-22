@@ -22,9 +22,10 @@
     "db:validate": "prisma validate",
     "test": "bun test",
     "lint": "oxlint .",
+    "guard:architecture": "bun scripts/architectureIntegrity.ts",
     "typecheck": "bun run typecheck:server && bun run --cwd client typecheck",
     "typecheck:server": "tsc --noEmit",
-    "check": "bun run lint && bun run typecheck",
+    "check": "bun run lint && bun run typecheck && bun run guard:architecture",
     "setup": "bun install --frozen-lockfile && bun run db:migrate && bun run db:seed"
   },
   "dependencies": {
