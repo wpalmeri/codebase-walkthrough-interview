@@ -57,6 +57,8 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - [x] Publish the complete deterministic OpenAPI 3.1 document and generated TypeScript shapes with a CI drift check (`b5329ed`).
 - [x] Validate every current browser success payload through shared Zod contracts without leaking malformed response data (`c7ef0cb`).
 - [x] Split browser-safe schemas from Node-only cursor signing so client validation does not bundle server crypto (`e15b502`).
+- [x] Bound JSON bodies, publish real correlation/authentication/pagination headers, and keep idempotency failures redacted and representation-safe (`6fe74e9`).
+- [x] Add a generated-contract-bound v1 SDK with exact status typing, exhaustive Zod output validation, pagination/ETag metadata, and normalized failure results (`eb72a8a`).
 - [x] Append request-derived audit evidence atomically for Rate, combo-discount, Order, Invoice, delivery, payment receipt, allocation, and reversal mutations (`ddf6424`, `d5532b1`, `c2406cf`).
 - [x] Replace unbounded report loading with tenant/date/status-filtered, fixed-size keyset scans and exact decimal reduction (`52a8e1c`).
 - [x] Preserve historical customer identity in revenue reports through immutable invoice snapshots with an explicit legacy-null fallback (`1a7d922`).
@@ -70,6 +72,7 @@ This is the execution source of truth. Implement each numbered item as an atomic
 - [x] Isolate catalog, rate, order, invoice, delivery, payment, reversal, and report operations by tenant with two-tenant negative tests (`cdf771c`, `24f9ee1`, `c87ce13`).
 - [x] Add one-time-secret tenant API-key issuance and monotonic revocation tooling (`4b0ae4f`).
 - [x] Add authenticated tenant-admin API-key issuance/revocation with transaction-coupled audit evidence, one-time-secret protections, and API/database lockout guards (`b7b22ab`).
+- [x] Add authenticated tenant-admin accounting closes with monotonic concurrency, transaction-coupled audit evidence, and database enforcement for closed periods (`b9cf630`).
 - [x] Add public liveness, redacted readiness, and bounded graceful shutdown behavior (`492ddd1`).
 
 ### Migrations, backfills, and test infrastructure
@@ -108,14 +111,11 @@ This is the execution source of truth. Implement each numbered item as an atomic
    - Replace the browser's development-only unauthenticated path with an authorization-code/PKCE session flow backed by issuer-scoped user identities and tenant memberships; do not expose tenant or legacy API keys to browser JavaScript.
    - Add CSRF/session rotation/logout/role-change tests and keep server-to-server tenant API keys as a separate credential class. The identity-provider choice and deployment configuration are external prerequisites, but the server trust boundary must remain fail-closed.
 
-3. **P1 — Finish authenticated accounting and contract migrations**
-   - Add an authenticated ADMIN accounting-close endpoint that revalidates the acting tenant credential and appends the close audit event in the same transaction. Preserve the existing close/backfill/reconciliation gates and test stale actors, monotonic concurrency, audit failure rollback, and cross-tenant isolation.
+3. **P1 — Finish bootstrap and tenant contract migrations**
    - Define the direct API-key CLI as an explicit bootstrap or break-glass boundary with recovery, rotation, and operator-evidence procedures; do not present unauthenticated local execution as equivalent to the audited API.
    - Run `db:audit:tenant-contract` after ownership backfill and reconciliation. Only after a clean deployment-specific report should a separately rehearsed SQLite contract migration make ownership required and change global `Product.sku` and `Invoice.number` uniqueness to tenant-scoped contracts.
 
 4. **P1 — Harden the published HTTP contract and client usability**
-   - Map oversized JSON to redacted Problem Details `413`, publish real `X-Request-ID`, `WWW-Authenticate`, and pagination `Link` response headers, and verify them against live HTTP behavior.
-   - Build a small contract-bound v1 SDK over the generated shapes for pagination, ETags, idempotency, Problem Details, and response headers. Keep the existing browser adapter compatible while removing its arbitrary generic response escape hatch incrementally.
    - Mark historical partial-update `PUT` operations deprecated and direct new clients to PATCH. Reserve true replacement semantics and mandatory idempotency for an explicitly versioned v2 contract so existing clients do not break.
    - Add canonical read resources and `Location` headers before deprecating action-style mutation paths; retain current v1 statuses and aliases during adoption.
    - Keep exact reports bounded on SQLite; use database-native exact aggregation only after the target PostgreSQL schema and NUMERIC semantics are deployed and proven.
