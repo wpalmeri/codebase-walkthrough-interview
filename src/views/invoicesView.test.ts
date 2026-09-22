@@ -9,10 +9,9 @@ import { ResponseContractViolationError, mountOperation } from "../openapi/opera
 import { invoiceOperations, invoicesView } from "./invoicesView";
 
 const viewer: Principal = {
-  tenantId: "invoice-viewer-tenant",
-  subjectId: "viewer:invoice-viewer-tenant",
+    subjectId: "viewer:invoice-viewer-operator",
   credentialId: "viewer-invoice-credential",
-  kind: "TENANT_API_KEY",
+  kind: "OPERATOR_API_KEY",
   role: "VIEWER",
 };
 const billing: Principal = { ...viewer, role: "BILLING" };

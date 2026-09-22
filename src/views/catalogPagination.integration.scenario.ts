@@ -7,7 +7,7 @@ import {
   ProductPageSchema,
   ProductSchema,
   ValidationErrorResponseSchema,
-  fingerprintTenantPaginationBinding,
+  fingerprintPaginationFilters,
   formatPaginationCursor,
   type CustomerPage,
   type ProductPage,
@@ -16,34 +16,34 @@ import { createApp } from "../app";
 import type { Principal } from "../auth/principal";
 import { prisma } from "../db";
 
-const tenantA = "catalog-page-tenant-a";
-const tenantB = "catalog-page-tenant-b";
 const originalCustomerIds = [
   "catalog-customer-a-001",
   "catalog-customer-a-002",
   "catalog-customer-a-003",
   "catalog-customer-a-004",
+  "catalog-customer-b-001",
+  "catalog-customer-b-002",
 ];
 const originalProductIds = [
   "catalog-product-a-001",
   "catalog-product-a-002",
   "catalog-product-a-003",
   "catalog-product-a-004",
+  "catalog-product-b-001",
+  "catalog-product-b-002",
 ];
 
 const principals: Record<string, Principal> = {
   "catalog-page-key-a": {
-    tenantId: tenantA,
-    subjectId: "catalog-page-subject-a",
+        subjectId: "catalog-page-subject-a",
     credentialId: "catalog-page-credential-a",
-    kind: "TENANT_API_KEY",
+    kind: "OPERATOR_API_KEY",
     role: "VIEWER",
   },
   "catalog-page-key-b": {
-    tenantId: tenantB,
-    subjectId: "catalog-page-subject-b",
+        subjectId: "catalog-page-subject-b",
     credentialId: "catalog-page-credential-b",
-    kind: "TENANT_API_KEY",
+    kind: "OPERATOR_API_KEY",
     role: "VIEWER",
   },
 };
@@ -92,49 +92,24 @@ async function close(server: Server): Promise<void> {
 }
 
 async function seed(): Promise<void> {
-  await prisma.tenant.createMany({
-    data: [
-      { id: tenantA, slug: tenantA, name: "Catalog Pagination Tenant A" },
-      { id: tenantB, slug: tenantB, name: "Catalog Pagination Tenant B" },
-    ],
-  });
   await prisma.customer.createMany({
     data: [
-      { id: originalCustomerIds[0], tenantId: tenantA, name: "Alpha", email: "customer-001@example.com" },
-      { id: originalCustomerIds[1], tenantId: tenantA, name: "Alpha", email: "customer-002@example.com" },
-      { id: originalCustomerIds[2], tenantId: tenantA, name: "Bravo", email: "customer-003@example.com" },
-      { id: originalCustomerIds[3], tenantId: tenantA, name: "Charlie", email: "customer-004@example.com" },
-      { id: "catalog-customer-b-001", tenantId: tenantB, name: "Tenant B Customer A", email: "customer-b-001@example.com" },
-      { id: "catalog-customer-b-002", tenantId: tenantB, name: "Tenant B Customer B", email: "customer-b-002@example.com" },
+      { id: originalCustomerIds[0], name: "Alpha", email: "customer-001@example.com" },
+      { id: originalCustomerIds[1], name: "Alpha", email: "customer-002@example.com" },
+      { id: originalCustomerIds[2], name: "Bravo", email: "customer-003@example.com" },
+      { id: originalCustomerIds[3], name: "Charlie", email: "customer-004@example.com" },
+      { id: "catalog-customer-b-001", name: "Second Customer A", email: "customer-b-001@example.com" },
+      { id: "catalog-customer-b-002", name: "Second Customer B", email: "customer-b-002@example.com" },
     ],
   });
   await prisma.product.createMany({
-    data: [
-      ...originalProductIds.map((id, index) => ({
-        id,
-        tenantId: tenantA,
-        sku: `CATALOG-${String(index + 1).padStart(3, "0")}`,
-        name: `Catalog Product ${index + 1}`,
-        unit: "seat",
-        listPrice: index + 1,
-      })),
-      {
-        id: "catalog-product-b-001",
-        tenantId: tenantB,
-        sku: "TENANT-B-CATALOG-001",
-        name: "Tenant B Catalog Product A",
-        unit: "seat",
-        listPrice: 10,
-      },
-      {
-        id: "catalog-product-b-002",
-        tenantId: tenantB,
-        sku: "TENANT-B-CATALOG-002",
-        name: "Tenant B Catalog Product B",
-        unit: "seat",
-        listPrice: 20,
-      },
-    ],
+    data: originalProductIds.map((id, index) => ({
+      id,
+      sku: `CATALOG-${String(index + 1).padStart(3, "0")}`,
+      name: `Catalog Product ${index + 1}`,
+      unit: "seat",
+      listPrice: index + 1,
+    })),
   });
 }
 
@@ -144,12 +119,12 @@ async function main(): Promise<void> {
     SELECT name
     FROM sqlite_master
     WHERE type = 'index'
-      AND name IN ('Customer_tenantId_name_id_idx', 'Product_tenantId_sku_id_idx')
+      AND name IN ('Customer_name_id_idx', 'Product_sku_id_idx')
     ORDER BY name
   `;
   assert.deepEqual(indexes, [
-    { name: "Customer_tenantId_name_id_idx" },
-    { name: "Product_tenantId_sku_id_idx" },
+    { name: "Customer_name_id_idx" },
+    { name: "Product_sku_id_idx" },
   ]);
 
   const app = createApp({
@@ -184,8 +159,7 @@ async function main(): Promise<void> {
     await prisma.customer.create({
       data: {
         id: "catalog-customer-a-000-interleaved",
-        tenantId: tenantA,
-        name: "Alpha",
+                name: "Alpha",
         email: "customer-interleaved@example.com",
       },
     });
@@ -213,8 +187,7 @@ async function main(): Promise<void> {
     await prisma.product.create({
       data: {
         id: "catalog-product-a-000-interleaved",
-        tenantId: tenantA,
-        sku: "CATALOG-000",
+                sku: "CATALOG-000",
         name: "Interleaved Catalog Product",
         unit: "seat",
         listPrice: 0,
@@ -253,10 +226,7 @@ async function main(): Promise<void> {
 
     const wrongFilterCursor = formatPaginationCursor({
       resource: "customers",
-      filterFingerprint: fingerprintTenantPaginationBinding(
-        { futureFilter: "not-supported" },
-        tenantA
-      ),
+      filterFingerprint: fingerprintPaginationFilters({ futureFilter: "not-supported" }),
       ordering: ["Alpha", originalCustomerIds[1]],
     });
     const wrongFilter = await request(
@@ -289,43 +259,6 @@ async function main(): Promise<void> {
       },
     ]);
 
-    const tenantBCustomers = customerPage(
-      await request(server, "v1", "catalog-page-key-b", "/customers?limit=1")
-    );
-    assert.ok(tenantBCustomers.page.nextCursor !== null);
-    const foreignCustomerCursor = await request(
-      server,
-      "v1",
-      "catalog-page-key-a",
-      `/customers?limit=1&cursor=${encodeURIComponent(tenantBCustomers.page.nextCursor ?? "")}`
-    );
-    assert.equal(foreignCustomerCursor.status, 400);
-    assert.deepEqual(ValidationErrorResponseSchema.parse(foreignCustomerCursor.body).issues, [
-      {
-        code: "CURSOR_FILTER_MISMATCH",
-        path: "query.cursor",
-        message: "Cursor is invalid for this customer query",
-      },
-    ]);
-
-    const tenantBProducts = productPage(
-      await request(server, "v1", "catalog-page-key-b", "/products?limit=1")
-    );
-    assert.ok(tenantBProducts.page.nextCursor !== null);
-    const foreignProductCursor = await request(
-      server,
-      "v1",
-      "catalog-page-key-a",
-      `/products?limit=1&cursor=${encodeURIComponent(tenantBProducts.page.nextCursor ?? "")}`
-    );
-    assert.equal(foreignProductCursor.status, 400);
-    assert.deepEqual(ValidationErrorResponseSchema.parse(foreignProductCursor.body).issues, [
-      {
-        code: "CURSOR_FILTER_MISMATCH",
-        path: "query.cursor",
-        message: "Cursor is invalid for this product query",
-      },
-    ]);
   } finally {
     await close(server);
   }

@@ -77,26 +77,22 @@ export function buildRateUpdateData(input: {
   };
 }
 
-async function requireTenantCustomer(tenantId: string, customerId: string): Promise<void> {
-  const customer = await prisma.customer.findFirst({
-    where: { id: customerId, tenantId },
+async function requireCustomer(customerId: string): Promise<void> {
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
     select: { id: true },
   });
   if (customer === null) throw new NotFoundError();
 }
 
-function tenantRateWhere(tenantId: string, customerId?: string) {
-  return {
-    customer: { tenantId },
-    product: { tenantId },
-    ...(customerId === undefined ? {} : { customerId }),
-  };
+function rateWhere(customerId?: string) {
+  return customerId === undefined ? {} : { customerId };
 }
 
-export async function listRates(tenantId: string, customerId?: string): Promise<RateModel[]> {
-  if (customerId !== undefined) await requireTenantCustomer(tenantId, customerId);
+export async function listRates(customerId?: string): Promise<RateModel[]> {
+  if (customerId !== undefined) await requireCustomer(customerId);
   const rows = await prisma.rate.findMany({
-    where: tenantRateWhere(tenantId, customerId),
+    where: rateWhere(customerId),
     include: { product: true },
     orderBy: { effectiveDate: "asc" },
   });
@@ -121,12 +117,12 @@ export interface RateMutationAudit {
 type RateTransaction = Pick<Prisma.TransactionClient, "rate" | "auditEvent">;
 
 /**
- * Reads one rate inside the authenticated tenant. A legacy null version is
+ * Reads one global customer-product rate. A legacy null version is
  * intentionally exposed as logical version zero so old rows can opt into CAS
  * without an unsafe deploy-time data scan.
  */
-export async function getVersionedRate(tenantId: string, rateId: string): Promise<VersionedRate> {
-  const rate = await findTenantRate(prisma, tenantId, rateId);
+export async function getVersionedRate(rateId: string): Promise<VersionedRate> {
+  const rate = await findRate(prisma, rateId);
   if (rate === null) throw new NotFoundError();
   return {
     rate: toRateModel(rate),
@@ -134,28 +130,21 @@ export async function getVersionedRate(tenantId: string, rateId: string): Promis
   };
 }
 
-// Combos scoped to the tenant, optionally to a tenant customer plus its tenant-wide ones.
+// Combos are global or customer-specific.
 export async function listComboDiscounts(
-  tenantId: string,
   customerId?: string
 ): Promise<ComboDiscountModel[]> {
-  if (customerId !== undefined) await requireTenantCustomer(tenantId, customerId);
+  if (customerId !== undefined) await requireCustomer(customerId);
   const rows = await prisma.comboDiscount.findMany({
-    where: {
-      tenantId,
-      // A malformed legacy row must not disclose a foreign customer ID. New
-      // writes are also checked before insert and by the database guard.
-      OR: [{ customerId: null }, { customer: { tenantId } }],
-      ...(customerId === undefined
-        ? {}
-        : { AND: [{ OR: [{ customerId }, { customerId: null }] }] }),
-    },
-    include: { products: { where: { tenantId } } },
+    where: customerId === undefined
+      ? {}
+      : { AND: [{ OR: [{ customerId }, { customerId: null }] }] },
+    include: { products: true },
   });
   return rows.map(toComboDiscountModel);
 }
 
-export async function createComboDiscount(tenantId: string, input: {
+export async function createComboDiscount(input: {
   name: string;
   productIds: string[];
   percentOff: DecimalInput;
@@ -164,22 +153,21 @@ export async function createComboDiscount(tenantId: string, input: {
   const percentOff = dualWritePercentage(input.percentOff);
   return prisma.$transaction(async (transaction) => {
     if (input.customerId !== undefined && input.customerId !== null) {
-      const customer = await transaction.customer.findFirst({
-        where: { id: input.customerId, tenantId },
+      const customer = await transaction.customer.findUnique({
+        where: { id: input.customerId },
         select: { id: true },
       });
       if (customer === null) throw new NotFoundError();
     }
     const productIds = [...new Set(input.productIds ?? [])];
     const products = await transaction.product.findMany({
-      where: { id: { in: productIds }, tenantId },
+      where: { id: { in: productIds } },
       select: { id: true },
     });
     if (products.length !== productIds.length) throw new NotFoundError();
 
     const row = await transaction.comboDiscount.create({
       data: {
-        tenantId,
         name: input.name,
         percentOff: percentOff.legacy,
         percentOffDecimal: percentOff.decimal,
@@ -200,18 +188,17 @@ export async function createComboDiscount(tenantId: string, input: {
 // Update a customer's rate. Existing captured order and invoice prices remain
 // immutable; only future order pricing captures can use this commercial term.
 export async function updateRate(
-  tenantId: string,
   rateId: string,
   input: { unitPrice: DecimalInput; tiers?: RateTierInput[] },
   audit: RateMutationAudit
 ): Promise<RateModel> {
   return prisma.$transaction(async (transaction) => {
     const result = await transaction.rate.updateMany({
-      where: { id: rateId, ...tenantRateWhere(tenantId) },
+      where: { id: rateId },
       data: buildRateUpdateData(input),
     });
     if (result.count !== 1) throw new NotFoundError();
-    const rate = await findTenantRate(transaction, tenantId, rateId);
+    const rate = await findRate(transaction, rateId);
     if (rate === null) throw new NotFoundError();
     await appendMutationAudit(transaction, audit, {
       action: "RATE_UPDATED",
@@ -223,21 +210,18 @@ export async function updateRate(
 }
 
 /**
- * Performs a tenant-scoped compare-and-swap update. The predicate includes the
+ * Performs a compare-and-swap update. The predicate includes the
  * stored nullable version, so two callers holding the same ETag cannot both
  * modify a legacy or already-versioned row.
  */
 export async function updateRateConditionally(
-  tenantId: string,
   rateId: string,
   input: { unitPrice: DecimalInput; tiers?: RateTierInput[] },
   ifMatch: string | undefined,
   audit: RateMutationAudit
 ): Promise<VersionedRate> {
   return prisma.$transaction(async (transaction) => {
-    const existing = await findTenantRate(transaction, tenantId, rateId);
-    // Resolve visibility before inspecting a precondition so foreign and
-    // missing IDs remain indistinguishable to a tenant principal.
+    const existing = await findRate(transaction, rateId);
     if (existing === null) throw new NotFoundError();
 
     const currentVersion = logicalResourceVersion(existing.resourceVersion);
@@ -254,7 +238,6 @@ export async function updateRateConditionally(
     const result = await transaction.rate.updateMany({
       where: {
         id: existing.id,
-        ...tenantRateWhere(tenantId),
         ...(existing.resourceVersion === null
           ? { resourceVersion: null }
           : { resourceVersion: precondition.version }),
@@ -268,14 +251,14 @@ export async function updateRateConditionally(
       // A concurrent delete should retain the ordinary not-found shape. Every
       // other failed predicate is a stale representation, including an update
       // that initialized a formerly-null version.
-      const stillVisible = await findTenantRate(transaction, tenantId, rateId);
+      const stillVisible = await findRate(transaction, rateId);
       if (stillVisible === null) throw new NotFoundError();
       throw new PreconditionError("ETAG_VERSION_MISMATCH", "If-Match does not match the current resource version");
     }
 
     // This read stays in the same transaction as the CAS. Another writer
     // therefore cannot advance the row between the representation and its ETag.
-    const updated = await findTenantRate(transaction, tenantId, rateId);
+    const updated = await findRate(transaction, rateId);
     if (updated === null) throw new NotFoundError();
     await appendMutationAudit(transaction, audit, {
       action: "RATE_UPDATED",
@@ -307,9 +290,9 @@ function throwPrecondition(failure: ResourceVersionPreconditionFailure): never {
   });
 }
 
-async function findTenantRate(database: Pick<Prisma.TransactionClient, "rate">, tenantId: string, rateId: string) {
+async function findRate(database: Pick<Prisma.TransactionClient, "rate">, rateId: string) {
   return database.rate.findFirst({
-    where: { id: rateId, ...tenantRateWhere(tenantId) },
+    where: { id: rateId },
     include: { product: true },
   });
 }

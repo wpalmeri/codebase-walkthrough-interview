@@ -22,10 +22,9 @@ void describe("append-only audit event helper", () => {
         },
       },
       {
-        tenantId: "tenant-audit-a",
         action: "PAYMENT_RECORDED",
         principal: {
-          kind: "TENANT_API_KEY",
+          kind: "OPERATOR_API_KEY",
           subjectId: "service:payment-worker",
           credentialId: "key_audit_a",
         },
@@ -48,9 +47,8 @@ void describe("append-only audit event helper", () => {
   void test("keeps both persistable and append input shapes strict", () => {
     assert.equal(
       AuditEventAppendInputSchema.safeParse({
-        tenantId: "tenant-audit-a",
         action: "RATE_UPDATED",
-        principal: { kind: "TENANT_API_KEY", subjectId: "subject", credentialId: "credential" },
+        principal: { kind: "OPERATOR_API_KEY", subjectId: "subject", credentialId: "credential" },
         requestId: "request-audit-2",
         resourceKind: "RATE",
         resourceId: "rate-audit-1",
@@ -61,9 +59,8 @@ void describe("append-only audit event helper", () => {
     assert.equal(
       AuditEventWriteSchema.safeParse({
         id: "audit-event-2",
-        tenantId: "tenant-audit-a",
         action: "RATE_UPDATED",
-        principalKind: "TENANT_API_KEY",
+        principalKind: "OPERATOR_API_KEY",
         principalSubject: "subject",
         principalCredentialId: "credential",
         requestId: "request-audit-2",
@@ -77,9 +74,8 @@ void describe("append-only audit event helper", () => {
     );
     assert.equal(
       AuditEventAppendInputSchema.safeParse({
-        tenantId: "tenant-audit-a",
         action: "PAYMENT_RECORDED",
-        principal: { kind: "TENANT_API_KEY", subjectId: "subject", credentialId: "credential" },
+        principal: { kind: "OPERATOR_API_KEY", subjectId: "subject", credentialId: "credential" },
         requestId: "request-audit-2",
         resourceKind: "INVOICE",
         resourceId: "invoice-audit-1",

@@ -75,12 +75,12 @@ export const PercentageInputSchema = z.union([
 const EmptyParamsSchema = EmptyObjectSchema;
 const EmptyQuerySchema = EmptyObjectSchema;
 const IdParamsSchema = z.strictObject({ id: IdentifierSchema });
-const TenantApiKeyPrefixSchema = z.string().regex(/^mrd_[A-Za-z0-9]{8,32}$/u);
-/** Prisma uses a 191-character identifier ceiling for persisted tenant credentials. */
-export const TenantApiKeyIdSchema = z.string().min(1).max(191);
-/** Shared wire vocabulary for tenant credentials and their administration requests. */
-export const TenantApiKeyRoleSchema = z.enum(["ADMIN", "BILLING", "VIEWER"]);
-export type TenantApiKeyRole = z.infer<typeof TenantApiKeyRoleSchema>;
+const OperatorApiKeyPrefixSchema = z.string().regex(/^mrd_[A-Za-z0-9]{8,32}$/u);
+/** Prisma uses a 191-character identifier ceiling for persisted operator credentials. */
+export const OperatorApiKeyIdSchema = z.string().min(1).max(191);
+/** Shared wire vocabulary for internal operator credentials and their administration requests. */
+export const OperatorApiKeyRoleSchema = z.enum(["ADMIN", "BILLING", "VIEWER"]);
+export type OperatorApiKeyRole = z.infer<typeof OperatorApiKeyRoleSchema>;
 const PaymentApplicationParamsSchema = z.strictObject({
   id: IdentifierSchema,
   applicationId: IdentifierSchema,
@@ -332,32 +332,32 @@ export const ListInvoicesV1RequestSchema = requestSchema(
 );
 export type ListInvoicesV1Request = z.infer<typeof ListInvoicesV1RequestSchema>;
 
-/** Tenant is always derived from the authenticated ADMIN credential. */
-export const IssueTenantApiKeyRequestSchema = requestSchema(
+/** An active ADMIN operator credential authorizes issuing another operator key. */
+export const IssueOperatorApiKeyRequestSchema = requestSchema(
   EmptyParamsSchema,
   EmptyQuerySchema,
   z.strictObject({
     name: z.string().trim().min(1).max(160),
-    role: TenantApiKeyRoleSchema,
+    role: OperatorApiKeyRoleSchema,
   })
 );
-export type IssueTenantApiKeyRequest = z.infer<typeof IssueTenantApiKeyRequestSchema>;
+export type IssueOperatorApiKeyRequest = z.infer<typeof IssueOperatorApiKeyRequestSchema>;
 
 /** Exactly one opaque operator-facing identifier is accepted for revocation. */
-export const RevokeTenantApiKeyRequestSchema = requestSchema(
+export const RevokeOperatorApiKeyRequestSchema = requestSchema(
   EmptyParamsSchema,
   EmptyQuerySchema,
   z
-    .strictObject({ keyId: TenantApiKeyIdSchema.optional(), keyPrefix: TenantApiKeyPrefixSchema.optional() })
+    .strictObject({ keyId: OperatorApiKeyIdSchema.optional(), keyPrefix: OperatorApiKeyPrefixSchema.optional() })
     .superRefine((value, context) => {
       if ((value.keyId === undefined) === (value.keyPrefix === undefined)) {
         context.addIssue({ code: "custom", message: "provide exactly one of keyId or keyPrefix" });
       }
     })
 );
-export type RevokeTenantApiKeyRequest = z.infer<typeof RevokeTenantApiKeyRequestSchema>;
+export type RevokeOperatorApiKeyRequest = z.infer<typeof RevokeOperatorApiKeyRequestSchema>;
 
-/** The authenticated tenant administrator chooses an explicit inclusive UTC close date. */
+/** An authorized operator chooses an explicit inclusive UTC close date. */
 export const CloseAccountingPeriodBodySchema = z.strictObject({ closedThroughDate: z.iso.date() });
 export type CloseAccountingPeriodBody = z.infer<typeof CloseAccountingPeriodBodySchema>;
 

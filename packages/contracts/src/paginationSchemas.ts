@@ -19,8 +19,8 @@ export type OrderingTuple = z.infer<typeof OrderingTupleSchema>;
 
 /**
  * This is deliberately limited to public query-filter primitives. A controller
- * supplies only its normalized, tenant-agnostic filters; tenant identity comes
- * from authentication and is never placed in a cursor.
+ * supplies only its normalized public filters. The resulting fingerprint is
+ * global because this is one company-owned billing system.
  */
 export const PaginationFilterValueSchema = z.union([
   z.string().max(1_024),

@@ -7,7 +7,7 @@ import { paymentOperations } from "./paymentsView";
 import { productOperations } from "./productsView";
 import { rateOperations } from "./ratesView";
 import { reportOperations } from "./reportsView";
-import { tenantApiKeyOperations } from "./tenantApiKeysView";
+import { operatorApiKeyOperations } from "./operatorApiKeysView";
 import { accountingPeriodOperations } from "./accountingPeriodsView";
 
 /** The one inventory used to mount the API and publish its v1 contract. */
@@ -19,7 +19,7 @@ export const apiOperations = [
   ...invoiceOperations,
   ...paymentOperations,
   ...reportOperations,
-  ...tenantApiKeyOperations,
+  ...operatorApiKeyOperations,
   ...accountingPeriodOperations,
 ] as const;
 

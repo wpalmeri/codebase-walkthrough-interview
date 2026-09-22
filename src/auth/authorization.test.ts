@@ -13,10 +13,9 @@ function request(role?: "ADMIN" | "BILLING" | "VIEWER") {
   if (role === undefined) return { principal: undefined };
   return {
     principal: {
-      tenantId: "tenant-a",
       subjectId: "subject-a",
       credentialId: "credential-a",
-      kind: "TENANT_API_KEY" as const,
+      kind: "OPERATOR_API_KEY" as const,
       role,
     },
   };
@@ -25,7 +24,7 @@ function request(role?: "ADMIN" | "BILLING" | "VIEWER") {
 void describe("role authorization", () => {
   void test("requires a validated server principal", () => {
     assert.throws(() => requirePrincipal(request()), AuthenticationError);
-    assert.equal(requirePrincipal(request("VIEWER")).tenantId, "tenant-a");
+    assert.equal(requirePrincipal(request("VIEWER")).credentialId, "credential-a");
   });
 
   void test("allows every role to read but only billing roles to mutate", () => {

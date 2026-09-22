@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 void test(
-  "invoice API mutations append transactional tenant-bound audit evidence",
+  "invoice API mutations append transactional global audit evidence",
   { timeout: 45_000 },
   async () => {
     const temporaryDirectory = await mkdtemp(join(tmpdir(), "meridian-invoice-audit-"));

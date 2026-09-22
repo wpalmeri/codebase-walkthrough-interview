@@ -5,7 +5,7 @@ import {
   QuantityStringSchema,
 } from "./decimal.js";
 import { PageEnvelopeSchema } from "./paginationSchemas.js";
-import { TenantApiKeyRoleSchema, TransmissionMethodSchema } from "./requests.js";
+import { OperatorApiKeyRoleSchema, TransmissionMethodSchema } from "./requests.js";
 
 const id = z.string().min(1);
 const isoDateTime = z.iso.datetime({ offset: true });
@@ -238,27 +238,27 @@ export type Invoice = z.infer<typeof InvoiceSchema>;
 export const InvoicePageSchema = PageEnvelopeSchema(InvoiceSchema);
 export type InvoicePage = z.infer<typeof InvoicePageSchema>;
 
-/** Public metadata for an opaque tenant API key; neither the secret nor its digest is exposed. */
-export { TenantApiKeyRoleSchema } from "./requests.js";
-export type { TenantApiKeyRole } from "./requests.js";
+/** Public metadata for an opaque internal operator API key; neither its secret nor digest is exposed. */
+export { OperatorApiKeyRoleSchema } from "./requests.js";
+export type { OperatorApiKeyRole } from "./requests.js";
 
-export const TenantApiKeySchema = z.strictObject({
+export const OperatorApiKeySchema = z.strictObject({
   id,
   name: z.string().min(1).max(160),
-  role: TenantApiKeyRoleSchema,
+  role: OperatorApiKeyRoleSchema,
   keyPrefix: z.string().regex(/^mrd_[A-Za-z0-9]{8,32}$/u),
   createdAt: isoDateTime,
 });
-export type TenantApiKey = z.infer<typeof TenantApiKeySchema>;
+export type OperatorApiKey = z.infer<typeof OperatorApiKeySchema>;
 
 /** The token is returned at issue time only and must never be persisted for replay. */
-export const IssueTenantApiKeyResponseSchema = z.strictObject({
-  key: TenantApiKeySchema,
+export const IssueOperatorApiKeyResponseSchema = z.strictObject({
+  key: OperatorApiKeySchema,
   token: z.string().regex(/^mrd_[A-Za-z0-9]{8,32}_[A-Za-z0-9-]{32,128}$/u),
 });
-export type IssueTenantApiKeyResponse = z.infer<typeof IssueTenantApiKeyResponseSchema>;
+export type IssueOperatorApiKeyResponse = z.infer<typeof IssueOperatorApiKeyResponseSchema>;
 
-export const RevokeTenantApiKeyResponseSchema = z.strictObject({
+export const RevokeOperatorApiKeyResponseSchema = z.strictObject({
   key: z.strictObject({
     id,
     keyPrefix: z.string().regex(/^mrd_[A-Za-z0-9]{8,32}$/u),
@@ -266,9 +266,9 @@ export const RevokeTenantApiKeyResponseSchema = z.strictObject({
     revokedAt: isoDateTime,
   }),
 });
-export type RevokeTenantApiKeyResponse = z.infer<typeof RevokeTenantApiKeyResponseSchema>;
+export type RevokeOperatorApiKeyResponse = z.infer<typeof RevokeOperatorApiKeyResponseSchema>;
 
-/** Result of a monotonic, tenant-scoped accounting-period close. */
+/** Result of a monotonic, company-wide accounting-period close. */
 export const CloseAccountingPeriodResponseSchema = z.strictObject({
   state: z.enum(["CLOSED", "ALREADY_CLOSED"]),
   closedThroughDate: z.iso.date(),

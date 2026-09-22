@@ -47,6 +47,17 @@ const paymentReversalResponse = {
   createdAt: "2026-10-01T00:00:00.000Z",
 } as const;
 
+const issuedOperatorKeyResponse = {
+  key: {
+    id: "operator-key-1",
+    name: "invoice export",
+    role: "BILLING",
+    keyPrefix: "mrd_Abc12345",
+    createdAt: "2026-10-01T00:00:00.000Z",
+  },
+  token: "mrd_Abc12345_01234567-89ab-cdef-0123-456789abcdef",
+} as const;
+
 function inputUrl(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.href;
@@ -250,6 +261,33 @@ void describe("contract-derived v1 client", () => {
       } else {
         assert.fail("expected unexpected-success-status protocol failure");
       }
+    }
+  });
+
+  void test("uses the global operator-key route and validates its one-time credential response", async () => {
+    let receivedUrl: string | undefined;
+    let receivedInit: RequestInit | undefined;
+    const client = createV1Client({
+      fetch: async (input, init) => {
+        receivedUrl = inputUrl(input);
+        receivedInit = init;
+        return new Response(JSON.stringify(issuedOperatorKeyResponse), { status: 201, headers: jsonHeaders });
+      },
+    });
+
+    const result = await client.request("/operator-api-keys", "post", {
+      body: { name: "invoice export", role: "BILLING" },
+    });
+    assert.equal(receivedUrl, "/api/v1/operator-api-keys");
+    assert.equal(receivedInit?.method, "POST");
+    const requestBody = receivedInit?.body;
+    if (typeof requestBody !== "string") assert.fail("expected serialized JSON request body");
+    assert.deepEqual(JSON.parse(requestBody), { name: "invoice export", role: "BILLING" });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.status, 201);
+      assert.equal(result.data.key.role, "BILLING");
+      assert.equal(result.data.token, issuedOperatorKeyResponse.token);
     }
   });
 

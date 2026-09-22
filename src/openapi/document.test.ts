@@ -31,7 +31,7 @@ const OperationSchema = z.object({
   summary: z.string(),
   description: z.string().optional(),
   deprecated: z.boolean().optional(),
-  security: z.array(z.object({ tenantBearer: z.array(z.never()) })),
+  security: z.array(z.object({ operatorBearer: z.array(z.never()) })),
   parameters: z.array(z.object({ name: z.string(), in: z.string(), required: z.boolean().optional() })),
   responses: z.record(z.string(), z.unknown()),
 });
@@ -88,8 +88,8 @@ void describe("generated version-one OpenAPI contract", () => {
         "post /payments",
         "post /payments/{id}/apply",
         "post /payments/{id}/applications/{applicationId}/reversals",
-        "post /tenant-api-keys",
-        "post /tenant-api-keys/revoke",
+        "post /operator-api-keys",
+        "post /operator-api-keys/revoke",
         "patch /rates/{id}",
         "put /rates/{id}",
         "put /invoices/{id}",
@@ -110,7 +110,7 @@ void describe("generated version-one OpenAPI contract", () => {
     assert.deepEqual(published, createOpenApiV1Document(openApiV1Operations));
   });
 
-  void test("documents tenant bearer security, correlation, replay, and rate conditional headers", () => {
+  void test("documents operator bearer security, correlation, replay, and rate conditional headers", () => {
     const document = createOpenApiV1Document(openApiV1Operations);
     const customers = operation(document, "/customers", "get");
     const products = operation(document, "/products", "get");
@@ -119,11 +119,11 @@ void describe("generated version-one OpenAPI contract", () => {
     const patchRate = operation(document, "/rates/{id}", "patch");
     const createCombo = operation(document, "/rates/combos", "post");
 
-    assert.deepEqual(customers.security, [{ tenantBearer: [] }]);
-    assert.deepEqual(products.security, [{ tenantBearer: [] }]);
+    assert.deepEqual(customers.security, [{ operatorBearer: [] }]);
+    assert.deepEqual(products.security, [{ operatorBearer: [] }]);
     assert.equal(customers.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"), true);
     assert.equal(products.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"), true);
-    assert.deepEqual(getRate.security, [{ tenantBearer: [] }]);
+    assert.deepEqual(getRate.security, [{ operatorBearer: [] }]);
     assert.equal(getRate.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"), true);
     assert.equal(updateRate.parameters.some((parameter) => parameter.name === "If-Match" && parameter.required === true), true);
     assert.equal(updateRate.parameters.some((parameter) => parameter.name === "Idempotency-Key"), true);
@@ -201,17 +201,17 @@ void describe("generated version-one OpenAPI contract", () => {
     }
   });
 
-  void test("documents one-time tenant-key issuance as non-cacheable and non-replayable", () => {
+  void test("documents one-time operator-key issuance as non-cacheable and non-replayable", () => {
     const document = createOpenApiV1Document(openApiV1Operations);
-    const issue = operation(document, "/tenant-api-keys", "post");
-    const revoke = operation(document, "/tenant-api-keys/revoke", "post");
+    const issue = operation(document, "/operator-api-keys", "post");
+    const revoke = operation(document, "/operator-api-keys/revoke", "post");
     assert.equal(issue.parameters.some((parameter) => parameter.name === "Idempotency-Key"), false);
     assert.equal(revoke.parameters.some((parameter) => parameter.name === "Idempotency-Key"), true);
     assert.equal("409" in revoke.responses, true);
     const paths = z
       .object({ paths: z.record(z.string(), z.record(z.string(), z.unknown())) })
       .parse(document).paths;
-    const issueResponse = z.object({ responses: z.record(z.string(), z.unknown()) }).parse(paths["/tenant-api-keys"]?.post).responses["201"];
+    const issueResponse = z.object({ responses: z.record(z.string(), z.unknown()) }).parse(paths["/operator-api-keys"]?.post).responses["201"];
     const response = z.object({ headers: z.record(z.string(), z.unknown()) }).parse(issueResponse);
     assert.ok(response.headers["Cache-Control"]);
     assert.ok(response.headers.Pragma);
@@ -225,7 +225,7 @@ void describe("generated version-one OpenAPI contract", () => {
     const reverse = operation(document, "/payments/{id}/applications/{applicationId}/reversals", "post");
 
     for (const paymentOperation of [list, record, apply, reverse]) {
-      assert.deepEqual(paymentOperation.security, [{ tenantBearer: [] }]);
+      assert.deepEqual(paymentOperation.security, [{ operatorBearer: [] }]);
       assert.equal(
         paymentOperation.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"),
         true
@@ -304,7 +304,7 @@ void describe("generated version-one OpenAPI contract", () => {
     assert.equal(z.object({ deprecated: z.literal(true), description: z.string() }).parse(put).deprecated, true);
     assert.match(z.object({ description: z.string() }).parse(put).description, /Deprecated.*Use PATCH/u);
     for (const orderOperation of [list, get, create, put, patch, invoice]) {
-      assert.deepEqual(orderOperation.security, [{ tenantBearer: [] }]);
+      assert.deepEqual(orderOperation.security, [{ operatorBearer: [] }]);
       assert.equal(
         orderOperation.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"),
         true
@@ -387,7 +387,7 @@ void describe("generated version-one OpenAPI contract", () => {
     assert.equal(z.object({ deprecated: z.literal(true), description: z.string() }).parse(put).deprecated, true);
     assert.match(z.object({ description: z.string() }).parse(put).description, /Deprecated.*Use PATCH/u);
     for (const invoiceOperation of [list, get, put, patch, post, send, refresh]) {
-      assert.deepEqual(invoiceOperation.security, [{ tenantBearer: [] }]);
+      assert.deepEqual(invoiceOperation.security, [{ operatorBearer: [] }]);
       assert.equal(
         invoiceOperation.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"),
         true
@@ -464,13 +464,13 @@ void describe("generated version-one OpenAPI contract", () => {
     assert.doesNotMatch(paths["/invoices/{id}"].patch.description, /legacy|\/api(?!\/v1)/u);
   });
 
-  void test("documents tenant-scoped exact-decimal revenue reports and bounded period filters", () => {
+  void test("documents company-wide exact-decimal revenue reports and bounded period filters", () => {
     const document = createOpenApiV1Document(openApiV1Operations);
     const quarter = operation(document, "/reports/revenue-by-quarter", "get");
     const customer = operation(document, "/reports/revenue-by-customer", "get");
     const annual = operation(document, "/reports/annual-revenue", "get");
     for (const reportOperation of [quarter, customer, annual]) {
-      assert.deepEqual(reportOperation.security, [{ tenantBearer: [] }]);
+      assert.deepEqual(reportOperation.security, [{ operatorBearer: [] }]);
       assert.equal(
         reportOperation.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"),
         true

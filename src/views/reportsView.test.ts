@@ -8,10 +8,9 @@ import { AuthenticationError } from "../errors";
 import { reportOperations, reportsView } from "./reportsView";
 
 const viewer: Principal = {
-  tenantId: "report-viewer-tenant",
-  subjectId: "viewer:report-viewer-tenant",
+    subjectId: "viewer:report-viewer-operator",
   credentialId: "viewer-report-credential",
-  kind: "TENANT_API_KEY",
+  kind: "OPERATOR_API_KEY",
   role: "VIEWER",
 };
 
@@ -56,7 +55,7 @@ void test("report routes reject invalid periods at the mounted HTTP validation b
   assert.equal(ValidationErrorResponseSchema.parse(body).code, "VALIDATION_ERROR");
 });
 
-void test("report operations retain tenant-read authorization and exact-decimal output contracts", async () => {
+void test("report operations retain operator-read authorization and exact-decimal output contracts", async () => {
   let received: unknown;
   handlerFor("/reports/annual-revenue")(
     { params: {}, query: {}, body: undefined } as never,

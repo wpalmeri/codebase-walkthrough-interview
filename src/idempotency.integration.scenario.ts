@@ -14,30 +14,22 @@ void (async () => {
     slowRequestStarted = resolve;
   });
   let slowApplies = 0;
-  const tenantA: Principal & { readonly tenantId: string } = {
-    tenantId: "tenant-idempotency-a",
-    subjectId: "tenant:tenant-idempotency-a",
+  const operatorA: Principal = {
+    subjectId: "operator:idempotency-a",
     credentialId: "credential-idempotency-a",
-    kind: "TENANT_API_KEY",
+    kind: "OPERATOR_API_KEY",
     role: "BILLING",
   };
-  const tenantB: Principal & { readonly tenantId: string } = {
-    tenantId: "tenant-idempotency-b",
-    subjectId: "tenant:tenant-idempotency-b",
+  const operatorB: Principal = {
+    subjectId: "operator:idempotency-b",
     credentialId: "credential-idempotency-b",
-    kind: "TENANT_API_KEY",
+    kind: "OPERATOR_API_KEY",
     role: "BILLING",
   };
-  await prisma.tenant.createMany({
-    data: [
-      { id: tenantA.tenantId, slug: "tenant-idempotency-a", name: "Tenant idempotency A" },
-      { id: tenantB.tenantId, slug: "tenant-idempotency-b", name: "Tenant idempotency B" },
-    ],
-  });
   const app = createApp({
     principalResolver: {
       async resolve(token) {
-        return token === "tenant-a-test-token" ? tenantA : token === "tenant-b-test-token" ? tenantB : null;
+        return token === "operator-a-test-token" ? operatorA : token === "operator-b-test-token" ? operatorB : null;
       },
     },
     configure(testApp) {
@@ -61,7 +53,7 @@ void (async () => {
     const address = server.address();
     if (address === null || typeof address === "string") throw new Error("test server has no TCP address");
     const baseUrl = `http://127.0.0.1:${address.port}`;
-    const request = (token = "tenant-a-test-token") =>
+    const request = (token = "operator-a-test-token") =>
       fetch(`${baseUrl}/api/durable-idempotency-scenario`, {
         method: "POST",
         headers: {
@@ -75,17 +67,17 @@ void (async () => {
 
     const first = await request();
     const second = await request();
-    const otherTenant = await request("tenant-b-test-token");
+    const otherOperator = await request("operator-b-test-token");
     assert.equal(first.status, 201);
     assert.equal(second.status, 201);
     assert.equal(await first.text(), '{"applies":1}');
     assert.equal(await second.text(), '{"applies":1}');
-    assert.equal(otherTenant.status, 201);
-    assert.equal(await otherTenant.text(), '{"applies":2}');
+    assert.equal(otherOperator.status, 201);
+    assert.equal(await otherOperator.text(), '{"applies":2}');
 
-    const records = await prisma.idempotencyRecord.findMany({ orderBy: { tenantId: "asc" } });
+    const records = await prisma.idempotencyRecord.findMany({ orderBy: { createdAt: "asc" } });
     assert.equal(records.length, 2);
-    assert.deepEqual(records.map((record) => record.tenantId), [tenantA.tenantId, tenantB.tenantId]);
+    assert.equal(new Set(records.map((record) => record.clientScope)).size, 2, "operator credentials have independent replay scopes");
     for (const record of records) {
       assert.equal(record.state, "COMPLETED");
       assert.equal(record.responseStatus, 201);
@@ -101,7 +93,7 @@ void (async () => {
           "content-type": "application/json",
           "idempotency-key": "durable-race-1",
           "idempotency-client": "database-integration-test",
-          authorization: "Bearer tenant-a-test-token",
+          authorization: "Bearer operator-a-test-token",
         },
         body: JSON.stringify({ amount: "5.0000" }),
       });

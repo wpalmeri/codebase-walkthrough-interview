@@ -77,10 +77,9 @@ function mutation(key: string, body: unknown, client = "test-client", token?: st
 }
 
 const directTestPrincipal: Principal = {
-  tenantId: "tenant-direct-test",
-  subjectId: "tenant:tenant-direct-test",
+  subjectId: "operator:direct-test",
   credentialId: "credential-direct-test",
-  kind: "TENANT_API_KEY",
+  kind: "OPERATOR_API_KEY",
   role: "BILLING",
 };
 
@@ -285,26 +284,25 @@ void describe("durable idempotency HTTP boundary", () => {
     });
   });
 
-  void test("isolates a reused key by the authenticated tenant and principal", async () => {
+  void test("isolates a reused key by the authenticated operator credential", async () => {
     const store = new InMemoryIdempotencyStore();
     let applies = 0;
     const app = createApp({
       idempotencyStore: store,
       principalResolver: {
         async resolve(token) {
-          if (token !== "tenant-a-key" && token !== "tenant-b-key") return null;
-          const tenantId = token === "tenant-a-key" ? "tenant-a" : "tenant-b";
+          if (token !== "operator-a-key" && token !== "operator-b-key") return null;
+          const operatorId = token === "operator-a-key" ? "operator-a" : "operator-b";
           return {
-            tenantId,
-            subjectId: `tenant:${tenantId}`,
-            credentialId: `credential:${tenantId}`,
-            kind: "TENANT_API_KEY",
+            subjectId: `operator:${operatorId}`,
+            credentialId: `credential:${operatorId}`,
+            kind: "OPERATOR_API_KEY",
             role: "BILLING",
           };
         },
       },
       configure(testApp) {
-        testApp.post("/api/tenant-idempotency-test", (_request, response) => {
+        testApp.post("/api/operator-idempotency-test", (_request, response) => {
           applies += 1;
           response.status(201).json({ applies });
         });
@@ -313,16 +311,16 @@ void describe("durable idempotency HTTP boundary", () => {
 
     await withServer(app, async (baseUrl) => {
       const firstA = await fetch(
-        `${baseUrl}/api/tenant-idempotency-test`,
-        mutation("same-key", { amount: "1.0000" }, "shared-client", "tenant-a-key")
+        `${baseUrl}/api/operator-idempotency-test`,
+        mutation("same-key", { amount: "1.0000" }, "shared-client", "operator-a-key")
       );
       const firstB = await fetch(
-        `${baseUrl}/api/tenant-idempotency-test`,
-        mutation("same-key", { amount: "1.0000" }, "shared-client", "tenant-b-key")
+        `${baseUrl}/api/operator-idempotency-test`,
+        mutation("same-key", { amount: "1.0000" }, "shared-client", "operator-b-key")
       );
       const replayA = await fetch(
-        `${baseUrl}/api/v1/tenant-idempotency-test`,
-        mutation("same-key", { amount: "1.0000" }, "shared-client", "tenant-a-key")
+        `${baseUrl}/api/v1/operator-idempotency-test`,
+        mutation("same-key", { amount: "1.0000" }, "shared-client", "operator-a-key")
       );
       assert.deepEqual(await firstA.json(), { applies: 1 });
       assert.deepEqual(await firstB.json(), { applies: 2 });

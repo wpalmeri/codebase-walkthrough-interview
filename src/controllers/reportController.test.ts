@@ -213,11 +213,7 @@ void describe("revenue reports", () => {
     });
 
     assert.deepEqual(
-      await revenueByCustomer(
-        "tenant-isolated",
-        { from: "2026-01-01", to: "2026-12-31" },
-        repository
-      ),
+      await revenueByCustomer({ from: "2026-01-01", to: "2026-12-31" }, repository),
       []
     );
     assert.equal(queries.length, 1);
@@ -227,14 +223,13 @@ void describe("revenue reports", () => {
     assert.match(sql, /AS "quarter"/u);
     assert.match(sql, /AS "year"/u);
     assert.match(sql, /COALESCE\("Invoice"\."customerNameSnapshot", "Customer"\."name"\)/u);
-    assert.match(sql, /"Invoice"\."tenantId" = \?/u);
     assert.match(sql, /ORDER BY "Invoice"\."id" ASC/u);
     assert.match(sql, /LIMIT \?/u);
     assert.doesNotMatch(sql, /json_group_array|GROUP BY|OFFSET/u);
     assert.doesNotMatch(sql, /SELECT\s+"Invoice"\.\*/u);
-    assert.deepEqual(query.values.slice(0, 6), ["tenant-isolated", "POSTED", "SENT", "PAID", "2026-01-01", "2026-12-31"]);
+    assert.deepEqual(query.values.slice(0, 5), ["POSTED", "SENT", "PAID", "2026-01-01", "2026-12-31"]);
     assert.deepEqual(
-      query.values.slice(6).map((value) => (value instanceof Date ? value.toISOString() : value)),
+      query.values.slice(5).map((value) => (value instanceof Date ? value.toISOString() : value)),
       ["2026-01-01T00:00:00.000Z", "2026-12-31T23:59:59.999Z", 250]
     );
   });
@@ -247,14 +242,14 @@ void describe("revenue reports", () => {
     ]);
     const cursors: (string | null)[] = [];
     const repository: RevenueAggregateRepository = {
-      async page(_tenantId, _period, afterId) {
+      async page(_period, afterId) {
         cursors.push(afterId);
         return pages.get(afterId ?? "") ?? [];
       },
     };
 
     assert.deepEqual(
-      await revenueByQuarter("tenant-a", { from: "2026-01-01", to: "2026-03-31" }, repository),
+      await revenueByQuarter({ from: "2026-01-01", to: "2026-03-31" }, repository),
       [{ quarter: "2026-Q1", invoiceCount: 3, revenue: 0.6, revenueDecimal: "0.6000" }]
     );
     assert.deepEqual(cursors, [null, "invoice-b", "invoice-c"]);
@@ -262,7 +257,7 @@ void describe("revenue reports", () => {
 
   void it("rejects a repository page that fails to advance its invoice-id cursor", async () => {
     const repository: RevenueAggregateRepository = {
-      async page(_tenantId, _period, afterId) {
+      async page(_period, afterId) {
         if (afterId === null) {
           return [{
             id: "invoice-a",
@@ -287,7 +282,7 @@ void describe("revenue reports", () => {
     };
 
     await assert.rejects(
-      revenueByCustomer("tenant-a", { from: "2026-01-01", to: "2026-01-31" }, repository),
+      revenueByCustomer({ from: "2026-01-01", to: "2026-01-31" }, repository),
       /keyset order must advance/u
     );
   });

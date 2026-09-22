@@ -30,18 +30,18 @@ const listCustomersOperation = defineOperation({
     schema: CustomerListResponseSchema,
     openApiSchema: CustomerPageSchema,
   },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 500],
   responseHeaders: PaginationResponseHeadersSchema,
-  handler: async ({ input, principal, request, response }) => {
+  handler: async ({ input, request, response }) => {
     if (!isV1Request(request)) {
       // The v1 contract is intentionally not accepted by legacy clients.
       validateRequest(ListCustomersRequestSchema, request);
-      return customers.listCustomers(principal.tenantId);
+      return customers.listCustomers();
     }
 
-    const page = await customers.listCustomersPage(principal.tenantId, input.query);
+    const page = await customers.listCustomersPage(input.query);
     if (!page.ok) {
       throw new RequestValidationError([
         {

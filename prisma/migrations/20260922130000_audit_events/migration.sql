@@ -6,7 +6,6 @@
 -- credentials, idempotency keys, or personal data by accident.
 CREATE TABLE "AuditEvent" (
   "id" TEXT NOT NULL PRIMARY KEY,
-  "tenantId" TEXT NOT NULL,
   "action" TEXT NOT NULL,
   "principalKind" TEXT NOT NULL,
   "principalSubject" TEXT NOT NULL,
@@ -16,9 +15,6 @@ CREATE TABLE "AuditEvent" (
   "resourceKind" TEXT NOT NULL,
   "resourceId" TEXT NOT NULL,
   "occurredAt" DATETIME NOT NULL,
-  CONSTRAINT "AuditEvent_tenantId_fkey"
-    FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id")
-    ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT "AuditEvent_principal_subject_check" CHECK (
     length("principalSubject") BETWEEN 1 AND 191
   ),
@@ -41,11 +37,11 @@ CREATE TABLE "AuditEvent" (
   )
 );
 
-CREATE INDEX "AuditEvent_tenantId_occurredAt_id_idx"
-ON "AuditEvent"("tenantId", "occurredAt", "id");
+CREATE INDEX "AuditEvent_occurredAt_id_idx"
+ON "AuditEvent"("occurredAt", "id");
 
-CREATE INDEX "AuditEvent_tenantId_resourceKind_resourceId_occurredAt_idx"
-ON "AuditEvent"("tenantId", "resourceKind", "resourceId", "occurredAt");
+CREATE INDEX "AuditEvent_resourceKind_resourceId_occurredAt_idx"
+ON "AuditEvent"("resourceKind", "resourceId", "occurredAt");
 
 -- SQLite cannot expand a table CHECK without rebuilding the table. Keeping the
 -- reviewed enum vocabulary in one insert trigger lets a future additive
@@ -57,13 +53,13 @@ WHEN NEW."action" NOT IN (
     'ORDER_UPDATED', 'ORDER_INVOICED', 'INVOICE_CREATED', 'INVOICE_UPDATED',
     'INVOICE_POSTED', 'INVOICE_SENT', 'INVOICE_VOIDED',
     'INVOICE_DELIVERY_REQUESTED', 'INVOICE_DELIVERY_UPDATED', 'PAYMENT_RECORDED',
-    'PAYMENT_APPLIED', 'PAYMENT_APPLICATION_REVERSED', 'TENANT_API_KEY_ISSUED',
-    'TENANT_API_KEY_REVOKED', 'ACCOUNTING_PERIOD_CLOSED'
+    'PAYMENT_APPLIED', 'PAYMENT_APPLICATION_REVERSED', 'OPERATOR_API_KEY_ISSUED',
+    'OPERATOR_API_KEY_REVOKED', 'ACCOUNTING_PERIOD_CLOSED'
   )
-  OR NEW."principalKind" NOT IN ('TENANT_API_KEY', 'LEGACY_API_KEY', 'DEVELOPMENT')
+  OR NEW."principalKind" NOT IN ('OPERATOR_API_KEY', 'LEGACY_API_KEY', 'DEVELOPMENT')
   OR NEW."resourceKind" NOT IN (
     'COMBO_DISCOUNT', 'RATE', 'ORDER', 'INVOICE', 'INVOICE_DELIVERY', 'PAYMENT',
-    'PAYMENT_APPLICATION', 'PAYMENT_APPLICATION_REVERSAL', 'TENANT_API_KEY',
+    'PAYMENT_APPLICATION', 'PAYMENT_APPLICATION_REVERSAL', 'OPERATOR_API_KEY',
     'ACCOUNTING_PERIOD_CONTROL'
   )
   OR NOT (
@@ -80,8 +76,8 @@ WHEN NEW."action" NOT IN (
     (NEW."action" = 'PAYMENT_APPLIED' AND NEW."resourceKind" = 'PAYMENT_APPLICATION') OR
     (NEW."action" = 'PAYMENT_APPLICATION_REVERSED'
       AND NEW."resourceKind" = 'PAYMENT_APPLICATION_REVERSAL') OR
-    (NEW."action" IN ('TENANT_API_KEY_ISSUED', 'TENANT_API_KEY_REVOKED')
-      AND NEW."resourceKind" = 'TENANT_API_KEY') OR
+    (NEW."action" IN ('OPERATOR_API_KEY_ISSUED', 'OPERATOR_API_KEY_REVOKED')
+      AND NEW."resourceKind" = 'OPERATOR_API_KEY') OR
     (NEW."action" = 'ACCOUNTING_PERIOD_CLOSED'
       AND NEW."resourceKind" = 'ACCOUNTING_PERIOD_CONTROL')
   )

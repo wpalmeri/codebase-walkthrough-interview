@@ -8,7 +8,7 @@ import { z } from "zod";
 export const ApiOperationMethodSchema = z.enum(["get", "post", "put", "patch", "delete"]);
 export type ApiOperationMethod = z.infer<typeof ApiOperationMethodSchema>;
 
-export const ApiSecuritySchema = z.enum(["tenantBearer"]);
+export const ApiSecuritySchema = z.enum(["operatorBearer"]);
 export type ApiSecurity = z.infer<typeof ApiSecuritySchema>;
 
 export const ApiErrorStatusSchema = z.union([

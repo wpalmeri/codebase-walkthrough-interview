@@ -2,7 +2,7 @@ import { prisma } from "../db";
 import { ProductModel, toProductModel } from "../models/product";
 import {
   ProductPageSchema,
-  fingerprintTenantPaginationBinding,
+  fingerprintPaginationFilters,
   formatPaginationCursor,
   parsePaginationCursor,
   type ListProductsV1Request,
@@ -11,10 +11,9 @@ import {
 } from "@meridian/contracts";
 import { z } from "zod";
 
-/** Lists only products owned by the server-derived tenant principal. */
-export async function listProducts(tenantId: string): Promise<ProductModel[]> {
+/** Lists the shared company catalog. */
+export async function listProducts(): Promise<ProductModel[]> {
   const rows = await prisma.product.findMany({
-    where: { tenantId },
     orderBy: { sku: "asc" },
   });
   return rows.map(toProductModel);
@@ -30,17 +29,12 @@ export type ProductPageResult =
   | { readonly ok: false; readonly code: PaginationCursorFailureCode };
 
 /**
- * Lists a v1 tenant-scoped product page in ascending `(sku, id)` order. The
- * explicit id tie-breaker keeps the cursor deterministic if SKU uniqueness is
- * later relaxed to tenant scope without changing this wire contract.
+ * Lists a v1 global product page in ascending `(sku, id)` order.
  */
 export async function listProductsPage(
-  tenantId: string,
   query: ListProductsV1Request["query"]
 ): Promise<ProductPageResult> {
-  // The opaque SHA-256 fingerprint binds the cursor to server-derived tenant
-  // identity without placing that identity in the cursor payload.
-  const filterFingerprint = fingerprintTenantPaginationBinding({}, tenantId);
+  const filterFingerprint = fingerprintPaginationFilters({});
   const parsedCursor = query.cursor === undefined
     ? undefined
     : parsePaginationCursor(query.cursor, { resource: "products", filterFingerprint });
@@ -55,17 +49,14 @@ export async function listProductsPage(
 
   const [sku, id] = ordering === undefined ? [] : ordering.data;
   const rows = await prisma.product.findMany({
-    where: {
-      tenantId,
-      ...(sku === undefined || id === undefined
-        ? {}
-        : {
-            OR: [
-              { sku: { gt: sku } },
-              { sku, id: { gt: id } },
-            ],
-          }),
-    },
+    where: sku === undefined || id === undefined
+      ? {}
+      : {
+          OR: [
+            { sku: { gt: sku } },
+            { sku, id: { gt: id } },
+          ],
+        },
     orderBy: [{ sku: "asc" }, { id: "asc" }],
     take: query.limit + 1,
   });

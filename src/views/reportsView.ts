@@ -18,13 +18,13 @@ const revenueByQuarterOperation = defineOperation({
   hasJsonBody: false,
   success: {
     status: 200,
-    description: "Tenant-scoped quarterly recognized revenue in exact decimal strings",
+    description: "Company-wide quarterly recognized revenue in exact decimal strings",
     schema: QuarterRevenueSchema.array(),
   },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 500],
-  handler: async ({ input, principal }) => reports.revenueByQuarter(principal.tenantId, input.query),
+  handler: async ({ input }) => reports.revenueByQuarter(input.query),
 });
 
 const revenueByCustomerOperation = defineOperation({
@@ -36,13 +36,13 @@ const revenueByCustomerOperation = defineOperation({
   hasJsonBody: false,
   success: {
     status: 200,
-    description: "Tenant-scoped customer recognized revenue in exact decimal strings",
+    description: "Company-wide customer recognized revenue in exact decimal strings",
     schema: CustomerRevenueSchema.array(),
   },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 500],
-  handler: async ({ input, principal }) => reports.revenueByCustomer(principal.tenantId, input.query),
+  handler: async ({ input }) => reports.revenueByCustomer(input.query),
 });
 
 const annualRevenueOperation = defineOperation({
@@ -54,13 +54,13 @@ const annualRevenueOperation = defineOperation({
   hasJsonBody: false,
   success: {
     status: 200,
-    description: "Tenant-scoped annual recognized revenue in exact decimal strings",
+    description: "Company-wide annual recognized revenue in exact decimal strings",
     schema: AnnualRevenueSchema.array(),
   },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 500],
-  handler: async ({ input, principal }) => reports.annualRevenue(principal.tenantId, input.query),
+  handler: async ({ input }) => reports.annualRevenue(input.query),
 });
 
 /** Reused by the OpenAPI inventory; these descriptors are what Express mounts. */

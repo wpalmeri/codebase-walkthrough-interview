@@ -62,7 +62,7 @@ export interface RevenueAggregateQueryClient {
 }
 
 export interface RevenueAggregateRepository {
-  page(tenantId: string, period: ReportPeriod, afterId: string | null): Promise<readonly RevenueInput[]>;
+  page(period: ReportPeriod, afterId: string | null): Promise<readonly RevenueInput[]>;
 }
 
 export interface RevenueInput {
@@ -119,11 +119,10 @@ export function toRecognizedRevenueRows(invoices: readonly ReportableInvoice[]):
     });
 }
 
-function reportFilter(tenantId: string, period: ReportPeriod): Prisma.Sql {
+function reportFilter(period: ReportPeriod): Prisma.Sql {
   const from = period.from === undefined ? undefined : reportAccountingDate(period.from);
   const to = period.to === undefined ? undefined : reportAccountingDate(period.to);
   const conditions = [
-    Prisma.sql`"Invoice"."tenantId" = ${tenantId}`,
     Prisma.sql`"Invoice"."status" IN (${Prisma.join(REVENUE_RECOGNIZED_STATUSES)})`,
   ];
   if (from !== undefined || to !== undefined) {
@@ -168,7 +167,7 @@ export function createRevenueAggregateRepository(
     throw new Error(`pageSize must be a whole number from 1 through ${REVENUE_PAGE_SIZE}`);
   }
   return {
-    async page(tenantId, period, afterId) {
+    async page(period, afterId) {
       const rows = await queryClient.$queryRaw(Prisma.sql`
         SELECT
           "Invoice"."id" AS "id",
@@ -179,7 +178,7 @@ export function createRevenueAggregateRepository(
             CAST(((CAST(strftime('%m', ${effectiveAccountingDateSql}) AS INTEGER) - 1) / 3) + 1 AS TEXT) AS "quarter",
           CAST(strftime('%Y', ${effectiveAccountingDateSql}) AS INTEGER) AS "year",
           CAST(COALESCE("Invoice"."totalDecimal", "Invoice"."total") AS TEXT) AS "revenueDecimal"
-        ${reportFilter(tenantId, period)}
+        ${reportFilter(period)}
         ${afterId === null ? Prisma.empty : Prisma.sql`AND "Invoice"."id" > ${afterId}`}
         ORDER BY "Invoice"."id" ASC
         LIMIT ${pageSize}
@@ -354,7 +353,6 @@ function addRevenue(bucket: RevenueBucket, input: RevenueInput): void {
 }
 
 async function readPagedRevenueTotals(
-  tenantId: string,
   period: ReportPeriod,
   repository: RevenueAggregateRepository
 ): Promise<PagedRevenueTotals> {
@@ -367,7 +365,7 @@ async function readPagedRevenueTotals(
   };
   let afterId: string | null = null;
   for (;;) {
-    const page = await repository.page(tenantId, period, afterId);
+    const page = await repository.page(period, afterId);
     if (page.length > REVENUE_PAGE_SIZE) {
       throw new Error(`revenue repository returned more than ${REVENUE_PAGE_SIZE} inputs in one page`);
     }
@@ -479,25 +477,22 @@ function summarizePagedAnnualRevenue(totals: PagedRevenueTotals, period: ReportP
 }
 
 export async function revenueByQuarter(
-  tenantId: string,
   period: ReportPeriod,
   repository: RevenueAggregateRepository = revenueAggregateRepository
 ): Promise<QuarterRevenue[]> {
-  return summarizePagedQuarterRevenue(await readPagedRevenueTotals(tenantId, period, repository), period);
+  return summarizePagedQuarterRevenue(await readPagedRevenueTotals(period, repository), period);
 }
 
 export async function revenueByCustomer(
-  tenantId: string,
   period: ReportPeriod,
   repository: RevenueAggregateRepository = revenueAggregateRepository
 ): Promise<CustomerRevenue[]> {
-  return summarizePagedCustomerRevenue(await readPagedRevenueTotals(tenantId, period, repository));
+  return summarizePagedCustomerRevenue(await readPagedRevenueTotals(period, repository));
 }
 
 export async function annualRevenue(
-  tenantId: string,
   period: ReportPeriod,
   repository: RevenueAggregateRepository = revenueAggregateRepository
 ): Promise<AnnualRevenue[]> {
-  return summarizePagedAnnualRevenue(await readPagedRevenueTotals(tenantId, period, repository), period);
+  return summarizePagedAnnualRevenue(await readPagedRevenueTotals(period, repository), period);
 }

@@ -7,10 +7,9 @@ import { AuthorizationError } from "../errors";
 import { rateOperations, ratesView } from "./ratesView";
 
 const viewer: Principal = {
-  tenantId: "rate-viewer-tenant",
-  subjectId: "viewer:rate-viewer-tenant",
+    subjectId: "viewer:rate-viewer-operator",
   credentialId: "viewer-rate-credential",
-  kind: "TENANT_API_KEY",
+  kind: "OPERATOR_API_KEY",
   role: "VIEWER",
 };
 

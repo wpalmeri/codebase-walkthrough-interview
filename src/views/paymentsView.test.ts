@@ -7,10 +7,9 @@ import { AuthorizationError } from "../errors";
 import { paymentOperations, paymentsView } from "./paymentsView";
 
 const viewer: Principal = {
-  tenantId: "payment-viewer-tenant",
-  subjectId: "viewer:payment-viewer-tenant",
+    subjectId: "viewer:payment-viewer-operator",
   credentialId: "viewer-credential",
-  kind: "TENANT_API_KEY",
+  kind: "OPERATOR_API_KEY",
   role: "VIEWER",
 };
 

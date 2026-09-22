@@ -30,18 +30,18 @@ const listProductsOperation = defineOperation({
     schema: ProductListResponseSchema,
     openApiSchema: ProductPageSchema,
   },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 500],
   responseHeaders: PaginationResponseHeadersSchema,
-  handler: async ({ input, principal, request, response }) => {
+  handler: async ({ input, request, response }) => {
     if (!isV1Request(request)) {
       // The v1 contract is intentionally not accepted by legacy clients.
       validateRequest(ListProductsRequestSchema, request);
-      return products.listProducts(principal.tenantId);
+      return products.listProducts();
     }
 
-    const page = await products.listProductsPage(principal.tenantId, input.query);
+    const page = await products.listProductsPage(input.query);
     if (!page.ok) {
       throw new RequestValidationError([
         {

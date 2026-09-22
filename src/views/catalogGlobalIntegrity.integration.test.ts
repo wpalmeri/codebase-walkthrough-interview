@@ -4,14 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-for (const scenario of [
-  "tenantBackfill.integration.scenario.ts",
-  "tenantBackfill.conflict.integration.scenario.ts",
-  "tenantBackfill.multiple.integration.scenario.ts",
-  "tenantBackfill.identity.integration.scenario.ts",
-]) {
-  void test(`tenant ownership backfill: ${scenario}`, { timeout: 30_000 }, async () => {
-    const temporaryDirectory = await mkdtemp(join(tmpdir(), "meridian-tenant-backfill-"));
+void test(
+  "catalog APIs expose the shared catalog and enforce customer-specific commercial terms",
+  { timeout: 30_000 },
+  async () => {
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), "meridian-catalog-integrity-"));
     const databaseUrl = `file:${join(temporaryDirectory, "integration.db")}`;
     const environment = { ...process.env, DATABASE_URL: databaseUrl, RUST_LOG: "info" };
     try {
@@ -20,13 +17,13 @@ for (const scenario of [
         env: environment,
         stdio: "pipe",
       });
-      execFileSync(process.execPath, [join(process.cwd(), "src/jobs", scenario)], {
-        cwd: process.cwd(),
-        env: environment,
-        stdio: "pipe",
-      });
+      execFileSync(
+        process.execPath,
+        [join(process.cwd(), "src/views/catalogGlobalIntegrity.integration.scenario.ts")],
+        { cwd: process.cwd(), env: environment, stdio: "pipe" }
+      );
     } finally {
       await rm(temporaryDirectory, { recursive: true, force: true });
     }
-  });
-}
+  }
+);

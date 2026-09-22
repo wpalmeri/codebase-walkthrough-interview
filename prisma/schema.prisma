@@ -7,30 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Tenant ownership is introduced as a nullable expand-only boundary. Existing
-// data remains addressable until the bounded tenant backfill and dual-write
-// rollout are complete; new runtime authorization must scope every query by
-// this value before it becomes required in a later contract migration.
-model Tenant {
-  id        String   @id @default(cuid())
-  slug      String   @unique
-  name      String
-  createdAt DateTime @default(now())
-
-  apiKeys                 TenantApiKey[]
-  memberships             TenantMembership[]
-  accountingPeriodControl TenantAccountingPeriodControl?
-  customers               Customer[]
-  products                Product[]
-  comboDiscounts          ComboDiscount[]
-  orders                  Order[]
-  invoices                Invoice[]
-  payments                Payment[]
-  idempotencyRecords      IdempotencyRecord[]
-  auditEvents             AuditEvent[]
-}
-
-enum TenantRole {
+// Meridian owns one billing database. Customer is the bill-to entity; it is
+// not an authentication or data-isolation boundary. Operator credentials are
+// global internal credentials with narrowly scoped roles.
+enum OperatorApiKeyRole {
   ADMIN
   BILLING
   VIEWER
@@ -99,13 +79,13 @@ enum AuditAction {
   PAYMENT_RECORDED
   PAYMENT_APPLIED
   PAYMENT_APPLICATION_REVERSED
-  TENANT_API_KEY_ISSUED
-  TENANT_API_KEY_REVOKED
+  OPERATOR_API_KEY_ISSUED
+  OPERATOR_API_KEY_REVOKED
   ACCOUNTING_PERIOD_CLOSED
 }
 
 enum AuditPrincipalKind {
-  TENANT_API_KEY
+  OPERATOR_API_KEY
   LEGACY_API_KEY
   DEVELOPMENT
 }
@@ -119,72 +99,28 @@ enum AuditResourceKind {
   PAYMENT
   PAYMENT_APPLICATION
   PAYMENT_APPLICATION_REVERSAL
-  TENANT_API_KEY
+  OPERATOR_API_KEY
   ACCOUNTING_PERIOD_CONTROL
 }
 
 // The API key secret itself is never stored. keyHash is a one-way, versioned
 // server-generated digest; keyPrefix is only an operator-facing identifier.
-model TenantApiKey {
+model OperatorApiKey {
   id         String     @id @default(cuid())
-  tenantId   String
   name       String
-  role       TenantRole @default(BILLING)
+  role       OperatorApiKeyRole @default(BILLING)
   keyPrefix  String     @unique
   keyHash    String     @unique
   createdAt  DateTime   @default(now())
   revokedAt  DateTime?
   lastUsedAt DateTime?
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-
-  @@unique([tenantId, name])
-  @@index([tenantId, revokedAt])
-}
-
-// A user identity is an external subject, not an authentication secret. The
-// eventual OIDC/session implementation owns subject verification.
-model UserIdentity {
-  id        String   @id @default(cuid())
-  issuer    String
-  subject   String
-  email     String?
-  createdAt DateTime @default(now())
-
-  memberships TenantMembership[]
-
-  @@unique([issuer, subject])
-}
-
-model TenantMembership {
-  id             String     @id @default(cuid())
-  tenantId       String
-  userIdentityId String
-  role           TenantRole
-  createdAt      DateTime   @default(now())
-  revokedAt      DateTime?
-
-  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  userIdentity UserIdentity @relation(fields: [userIdentityId], references: [id], onDelete: Restrict)
-
-  @@unique([tenantId, userIdentityId])
-  @@index([userIdentityId, revokedAt])
-}
-
-// Kept separate from the legacy global AccountingPeriodControl until every
-// financial row is tenant-scoped and reconciled.
-model TenantAccountingPeriodControl {
-  id                String   @id @default(cuid())
-  tenantId          String   @unique
-  closedThroughDate String?
-  updatedAt         DateTime @updatedAt
-
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  @@unique([name])
+  @@index([revokedAt])
 }
 
 model Customer {
   id              String   @id @default(cuid())
-  tenantId        String?
   // Nullable during the expand/backfill rollout. Conditional-write endpoints
   // will atomically advance this monotonically increasing value once adopted.
   resourceVersion Int?
@@ -200,15 +136,11 @@ model Customer {
   orders         Order[]
   invoices       Invoice[]
   payments       Payment[]
-  tenant         Tenant?         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-
-  @@index([tenantId])
-  @@index([tenantId, name, id])
+  @@index([name, id])
 }
 
 model Product {
   id               String   @id @default(cuid())
-  tenantId         String?
   resourceVersion  Int?
   sku              String   @unique
   name             String
@@ -220,10 +152,7 @@ model Product {
   rates      Rate[]
   orderItems OrderItem[]
   combos     ComboDiscount[]
-  tenant     Tenant?         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-
-  @@index([tenantId])
-  @@index([tenantId, sku, id])
+  @@index([sku, id])
 }
 
 // One rate per customer+product. Edits update this row with the new price.
@@ -250,7 +179,6 @@ model Rate {
 // by percentOff. Scoped to one customer, or global when customerId is null.
 model ComboDiscount {
   id                String   @id @default(cuid())
-  tenantId          String?
   resourceVersion   Int?
   customerId        String?
   name              String
@@ -259,14 +187,10 @@ model ComboDiscount {
 
   customer Customer? @relation(fields: [customerId], references: [id])
   products Product[]
-  tenant   Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-
-  @@index([tenantId])
 }
 
 model Order {
   id              String      @id @default(cuid())
-  tenantId        String?
   resourceVersion Int?
   reference       String? // sales order number, e.g. SO-0042
   customerId      String // immutable after any order item captures pricing
@@ -280,10 +204,7 @@ model Order {
   items    OrderItem[]
   invoice  Invoice?
   comments OrderComment[]
-  tenant   Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-
-  @@index([tenantId])
-  @@index([tenantId, orderDate(sort: Desc), id(sort: Desc)])
+  @@index([orderDate(sort: Desc), id(sort: Desc)])
 }
 
 model OrderComment {
@@ -324,7 +245,6 @@ model OrderItem {
 
 model Invoice {
   id                     String        @id @default(cuid())
-  tenantId               String?
   resourceVersion        Int?
   number                 String        @unique
   customerId             String
@@ -350,10 +270,7 @@ model Invoice {
   lines         InvoiceLine[]
   applications  PaymentApplication[]
   transmissions Transmission[]
-  tenant        Tenant?              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-
-  @@index([tenantId])
-  @@index([tenantId, issueDate(sort: Desc), id(sort: Desc)])
+  @@index([issueDate(sort: Desc), id(sort: Desc)])
 }
 
 // This table has exactly one permitted row (id = 1). Its nullable close date
@@ -375,7 +292,6 @@ model BackfillCheckpoint {
 // the runtime schema below is intentionally the source of its typed boundary.
 model IdempotencyRecord {
   id                  String                 @id @default(cuid())
-  tenantId            String?
   clientScope         String
   method              IdempotencyHttpMethod
   route               String
@@ -388,11 +304,8 @@ model IdempotencyRecord {
   responseEtag        String?
   createdAt           DateTime               @default(now())
   completedAt         DateTime?
-  tenant              Tenant?                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-
   @@unique([clientScope, method, route, idempotencyKey])
   @@index([createdAt])
-  @@index([tenantId])
 }
 
 model InvoiceLine {
@@ -416,7 +329,6 @@ model InvoiceLine {
 // one payment can be applied across many invoices.
 model Payment {
   id            String   @id @default(cuid())
-  tenantId      String?
   customerId    String // immutable receipt party
   amount        Float // Legacy compatibility column; immutable receipt amount.
   amountDecimal Decimal? // DECIMAL(19,4); a legacy null may be backfilled once.
@@ -426,17 +338,13 @@ model Payment {
 
   customer     Customer             @relation(fields: [customerId], references: [id])
   applications PaymentApplication[]
-  tenant       Tenant?              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-
-  @@index([tenantId])
-  @@index([tenantId, receivedAt(sort: Desc), id(sort: Desc)])
+  @@index([receivedAt(sort: Desc), id(sort: Desc)])
 }
 
 // Immutable security/accounting metadata. Deliberately no generic payload:
 // request bodies, errors, credentials, and PII do not belong in this table.
 model AuditEvent {
   id                        String             @id
-  tenantId                  String
   action                    AuditAction
   principalKind             AuditPrincipalKind
   principalSubject          String
@@ -447,10 +355,8 @@ model AuditEvent {
   resourceId                String
   occurredAt                DateTime
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-
-  @@index([tenantId, occurredAt, id])
-  @@index([tenantId, resourceKind, resourceId, occurredAt])
+  @@index([occurredAt, id])
+  @@index([resourceKind, resourceId, occurredAt])
 }
 
 model PaymentApplication {

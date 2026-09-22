@@ -9,7 +9,6 @@ type PersistedAuditRow = {
 
 async function rawInsert(input: {
   readonly id: string;
-  readonly tenantId: string;
   readonly action?: string;
   readonly principalKind?: string;
   readonly requestId?: string;
@@ -18,12 +17,12 @@ async function rawInsert(input: {
 }): Promise<void> {
   await prisma.$executeRaw`
     INSERT INTO "AuditEvent" (
-      "id", "tenantId", "action", "principalKind", "principalSubject",
+      "id", "action", "principalKind", "principalSubject",
       "principalCredentialId", "requestId", "idempotencyKeyFingerprint",
       "resourceKind", "resourceId", "occurredAt"
     ) VALUES (
-      ${input.id}, ${input.tenantId}, ${input.action ?? "RATE_UPDATED"},
-      ${input.principalKind ?? "TENANT_API_KEY"}, "audit-subject", "audit-credential",
+      ${input.id}, ${input.action ?? "RATE_UPDATED"},
+      ${input.principalKind ?? "OPERATOR_API_KEY"}, "audit-subject", "audit-credential",
       ${input.requestId ?? "audit-request-raw"}, ${input.idempotencyKeyFingerprint ?? null},
       ${input.resourceKind ?? "RATE"}, "audit-resource", "2026-09-22T12:00:00.000Z"
     )
@@ -31,18 +30,14 @@ async function rawInsert(input: {
 }
 
 async function main(): Promise<void> {
-  await prisma.tenant.create({
-    data: { id: "audit-tenant", slug: "audit-tenant", name: "Audit Tenant" },
-  });
   const rawIdempotencyKey = "audit-idempotency-key-is-transient";
   const appended = await prisma.$transaction((transaction) =>
     appendAuditEvent(
       transaction,
       {
-        tenantId: "audit-tenant",
         action: "INVOICE_POSTED",
         principal: {
-          kind: "TENANT_API_KEY",
+          kind: "OPERATOR_API_KEY",
           subjectId: "service:invoice-worker",
           credentialId: "credential-audit-1",
         },
@@ -66,33 +61,28 @@ async function main(): Promise<void> {
   assert.equal(JSON.stringify(persisted).includes(rawIdempotencyKey), false);
 
   await assert.rejects(
-    rawInsert({ id: "audit-event-foreign", tenantId: "missing-audit-tenant" }),
-    /FOREIGN KEY constraint failed/u
-  );
-  await assert.rejects(
-    rawInsert({ id: "audit-event-invalid-action", tenantId: "audit-tenant", action: "UNREVIEWED_ACTION" }),
+    rawInsert({ id: "audit-event-invalid-action", action: "UNREVIEWED_ACTION" }),
     /AuditEvent action, principal kind, or resource kind is invalid/u
   );
   await assert.rejects(
-    rawInsert({ id: "audit-event-invalid-principal", tenantId: "audit-tenant", principalKind: "ROOT" }),
+    rawInsert({ id: "audit-event-invalid-principal", principalKind: "ROOT" }),
     /AuditEvent action, principal kind, or resource kind is invalid/u
   );
   await assert.rejects(
-    rawInsert({ id: "audit-event-invalid-resource", tenantId: "audit-tenant", resourceKind: "UNREVIEWED_KIND" }),
+    rawInsert({ id: "audit-event-invalid-resource", resourceKind: "UNREVIEWED_KIND" }),
     /AuditEvent action, principal kind, or resource kind is invalid/u
   );
   await assert.rejects(
-    rawInsert({ id: "audit-event-invalid-pair", tenantId: "audit-tenant", action: "PAYMENT_RECORDED", resourceKind: "INVOICE" }),
+    rawInsert({ id: "audit-event-invalid-pair", action: "PAYMENT_RECORDED", resourceKind: "INVOICE" }),
     /AuditEvent action, principal kind, or resource kind is invalid/u
   );
   await assert.rejects(
-    rawInsert({ id: "audit-event-invalid-request", tenantId: "audit-tenant", requestId: ".request" }),
+    rawInsert({ id: "audit-event-invalid-request", requestId: ".request" }),
     /AuditEvent_request_id_check/u
   );
   await assert.rejects(
     rawInsert({
       id: "audit-event-invalid-fingerprint",
-      tenantId: "audit-tenant",
       idempotencyKeyFingerprint: "A".repeat(64),
     }),
     /AuditEvent_idempotency_key_fingerprint_check/u
@@ -108,8 +98,8 @@ async function main(): Promise<void> {
   const installed = await prisma.$queryRaw<readonly { name: string }[]>`
     SELECT name FROM sqlite_master
     WHERE name IN (
-      'AuditEvent_tenantId_occurredAt_id_idx',
-      'AuditEvent_tenantId_resourceKind_resourceId_occurredAt_idx',
+      'AuditEvent_occurredAt_id_idx',
+      'AuditEvent_resourceKind_resourceId_occurredAt_idx',
       'AuditEvent_insert_guard',
       'AuditEvent_append_only_update_guard',
       'AuditEvent_append_only_delete_guard'

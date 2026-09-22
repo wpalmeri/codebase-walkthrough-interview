@@ -39,7 +39,7 @@ import {
 import type { AuditEventRepository } from "../audit/auditEvent";
 import { syncDraftInvoiceInTransaction } from "./invoiceController";
 import {
-  fingerprintTenantPaginationBinding,
+  fingerprintPaginationFilters,
   formatPaginationCursor,
   InvoiceStatusSchema,
   OrderPageSchema,
@@ -70,9 +70,8 @@ function orderReference(id: string): string {
   return `SO-${id.toUpperCase()}`;
 }
 
-export async function listOrders(tenantId: string): Promise<OrderModel[]> {
+export async function listOrders(): Promise<OrderModel[]> {
   const rows = await prisma.order.findMany({
-    where: { tenantId },
     include: orderInclude,
     orderBy: { orderDate: "desc" },
   });
@@ -89,15 +88,14 @@ export type OrderPageResult =
   | { readonly ok: false; readonly code: PaginationCursorFailureCode };
 
 /**
- * Lists a v1 tenant-scoped order page in descending `(orderDate, id)` order.
+ * Lists a v1 company-wide order page in descending `(orderDate, id)` order.
  * The explicit id tie-breaker makes traversal deterministic for tied dates and
  * prevents an insert before the cursor boundary from duplicating later rows.
  */
 export async function listOrdersPage(
-  tenantId: string,
   query: ListOrdersV1Request["query"]
 ): Promise<OrderPageResult> {
-  const filterFingerprint = fingerprintTenantPaginationBinding({}, tenantId);
+  const filterFingerprint = fingerprintPaginationFilters({});
   const parsedCursor = query.cursor === undefined
     ? undefined
     : parsePaginationCursor(query.cursor, { resource: "orders", filterFingerprint });
@@ -112,17 +110,14 @@ export async function listOrdersPage(
 
   const [orderDate, id] = ordering === undefined ? [] : ordering.data;
   const rows = await prisma.order.findMany({
-    where: {
-      tenantId,
-      ...(orderDate === undefined || id === undefined
-        ? {}
-        : {
-            OR: [
-              { orderDate: { lt: new Date(orderDate) } },
-              { orderDate: new Date(orderDate), id: { lt: id } },
-            ],
-          }),
-    },
+    where: orderDate === undefined || id === undefined
+      ? {}
+      : {
+          OR: [
+            { orderDate: { lt: new Date(orderDate) } },
+            { orderDate: new Date(orderDate), id: { lt: id } },
+          ],
+        },
     include: orderInclude,
     orderBy: [{ orderDate: "desc" }, { id: "desc" }],
     take: query.limit + 1,
@@ -145,17 +140,17 @@ export async function listOrdersPage(
   };
 }
 
-export async function getOrder(tenantId: string, orderId: string): Promise<OrderModel> {
+export async function getOrder(orderId: string): Promise<OrderModel> {
   const row = await prisma.order.findFirstOrThrow({
-    where: { id: orderId, tenantId },
+    where: { id: orderId },
     include: orderInclude,
   });
   return toOrderModel(row);
 }
 
 /** Legacy null versions are deliberately exposed as logical version zero. */
-export async function getVersionedOrder(tenantId: string, orderId: string): Promise<VersionedOrder> {
-  const order = await findTenantOrder(prisma, tenantId, orderId);
+export async function getVersionedOrder(orderId: string): Promise<VersionedOrder> {
+  const order = await findOrder(prisma, orderId);
   if (order === null) throw new NotFoundError();
   return {
     order: toOrderModel(order),
@@ -181,18 +176,17 @@ export interface VersionedOrder {
 async function capturedOrderLines(
   transaction: PricingTransaction,
   input: {
-    tenantId: string;
     customerId: string;
     items: readonly { productId: string; quantity: string | number }[];
     capturedAt: Date;
   }
 ): Promise<CapturedOrderPricing[]> {
-  await transaction.customer.findFirstOrThrow({
-    where: { id: input.customerId, tenantId: input.tenantId },
+  await transaction.customer.findUniqueOrThrow({
+    where: { id: input.customerId },
   });
   const productIds = input.items.map((item) => item.productId);
   const products = await transaction.product.findMany({
-    where: { id: { in: productIds }, tenantId: input.tenantId },
+    where: { id: { in: productIds } },
   });
   if (products.length !== productIds.length) {
     throw new NotFoundError();
@@ -203,8 +197,6 @@ async function capturedOrderLines(
     where: {
       customerId: input.customerId,
       productId: { in: productIds },
-      customer: { tenantId: input.tenantId },
-      product: { tenantId: input.tenantId },
     },
   });
   const ratesByProductId = new Map(existingRates.map((rate) => [rate.productId, rate]));
@@ -233,7 +225,6 @@ async function capturedOrderLines(
 
   const discounts = await transaction.comboDiscount.findMany({
     where: {
-      tenantId: input.tenantId,
       OR: [{ customerId: input.customerId }, { customerId: null }],
     },
     include: { products: true },
@@ -310,16 +301,15 @@ function orderItemCreateData(orderId: string, captured: CapturedOrderPricing) {
   };
 }
 
-export async function createOrder(tenantId: string, input: {
+export async function createOrder(input: {
   customerId: string;
   items: { productId: string; quantity: string | number }[];
   notes?: string;
 }, audit: RequestAuditMetadata, appendAudit: RequestAuditAppender = appendRequestAuditEvent): Promise<OrderModel> {
-  const auditMetadata = requireOrderAudit(tenantId, audit);
+  const auditMetadata = requireOrderAudit(audit);
   const orderId = randomUUID();
   await prisma.$transaction(async (transaction) => {
     const lines = await capturedOrderLines(transaction, {
-      tenantId,
       customerId: input.customerId,
       items: input.items,
       capturedAt: new Date(),
@@ -335,7 +325,6 @@ export async function createOrder(tenantId: string, input: {
     await transaction.order.create({
       data: {
         id: orderId,
-        tenantId,
         reference: orderReference(orderId),
         customerId: input.customerId,
         notes: input.notes,
@@ -347,35 +336,33 @@ export async function createOrder(tenantId: string, input: {
     });
     await appendOrderAudit(transaction, auditMetadata, appendAudit, "ORDER_CREATED", orderId);
   });
-  return getOrder(tenantId, orderId);
+  return getOrder(orderId);
 }
 
 // Order terms are captured once. Quantity changes recalculate from those terms;
 // changing the customer would require an explicit re-contracting workflow.
 export async function saveOrder(
-  tenantId: string,
   orderId: string,
   input: OrderMutationInput,
   audit: RequestAuditMetadata,
   appendAudit: RequestAuditAppender = appendRequestAuditEvent
 ): Promise<OrderModel> {
-  const auditMetadata = requireOrderAudit(tenantId, audit);
+  const auditMetadata = requireOrderAudit(audit);
   await prisma.$transaction(async (transaction) => {
-    await saveOrderInTransaction(transaction, tenantId, orderId, input, auditMetadata, appendAudit);
+    await saveOrderInTransaction(transaction, orderId, input, auditMetadata, appendAudit);
   });
-  return getOrder(tenantId, orderId);
+  return getOrder(orderId);
 }
 
 async function saveOrderInTransaction(
   transaction: Prisma.TransactionClient,
-  tenantId: string,
   orderId: string,
   input: OrderMutationInput,
   auditMetadata: RequestAuditMetadata,
   appendAudit: RequestAuditAppender
 ): Promise<void> {
     const order = await transaction.order.findFirst({
-      where: { id: orderId, tenantId },
+      where: { id: orderId },
       include: { items: true, invoice: true },
     });
     if (order === null) throw new NotFoundError();
@@ -428,7 +415,6 @@ async function saveOrderInTransaction(
 
     if (input.orderDate !== undefined || input.notes !== undefined) {
       await transaction.order.update({
-        // The tenant-qualified read above proves ownership inside this transaction.
         where: { id: orderId },
         data: {
           orderDate: input.orderDate === undefined ? undefined : new Date(input.orderDate),
@@ -445,7 +431,7 @@ async function saveOrderInTransaction(
         },
       });
     }
-    await syncDraftInvoiceInTransaction(transaction, tenantId, orderId);
+    await syncDraftInvoiceInTransaction(transaction, orderId);
     await appendOrderAudit(transaction, auditMetadata, appendAudit, "ORDER_UPDATED", order.id);
 }
 
@@ -455,18 +441,15 @@ async function saveOrderInTransaction(
  * may advance it further while producing the representation.
  */
 export async function saveOrderConditionally(
-  tenantId: string,
   orderId: string,
   input: OrderMutationInput,
   ifMatch: string | undefined,
   audit: RequestAuditMetadata,
   appendAudit: RequestAuditAppender = appendRequestAuditEvent
 ): Promise<VersionedOrder> {
-  const auditMetadata = requireOrderAudit(tenantId, audit);
+  const auditMetadata = requireOrderAudit(audit);
   return prisma.$transaction(async (transaction) => {
-    const existing = await findTenantOrder(transaction, tenantId, orderId);
-    // Resolve ownership before parsing the client condition so foreign and
-    // missing resources have one indistinguishable tenant-safe response.
+    const existing = await findOrder(transaction, orderId);
     if (existing === null) throw new NotFoundError();
 
     const currentVersion = logicalResourceVersion(existing.resourceVersion);
@@ -479,7 +462,6 @@ export async function saveOrderConditionally(
     const acquired = await transaction.order.updateMany({
       where: {
         id: existing.id,
-        tenantId,
         ...(existing.resourceVersion === null
           ? { resourceVersion: null }
           : { resourceVersion: precondition.version }),
@@ -487,13 +469,13 @@ export async function saveOrderConditionally(
       data: { resourceVersion: precondition.version + 1 },
     });
     if (acquired.count !== 1) {
-      const stillVisible = await findTenantOrder(transaction, tenantId, orderId);
+      const stillVisible = await findOrder(transaction, orderId);
       if (stillVisible === null) throw new NotFoundError();
       throw new PreconditionError("ETAG_VERSION_MISMATCH", "If-Match does not match the current resource version");
     }
 
-    await saveOrderInTransaction(transaction, tenantId, orderId, input, auditMetadata, appendAudit);
-    const updated = await findTenantOrder(transaction, tenantId, orderId);
+    await saveOrderInTransaction(transaction, orderId, input, auditMetadata, appendAudit);
+    const updated = await findOrder(transaction, orderId);
     if (updated === null) throw new NotFoundError();
     return {
       order: toOrderModel(updated),
@@ -524,13 +506,12 @@ function throwPrecondition(failure: ResourceVersionPreconditionFailure): never {
   });
 }
 
-async function findTenantOrder(
+async function findOrder(
   database: Pick<Prisma.TransactionClient, "order">,
-  tenantId: string,
   orderId: string
 ) {
   return database.order.findFirst({
-    where: { id: orderId, tenantId },
+    where: { id: orderId },
     include: orderInclude,
   });
 }
@@ -558,14 +539,6 @@ function auditRepository(transaction: OrderAuditTransaction): AuditEventReposito
   };
 }
 
-/** A caller may not attribute a tenant-scoped order mutation to another tenant. */
-function requireOrderAudit(tenantId: string, audit: RequestAuditMetadata): RequestAuditMetadata {
-  const parsedAudit = RequestAuditMetadataSchema.parse(audit);
-  if (parsedAudit.tenantId !== tenantId) {
-    throw new DomainInvariantError(
-      "AUDIT_TENANT_MISMATCH",
-      "Audit metadata must belong to the mutated order tenant"
-    );
-  }
-  return parsedAudit;
+function requireOrderAudit(audit: RequestAuditMetadata): RequestAuditMetadata {
+  return RequestAuditMetadataSchema.parse(audit);
 }

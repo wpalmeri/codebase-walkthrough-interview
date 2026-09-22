@@ -8,6 +8,7 @@ import {
   InvoiceLineSchema,
   InvoicePaymentSchema,
   InvoiceSchema,
+  IssueOperatorApiKeyRequestSchema,
   MoneyStringSchema,
   OrderItemSchema,
   OrderSchema,
@@ -19,6 +20,7 @@ import {
   ProductSchema,
   QuantityStringSchema,
   RateSchema,
+  RevokeOperatorApiKeyRequestSchema,
 } from "./index.js";
 
 const date = "2026-09-22T12:00:00.000Z";
@@ -247,6 +249,34 @@ void describe("email address contract", () => {
     assert.equal(EmailAddressSchema.safeParse("billing@example.com ").success, false);
     assert.equal(EmailAddressSchema.safeParse("billing@example.com\r\nBcc: attacker@example.com").success, false);
     assert.equal(EmailAddressSchema.safeParse(`${"a".repeat(245)}@example.com`).success, false);
+  });
+});
+
+void describe("operator API key contracts", () => {
+  void test("models global internal credentials without a caller-supplied ownership selector", () => {
+    const issue = {
+      params: {},
+      query: {},
+      body: { name: "invoice export", role: "BILLING" },
+    };
+    assert.deepEqual(IssueOperatorApiKeyRequestSchema.parse(issue), issue);
+    assert.equal(
+      IssueOperatorApiKeyRequestSchema.safeParse({
+        ...issue,
+        body: { ...issue.body, scopeId: "customer-is-not-an-auth-scope" },
+      }).success,
+      false
+    );
+
+    const revoke = { params: {}, query: {}, body: { keyPrefix: "mrd_Abc12345" } };
+    assert.deepEqual(RevokeOperatorApiKeyRequestSchema.parse(revoke), revoke);
+    assert.equal(
+      RevokeOperatorApiKeyRequestSchema.safeParse({
+        ...revoke,
+        body: { keyId: "operator-1", keyPrefix: "mrd_Abc12345" },
+      }).success,
+      false
+    );
   });
 });
 

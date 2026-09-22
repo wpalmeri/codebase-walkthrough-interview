@@ -33,11 +33,11 @@ export function createOpenApiV1Document(operations: readonly AnyApiOperation[]) 
   // gives the generator stable component identities without copying schemas.
   const problemDetails = ProblemDetailsSchema.meta({ id: "ProblemDetails" });
   const validationError = ValidationErrorResponseSchema.meta({ id: "ValidationError" });
-  registry.registerComponent("securitySchemes", "tenantBearer", {
+  registry.registerComponent("securitySchemes", "operatorBearer", {
     type: "http",
     scheme: "bearer",
-    bearerFormat: "Meridian tenant API key",
-    description: "An opaque server-to-server tenant API key. Browser sessions are a separate future credential flow.",
+    bearerFormat: "Meridian operator API key",
+    description: "An opaque server-to-server operator API key for internal staff and integrations. Browser sessions are a separate future credential flow.",
   });
 
   for (const operation of operations) {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-void test("tenant accounting close is authenticated, monotonic, idempotent, and audited", { timeout: 45_000 }, async () => {
+void test("global accounting close is authenticated, monotonic, idempotent, and audited", { timeout: 45_000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "meridian-accounting-close-"));
   const environment = { ...process.env, DATABASE_URL: `file:${join(directory, "integration.db")}`, RUST_LOG: "info" };
   try {

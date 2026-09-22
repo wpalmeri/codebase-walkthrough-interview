@@ -44,20 +44,20 @@ const listPaymentsOperation = defineOperation({
     schema: PaymentListResponseSchema,
     openApiSchema: PaymentPageSchema,
   },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 500],
   responseHeaders: PaginationResponseHeadersSchema,
-  handler: async ({ input, principal, request, response }) => {
+  handler: async ({ input, request, response }) => {
     if (!isV1Request(request)) {
       // ListPaymentsV1RequestSchema is the v1 public contract. Re-validate
       // the raw legacy request so query pagination remains an additive v1-only
       // capability instead of silently changing `/api` behavior.
       validateRequest(ListPaymentsRequestSchema, request);
-      return payments.listPayments(principal.tenantId);
+      return payments.listPayments();
     }
 
-    const page = await payments.listPaymentsPage(principal.tenantId, input.query);
+    const page = await payments.listPaymentsPage(input.query);
     if (!page.ok) {
       throw new RequestValidationError([
         {
@@ -81,10 +81,10 @@ const getPaymentOperation = defineOperation({
   request: GetPaymentRequestSchema,
   hasJsonBody: false,
   success: { status: 200, description: "Payment representation", schema: PaymentSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 404, 500],
-  handler: async ({ input, principal }) => payments.getPayment(principal.tenantId, input.params.id),
+  handler: async ({ input }) => payments.getPayment(input.params.id),
 });
 
 const recordPaymentOperation = defineOperation({
@@ -95,12 +95,12 @@ const recordPaymentOperation = defineOperation({
   request: RecordPaymentRequestSchema,
   hasJsonBody: true,
   success: { status: 200, description: "Recorded payment", schema: PaymentSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: BILLING_WRITE_ROLES,
   errors: [400, 401, 403, 404, 422, 500],
   requestHeaders: IdempotencyRequestHeadersSchema,
   handler: async ({ input, principal, request }) =>
-    payments.recordPayment(principal.tenantId, input.body, {
+    payments.recordPayment(input.body, {
       metadata: requestAuditMetadata(request, principal),
     }),
 });
@@ -117,13 +117,12 @@ const reversePaymentApplicationOperation = defineOperation({
     description: "Created payment-application reversal",
     schema: PaymentApplicationReversalSchema,
   },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: BILLING_WRITE_ROLES,
   errors: [400, 401, 403, 404, 409, 412, 422, 500],
   requestHeaders: IdempotencyRequestHeadersSchema,
   handler: async ({ input, principal, request }) =>
     payments.reversePaymentApplication(
-      principal.tenantId,
       input.params.id,
       input.params.applicationId,
       input.body,
@@ -139,12 +138,12 @@ const applyPaymentOperation = defineOperation({
   request: ApplyPaymentRequestSchema,
   hasJsonBody: true,
   success: { status: 200, description: "Payment with current applications", schema: PaymentSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: BILLING_WRITE_ROLES,
   errors: [400, 401, 403, 404, 409, 412, 422, 500],
   requestHeaders: IdempotencyRequestHeadersSchema,
   handler: async ({ input, principal, request }) =>
-    payments.applyPayment(principal.tenantId, input.params.id, input.body.applications, {
+    payments.applyPayment(input.params.id, input.body.applications, {
       metadata: requestAuditMetadata(request, principal),
     }),
 });

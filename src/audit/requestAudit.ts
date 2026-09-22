@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Request } from "express";
 import { z } from "zod";
-import { PrincipalSchema, TenantIdSchema, type Principal } from "../auth/principal";
+import { PrincipalSchema, type Principal } from "../auth/principal";
 import { RequestIdSchema } from "../runtime/requestContext";
 import {
   AuditActionSchema,
@@ -27,7 +27,6 @@ const IdempotencyKeySchema = z
  * neither resource identity nor actor identity can come from JSON input.
  */
 export const RequestAuditMetadataSchema = z.strictObject({
-  tenantId: TenantIdSchema,
   principal: z.strictObject({
     kind: PrincipalSchema.shape.kind,
     subjectId: PrincipalSchema.shape.subjectId,
@@ -56,7 +55,7 @@ export type RequestAuditAppenderOptions = {
 
 /**
  * Derives audit metadata only after authentication and request-context
- * middleware have completed. It deliberately does not accept tenant or actor
+ * middleware have completed. It deliberately does not accept actor
  * fields from an operation request body.
  */
 export function requestAuditMetadata(
@@ -66,7 +65,6 @@ export function requestAuditMetadata(
   const authenticatedPrincipal = PrincipalSchema.parse(principal);
   const idempotencyKey = request.get("idempotency-key");
   return RequestAuditMetadataSchema.parse({
-    tenantId: authenticatedPrincipal.tenantId,
     principal: {
       kind: authenticatedPrincipal.kind,
       subjectId: authenticatedPrincipal.subjectId,

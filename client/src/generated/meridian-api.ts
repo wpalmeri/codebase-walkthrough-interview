@@ -14,8 +14,8 @@ export interface paths {
         readonly get?: never;
         readonly put?: never;
         /**
-         * Close a tenant accounting period
-         * @description Requires an active ADMIN tenant API key. The inclusive close date may only advance and every actual transition is audited.
+         * Close the accounting period
+         * @description Requires an active ADMIN operator API key. The inclusive close date may only advance and every actual transition is audited.
          */
         readonly post: operations["closeAccountingPeriod"];
         readonly delete?: never;
@@ -135,6 +135,46 @@ export interface paths {
         readonly put?: never;
         /** Refresh an invoice transmission */
         readonly post: operations["refreshInvoiceTransmission"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/operator-api-keys": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Issue an operator API key
+         * @description Requires an active ADMIN operator API key. The plaintext token is returned exactly once and Idempotency-Key is unsupported.
+         */
+        readonly post: operations["issueOperatorApiKey"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/operator-api-keys/revoke": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Revoke an operator API key
+         * @description Requires an active ADMIN operator API key. Revocation is monotonic.
+         */
+        readonly post: operations["revokeOperatorApiKey"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -353,10 +393,10 @@ export interface paths {
             readonly path?: never;
             readonly cookie?: never;
         };
-        /** List tenant combo discounts */
+        /** List combo discounts */
         readonly get: operations["listComboDiscounts"];
         readonly put?: never;
-        /** Create a tenant combo discount */
+        /** Create a combo discount */
         readonly post: operations["createComboDiscount"];
         readonly delete?: never;
         readonly options?: never;
@@ -409,46 +449,6 @@ export interface paths {
         readonly get: operations["revenueByQuarter"];
         readonly put?: never;
         readonly post?: never;
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
-    readonly "/tenant-api-keys": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly get?: never;
-        readonly put?: never;
-        /**
-         * Issue a tenant API key
-         * @description Requires an active ADMIN tenant API key. The plaintext token is returned exactly once and Idempotency-Key is deliberately unsupported.
-         */
-        readonly post: operations["issueTenantApiKey"];
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
-    readonly "/tenant-api-keys/revoke": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly get?: never;
-        readonly put?: never;
-        /**
-         * Revoke a tenant API key
-         * @description Requires an active ADMIN tenant API key. Revocation is tenant-scoped and monotonic.
-         */
-        readonly post: operations["revokeTenantApiKey"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -1990,6 +1990,225 @@ export interface operations {
             };
             /** @description Error 404 */
             readonly 404: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 500 */
+            readonly 500: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    readonly issueOperatorApiKey: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                readonly "X-Request-ID"?: string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": {
+                    readonly name: string;
+                    /** @enum {string} */
+                    readonly role: "ADMIN" | "BILLING" | "VIEWER";
+                };
+            };
+        };
+        readonly responses: {
+            /** @description Issued operator API key and one-time token */
+            readonly 201: {
+                headers: {
+                    readonly "Cache-Control": "no-store";
+                    readonly Pragma: "no-cache";
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly key: {
+                            /** Format: date-time */
+                            readonly createdAt: string;
+                            readonly id: string;
+                            readonly keyPrefix: string;
+                            readonly name: string;
+                            /** @enum {string} */
+                            readonly role: "ADMIN" | "BILLING" | "VIEWER";
+                        };
+                        readonly token: string;
+                    };
+                };
+            };
+            /** @description Invalid request syntax, headers, or validated input */
+            readonly 400: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ValidationError"];
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 401 */
+            readonly 401: {
+                headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 403 */
+            readonly 403: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 409 */
+            readonly 409: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 500 */
+            readonly 500: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    readonly revokeOperatorApiKey: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                readonly "Idempotency-Client"?: string;
+                readonly "Idempotency-Key"?: string;
+                readonly "X-Request-ID"?: string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": {
+                    readonly keyId?: string;
+                    readonly keyPrefix?: string;
+                };
+            };
+        };
+        readonly responses: {
+            /** @description Operator API key revocation result */
+            readonly 200: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly key: {
+                            readonly id: string;
+                            readonly keyPrefix: string;
+                            /** Format: date-time */
+                            readonly revokedAt: string;
+                            /** @enum {string} */
+                            readonly state: "REVOKED" | "ALREADY_REVOKED";
+                        };
+                    };
+                };
+            };
+            /** @description Invalid request syntax, headers, or validated input */
+            readonly 400: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ValidationError"];
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 401 */
+            readonly 401: {
+                headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 403 */
+            readonly 403: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 404 */
+            readonly 404: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 409 */
+            readonly 409: {
                 headers: {
                     readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;
@@ -3813,7 +4032,7 @@ export interface operations {
         };
         readonly requestBody?: never;
         readonly responses: {
-            /** @description Rates visible to the tenant */
+            /** @description Customer-specific rates */
             readonly 200: {
                 headers: {
                     readonly "X-Request-ID": string;
@@ -4330,7 +4549,7 @@ export interface operations {
         };
         readonly requestBody?: never;
         readonly responses: {
-            /** @description Customer-specific and tenant-wide combo discounts */
+            /** @description Customer-specific and global combo discounts */
             readonly 200: {
                 headers: {
                     readonly "X-Request-ID": string;
@@ -4546,7 +4765,7 @@ export interface operations {
         };
         readonly requestBody?: never;
         readonly responses: {
-            /** @description Tenant-scoped annual recognized revenue in exact decimal strings */
+            /** @description Company-wide annual recognized revenue in exact decimal strings */
             readonly 200: {
                 headers: {
                     readonly "X-Request-ID": string;
@@ -4629,7 +4848,7 @@ export interface operations {
         };
         readonly requestBody?: never;
         readonly responses: {
-            /** @description Tenant-scoped customer recognized revenue in exact decimal strings */
+            /** @description Company-wide customer recognized revenue in exact decimal strings */
             readonly 200: {
                 headers: {
                     readonly "X-Request-ID": string;
@@ -4713,7 +4932,7 @@ export interface operations {
         };
         readonly requestBody?: never;
         readonly responses: {
-            /** @description Tenant-scoped quarterly recognized revenue in exact decimal strings */
+            /** @description Company-wide quarterly recognized revenue in exact decimal strings */
             readonly 200: {
                 headers: {
                     readonly "X-Request-ID": string;
@@ -4752,225 +4971,6 @@ export interface operations {
             };
             /** @description Error 403 */
             readonly 403: {
-                headers: {
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description JSON request payload exceeds the 102400-byte limit */
-            readonly 413: {
-                headers: {
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Error 500 */
-            readonly 500: {
-                headers: {
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-        };
-    };
-    readonly issueTenantApiKey: {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: {
-                readonly "X-Request-ID"?: string;
-            };
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly requestBody: {
-            readonly content: {
-                readonly "application/json": {
-                    readonly name: string;
-                    /** @enum {string} */
-                    readonly role: "ADMIN" | "BILLING" | "VIEWER";
-                };
-            };
-        };
-        readonly responses: {
-            /** @description Issued tenant API key and one-time token */
-            readonly 201: {
-                headers: {
-                    readonly "Cache-Control": "no-store";
-                    readonly Pragma: "no-cache";
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/json": {
-                        readonly key: {
-                            /** Format: date-time */
-                            readonly createdAt: string;
-                            readonly id: string;
-                            readonly keyPrefix: string;
-                            readonly name: string;
-                            /** @enum {string} */
-                            readonly role: "ADMIN" | "BILLING" | "VIEWER";
-                        };
-                        readonly token: string;
-                    };
-                };
-            };
-            /** @description Invalid request syntax, headers, or validated input */
-            readonly 400: {
-                headers: {
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/json": components["schemas"]["ValidationError"];
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Error 401 */
-            readonly 401: {
-                headers: {
-                    readonly "WWW-Authenticate": string;
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Error 403 */
-            readonly 403: {
-                headers: {
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Error 409 */
-            readonly 409: {
-                headers: {
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description JSON request payload exceeds the 102400-byte limit */
-            readonly 413: {
-                headers: {
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Error 500 */
-            readonly 500: {
-                headers: {
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-        };
-    };
-    readonly revokeTenantApiKey: {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: {
-                readonly "Idempotency-Client"?: string;
-                readonly "Idempotency-Key"?: string;
-                readonly "X-Request-ID"?: string;
-            };
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly requestBody: {
-            readonly content: {
-                readonly "application/json": {
-                    readonly keyId?: string;
-                    readonly keyPrefix?: string;
-                };
-            };
-        };
-        readonly responses: {
-            /** @description Tenant API key revocation result */
-            readonly 200: {
-                headers: {
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/json": {
-                        readonly key: {
-                            readonly id: string;
-                            readonly keyPrefix: string;
-                            /** Format: date-time */
-                            readonly revokedAt: string;
-                            /** @enum {string} */
-                            readonly state: "REVOKED" | "ALREADY_REVOKED";
-                        };
-                    };
-                };
-            };
-            /** @description Invalid request syntax, headers, or validated input */
-            readonly 400: {
-                headers: {
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/json": components["schemas"]["ValidationError"];
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Error 401 */
-            readonly 401: {
-                headers: {
-                    readonly "WWW-Authenticate": string;
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Error 403 */
-            readonly 403: {
-                headers: {
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Error 404 */
-            readonly 404: {
-                headers: {
-                    readonly "X-Request-ID": string;
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Error 409 */
-            readonly 409: {
                 headers: {
                     readonly "X-Request-ID": string;
                     readonly [name: string]: unknown;

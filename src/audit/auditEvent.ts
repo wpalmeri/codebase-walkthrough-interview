@@ -5,7 +5,6 @@ import {
   AuditResourceKind as PrismaAuditResourceKind,
 } from "@prisma/client";
 import { z } from "zod";
-import { TenantIdSchema } from "../auth/principal";
 import { RequestIdSchema } from "../runtime/requestContext";
 
 export const AuditActionSchema = z.enum(PrismaAuditAction);
@@ -35,8 +34,8 @@ const AUDIT_RESOURCE_FOR_ACTION = {
   PAYMENT_RECORDED: "PAYMENT",
   PAYMENT_APPLIED: "PAYMENT_APPLICATION",
   PAYMENT_APPLICATION_REVERSED: "PAYMENT_APPLICATION_REVERSAL",
-  TENANT_API_KEY_ISSUED: "TENANT_API_KEY",
-  TENANT_API_KEY_REVOKED: "TENANT_API_KEY",
+  OPERATOR_API_KEY_ISSUED: "OPERATOR_API_KEY",
+  OPERATOR_API_KEY_REVOKED: "OPERATOR_API_KEY",
   ACCOUNTING_PERIOD_CLOSED: "ACCOUNTING_PERIOD_CONTROL",
 } as const satisfies Record<AuditAction, AuditResourceKind>;
 
@@ -71,7 +70,6 @@ export const IdempotencyKeyFingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/
 export const AuditEventWriteSchema = z
   .strictObject({
     id: AuditEventIdSchema,
-    tenantId: TenantIdSchema,
     action: AuditActionSchema,
     principalKind: AuditPrincipalKindSchema,
     principalSubject: z.string().min(1).max(191),
@@ -92,7 +90,6 @@ export type AuditEvent = z.infer<typeof AuditEventSchema>;
 /** Input contains only server-derived metadata and a transient raw key to hash. */
 export const AuditEventAppendInputSchema = z
   .strictObject({
-    tenantId: TenantIdSchema,
     action: AuditActionSchema,
     principal: PrincipalIdentitySchema,
     requestId: RequestIdSchema,
@@ -141,7 +138,6 @@ export async function appendAuditEvent(
   const event = AuditEventAppendInputSchema.parse(input);
   const write = AuditEventWriteSchema.parse({
     id: options.id,
-    tenantId: event.tenantId,
     action: event.action,
     principalKind: event.principal.kind,
     principalSubject: event.principal.subjectId,

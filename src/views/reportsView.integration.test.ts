@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 void test(
-  "report routes validate tenant-scoped exact-decimal output on fresh SQLite",
+  "report routes validate company-wide exact-decimal output on fresh SQLite",
   { timeout: 45_000 },
   async () => {
     const temporaryDirectory = await mkdtemp(join(tmpdir(), "meridian-reports-view-"));

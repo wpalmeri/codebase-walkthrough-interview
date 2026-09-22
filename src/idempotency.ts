@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { IdempotencyRecordState } from "@prisma/client";
 import type { Request, RequestHandler, Response } from "express";
 import { z } from "zod";
-import { PrincipalSchema, TenantIdSchema } from "./auth/principal";
+import { PrincipalSchema } from "./auth/principal";
 import { prisma } from "./db";
 import { ApplicationError, ConflictError } from "./errors";
 
@@ -26,7 +26,6 @@ export const IdempotencyResponseSchema = z.object({
 export type IdempotencyResponse = z.infer<typeof IdempotencyResponseSchema>;
 
 export const IdempotencyRecordSchema = z.object({
-  tenantId: TenantIdSchema,
   clientScope: z.string().length(64),
   method: z.enum(["POST", "PUT", "PATCH", "DELETE"]),
   route: z.string().min(1).max(512),
@@ -117,7 +116,7 @@ function recordFor(request: Request): IdempotencyRecord | null {
   // response would retain the secret in IdempotencyRecord, so reject the
   // header before any reservation is attempted.
   const route = routeFor(request);
-  if (request.method === idempotencyHttpMethod.POST && route === "/api/tenant-api-keys") {
+  if (request.method === idempotencyHttpMethod.POST && route === "/api/operator-api-keys") {
     throw new IdempotencyHeaderError(
       "IDEMPOTENCY_NOT_SUPPORTED",
       "Idempotency-Key is not supported when issuing one-time credentials"
@@ -142,13 +141,11 @@ function recordFor(request: Request): IdempotencyRecord | null {
   }
 
   return IdempotencyRecordSchema.parse({
-    tenantId: principal.data.tenantId,
     // Never persist a bearer credential, its secret, or a hash derived from
-    // it. Replay is isolated by the verified tenant and credential identity;
+    // it. Replay is isolated by the verified operator credential identity;
     // Idempotency-Client can only make that scope narrower.
     clientScope: hash(
       canonicalJson({
-        tenantId: principal.data.tenantId,
         subjectId: principal.data.subjectId,
         credentialId: principal.data.credentialId,
         kind: principal.data.kind,

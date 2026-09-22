@@ -29,23 +29,6 @@ export function fingerprintPaginationFilters(filters: PaginationFilters): string
   return createHash("sha256").update(JSON.stringify(validated), "utf8").digest("hex");
 }
 
-/**
- * Binds a cursor to server-derived tenant scope without serializing that scope
- * into its payload. Callers must pass the authenticated tenant ID, never a
- * client query value. Public filters stay normalized by
- * `fingerprintPaginationFilters`, whose tenant-agnostic contract is unchanged.
- */
-export function fingerprintTenantPaginationBinding(
-  filters: PaginationFilters,
-  tenantId: string
-): string {
-  const scope = z.string().min(1).max(191).parse(tenantId);
-  const filterFingerprint = fingerprintPaginationFilters(filters);
-  return createHash("sha256")
-    .update(`pagination-tenant-binding-v1\u0000${filterFingerprint}\u0000${scope}`, "utf8")
-    .digest("hex");
-}
-
 /** Formats the sole canonical representation of a version-one opaque cursor. */
 export function formatPaginationCursor(input: PaginationCursorInput): string {
   const parsed = PaginationCursorInputSchema.parse(input);

@@ -3,10 +3,10 @@ import type { NextFunction, Request, Response } from "express";
 import { problemFromError, type ProblemDetails } from "./errors";
 import {
   createAuthenticationMiddleware,
-  createPrismaTenantPrincipalResolver,
+  createPrismaOperatorPrincipalResolver,
   ApiKeyPepperSchema,
-  type TenantPrincipalResolver,
-} from "./auth/tenantPrincipal";
+  type OperatorPrincipalResolver,
+} from "./auth/operatorPrincipal";
 import { createIdempotencyMiddleware, createPrismaIdempotencyStore, type IdempotencyStore } from "./idempotency";
 import { prisma } from "./db";
 import {
@@ -43,12 +43,10 @@ export type AppOptions = {
   privateErrorLogSink?: PrivateErrorLogSink;
   /** Overrides environment configuration for embedding and tests. */
   apiKey?: string | null;
-  /** Optional tenant ID for the temporary legacy API-key bridge. */
-  legacyTenantId?: string;
-  /** HMAC pepper for database-backed tenant API keys. */
+  /** HMAC pepper for database-backed operator API keys. */
   apiKeyPepper?: string | null;
-  /** Replaces database tenant-key resolution in embedding and boundary tests. */
-  principalResolver?: TenantPrincipalResolver;
+  /** Replaces database operator-key resolution in embedding and boundary tests. */
+  principalResolver?: OperatorPrincipalResolver;
   environment?: string;
   /** Replaces durable idempotency persistence for isolated HTTP-boundary tests. */
   idempotencyStore?: IdempotencyStore;
@@ -79,7 +77,7 @@ export function createApp(options: AppOptions = {}): express.Express {
   const environment = options.environment ?? process.env.NODE_ENV ?? "development";
   const principalResolver =
     options.principalResolver ??
-    (configuredApiKeyPepper.length === 0 ? undefined : createPrismaTenantPrincipalResolver(configuredApiKeyPepper));
+    (configuredApiKeyPepper.length === 0 ? undefined : createPrismaOperatorPrincipalResolver(configuredApiKeyPepper));
   if (environment === "production" && configuredApiKey.length === 0 && principalResolver === undefined) {
     throw new Error("MERIDIAN_API_KEY or MERIDIAN_API_KEY_PEPPER is required in production");
   }
@@ -130,7 +128,6 @@ export function createApp(options: AppOptions = {}): express.Express {
   const authenticate = createAuthenticationMiddleware({
     environment,
     legacyApiKey: configuredApiKey,
-    legacyTenantId: options.legacyTenantId ?? process.env.MERIDIAN_LEGACY_TENANT_ID?.trim() ?? undefined,
     principalResolver,
   });
 

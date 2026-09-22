@@ -8,7 +8,7 @@ import {
   CustomerRevenueSchema,
   InvoicePageSchema,
   InvoiceSchema,
-  IssueTenantApiKeyResponseSchema,
+  IssueOperatorApiKeyResponseSchema,
   OrderPageSchema,
   OrderSchema,
   PaymentPageSchema,
@@ -17,7 +17,7 @@ import {
   ProductPageSchema,
   QuarterRevenueSchema,
   RateSchema,
-  RevokeTenantApiKeyResponseSchema,
+  RevokeOperatorApiKeyResponseSchema,
   TransmissionSchema,
   ValidationErrorResponseSchema,
   ProblemDetailsSchema,
@@ -110,8 +110,8 @@ const responseSchemas = {
   "get /reports/annual-revenue": successResponse(200, [400, 401, 403, 413, 500] as const, AnnualRevenueSchema.array()),
   "get /reports/revenue-by-customer": successResponse(200, [400, 401, 403, 413, 500] as const, CustomerRevenueSchema.array()),
   "get /reports/revenue-by-quarter": successResponse(200, [400, 401, 403, 413, 500] as const, QuarterRevenueSchema.array()),
-  "post /tenant-api-keys": successResponse(201, [400, 401, 403, 409, 413, 500] as const, IssueTenantApiKeyResponseSchema),
-  "post /tenant-api-keys/revoke": successResponse(200, [400, 401, 403, 404, 409, 413, 500] as const, RevokeTenantApiKeyResponseSchema),
+  "post /operator-api-keys": successResponse(201, [400, 401, 403, 409, 413, 500] as const, IssueOperatorApiKeyResponseSchema),
+  "post /operator-api-keys/revoke": successResponse(200, [400, 401, 403, 404, 409, 413, 500] as const, RevokeOperatorApiKeyResponseSchema),
 } satisfies ResponseSchemaMap;
 
 type ExactErrorStatusSet<Key extends OperationKey> = [

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 void test(
-  "revenue reports aggregate tenant-scoped invoice buckets in SQLite",
+  "revenue reports aggregate company invoice buckets in SQLite",
   { timeout: 30_000 },
   async () => {
     const temporaryDirectory = await mkdtemp(join(tmpdir(), "meridian-report-aggregation-"));

@@ -79,17 +79,15 @@ existing null dates during rollout. Do not bulk-update historical closed dates t
 application credentials; handle an accounting correction through an auditable, separately
 approved procedure.
 
-`20260922210000_tenant_accounting_close_guards` is a trigger-only follow-up for the
-tenant control introduced during the ownership expansion. It blocks creating or advancing a
-tenant control while that tenant has a finalized invoice without an accounting date, and makes
-an established control's tenant identity and row immutable. It also blocks finalized invoice
-insert/post/redate/tenant-backfill with a missing or closed accounting date, plus payment-
-application reversals in that tenant's closed period. Existing historical rows are not scanned
-or rewritten when the migration is installed.
+`20260922210000_accounting_close_hardening` is a trigger-only follow-up for the
+singleton global control. It blocks deletion of the close fact, finalized
+invoice insert/post/redate without accounting-date evidence, and payment-
+application reversals in a closed period. Existing historical rows are not
+scanned or rewritten when the migration is installed.
 
-SQLite serializes writes. The close readiness lookup uses the tenant prefix of the existing
-Invoice indexes, but still inspects that tenant's relevant invoice rows rather than claiming a
-covering index; rehearse on a production-sized copy and record lock duration and busy retries.
+SQLite serializes writes. The close readiness lookup inspects finalized invoice
+rows rather than claiming a covering index; rehearse on a production-sized copy
+and record lock duration and busy retries.
 Deploy in a low-write window and retain a backup/rollback plan. Do not run global reconciliation
 inside the close transaction; use the separate bounded reconciliation workflow beforehand.
 
@@ -172,23 +170,19 @@ must investigate stale `IN_PROGRESS` rows rather than deleting or replaying them
 Retain completed rows for at least the published client retry window, then archive or purge them
 in bounded primary-key batches under an explicit retention policy.
 
-## Tenant ownership foundation
+## Operator API-key foundation
 
-`20260922090000_tenant_foundation` is an expand-only tenancy migration. It creates empty
-tenant, API-key-hash, issuer-plus-subject external-user-identity, membership, and per-tenant accounting-control
-tables, then adds nullable `tenantId` columns and lookup indexes to existing customer, catalog,
-order, invoice, payment, and idempotency rows. It intentionally does not populate those columns,
-change existing uniqueness, or enable tenant-scoped authorization; those are separately deployed
-dual-write, bounded-reconciliation, and contract releases.
+`20260922090000_operator_api_key_foundation` creates the empty global
+`OperatorApiKey` table. It stores a one-way server-generated digest and a
+non-secret prefix, never a credential plaintext, and it does not read, rewrite,
+or add ownership metadata to financial data. Customers remain bill-to entities.
 
-The API-key table stores only a server-generated one-way digest and non-secret prefix—never a
-credential plaintext—and both API keys and memberships carry a constrained least-privilege role.
-The nullable SQLite columns include `REFERENCES Tenant(id)` constraints, while triggers additionally
-reject mixed-tenant commercial links, tenant reassignment after ownership is established, and deletion
-of a tenant that still owns business rows. Run the tenant backfill in small, checkpointed primary-key
-batches, reconcile every cross-table ownership edge, and only then make `tenantId` required and
-include it in idempotency uniqueness. Do not use this additive migration as permission to accept a
-client-supplied tenant ID: runtime principals must be authenticated and derive the scope server-side.
+After all migrations are applied, create the first internal administrator with
+`MERIDIAN_API_KEY_PEPPER=<32+ byte secret> bun run operator:key:bootstrap -- --name "initial admin"`.
+The command works only when no active operator key exists, emits the plaintext
+credential once on its directly invoked terminal, and writes an immutable audit
+event. Issue and revoke later credentials through the authenticated ADMIN API;
+there is no unauthenticated recovery bypass once an active key exists.
 
 ## Resource versions and conditional writes
 
@@ -262,8 +256,8 @@ so a retry cannot reuse a response for a different invoice revision.
 
 ### Payment cursor pagination
 
-`20260922120000_payment_cursor_pagination` adds one tenant-first keyset index
-on `Payment(tenantId, receivedAt DESC, id DESC)`; it neither alters rows nor
+`20260922120000_payment_cursor_pagination` adds one keyset index on
+`Payment(receivedAt DESC, id DESC)`; it neither alters rows nor
 rewrites table data. SQLite implements `CREATE INDEX` by scanning the table and
 serializes writers while DDL runs, so schedule it in a controlled low-write
 window, test duration against a production-sized copy, and monitor the writer
@@ -271,14 +265,13 @@ queue. Do not treat this migration as online/concurrent index creation.
 
 After the index is deployed, `/api/v1/payments` may use its additive cursor
 envelope. It reads `limit + 1` in descending `(receivedAt, id)` order and only
-uses tenant identity derived from authentication; the opaque cursor carries
-only the public customer filter fingerprint and ordering tuple. Legacy
+uses a public customer-filter fingerprint and ordering tuple. Legacy
 `/api/payments` remains its existing first-100 array during client migration.
 
 ### Catalog cursor pagination
 
-`20260922170000_catalog_cursor_pagination` adds two tenant-first keyset indexes:
-`Customer(tenantId, name, id)` and `Product(tenantId, sku, id)`. It does not alter,
+`20260922170000_catalog_cursor_pagination` adds two keyset indexes:
+`Customer(name, id)` and `Product(sku, id)`. It does not alter,
 backfill, or rebuild business rows, but SQLite must scan each existing table while
 building an index and serializes all writers during DDL. Rehearse against a
 production-sized copy, deploy during a controlled low-write window, and monitor
@@ -287,55 +280,52 @@ writer contention; SQLite has no concurrent-index equivalent.
 After deploy, `/api/v1/customers` and `/api/v1/products` use additive bounded
 cursor pages ordered by their catalog key then id. Their legacy `/api` routes
 remain bare arrays with their existing behavior. Cursors are bound to a resource
-and a fingerprint including normalized filters plus server-derived tenant
-identity; no plaintext tenant value appears in the cursor payload.
+and a fingerprint including normalized filters.
 
 ### Order cursor pagination
 
-`20260922180000_order_cursor_pagination` adds one tenant-first keyset index on
-`Order(tenantId, orderDate DESC, id DESC)`. It does not alter, backfill, or
+`20260922180000_order_cursor_pagination` adds one keyset index on
+`Order(orderDate DESC, id DESC)`. It does not alter, backfill, or
 rewrite business rows. SQLite scans the existing table while building the index
 and serializes writers during DDL, so rehearse on a production-sized copy and
 deploy in a controlled low-write window; SQLite has no concurrent-index mode.
 
 After deployment, `/api/v1/orders` uses an additive bounded cursor envelope in
 descending `(orderDate, id)` order. Its legacy `/api/orders` route remains the
-existing bare array. Cursors are bound to the `orders` resource and a tenant
-fingerprint derived from authentication; no plaintext tenant value appears in
-the cursor payload.
+existing bare array. Cursors are bound to the `orders` resource and normalized
+public filters.
 
 ### Invoice cursor pagination
 
-`20260922190000_invoice_cursor_pagination` adds one tenant-first keyset index on
-`Invoice(tenantId, issueDate DESC, id DESC)`. It does not alter, backfill, or
+`20260922190000_invoice_cursor_pagination` adds one keyset index on
+`Invoice(issueDate DESC, id DESC)`. It does not alter, backfill, or
 rewrite business rows. SQLite scans the existing table to build this index and
 blocks writers during DDL, so time it against a production-sized copy and apply
 it in a controlled low-write window; SQLite has no concurrent-index mode.
 
 After deployment, `/api/v1/invoices` uses an additive bounded cursor envelope
 in descending `(issueDate, id)` order. Its legacy `/api/invoices` route remains
-the existing bare array. Cursors are bound to the `invoices` resource and a
-tenant fingerprint derived from authentication; no plaintext tenant value
-appears in the cursor payload.
+the existing bare array. Cursors are bound to the `invoices` resource and
+normalized public filters.
 
-### Tenant API-key administrator lockout guard
+### Operator API-key administrator lockout guard
 
-`20260922200000_tenant_api_key_admin_guard` installs two row-scoped triggers
-that prevent an update or delete from removing a tenant's final active ADMIN
+`20260922200000_operator_api_key_admin_guard` installs two row-scoped triggers
+that prevent an update or delete from removing the system's final active ADMIN
 credential. The migration is expand-only and performs no deployment-time scan,
 rewrite, backfill, index build, or table rebuild; the small indexed existence
 check runs only when an active ADMIN key is revoked, demoted, moved, or deleted.
 
 Deploy this guard before exposing authenticated key administration. The API
 also rejects self-revocation, while the database trigger is the concurrency and
-direct-SQL backstop. Existing tenants without an active ADMIN are not blocked
+direct-SQL backstop. Existing installations without an active ADMIN are not blocked
 from unrelated writes, but must be reconciled through the explicit bootstrap
 procedure before they can use the authenticated administration endpoints.
 
 ### Append-only audit events
 
 `20260922130000_audit_events` creates a new empty `AuditEvent` table and two
-tenant-first lookup indexes. It does not scan, rewrite, or alter existing
+global lookup indexes. It does not scan, rewrite, or alter existing
 business rows, so it is safe to deploy before controller integrations begin.
 The table contains only server-derived principal identity, request correlation,
 resource identity, and enumerated action metadata; it has no generic request,
@@ -365,25 +355,6 @@ change their email column. Unrelated updates remain possible during that work,
 which keeps this deploy expand-only and avoids coupling a table scan or data
 cleanup to application startup.
 
-### Legacy ownership backfill
-
-`bun run db:backfill:tenant-ownership` is preview-only by default. It reports stable ownership-conflict
-codes without creating a tenant, modifying business rows, or advancing checkpoints. After an operator
-reviews a clean preview, run `BACKFILL_DRY_RUN=false BACKFILL_BATCH_SIZE=100 BACKFILL_THROTTLE_MS=50
-bun run db:backfill:tenant-ownership`; choose a batch size that fits the production write budget.
-
-The write run creates or reuses exactly one `legacy-default` tenant, then processes still-null ownership
-rows in separate Customer, Product, ComboDiscount, Order, Invoice, Payment, and IdempotencyRecord
-primary-key stages. Each batch validates every reachable commercial ownership edge before modifying any
-row, assigns only `tenantId IS NULL` rows, and persists the corresponding `BackfillCheckpoint` in the
-same transaction. It can therefore be stopped and rerun without skips; do not delete checkpoints to
-force a replay. It also copies the legacy singleton accounting close date to that tenant's separate
-control record only if it agrees with any existing copy.
-
-Stop and manually reconcile on any nonzero result, especially a `CONFLICTING_*_OWNERSHIP`,
-`MULTIPLE_RELATED_TENANTS`, `RELATED_TO_NON_LEGACY_TENANT`, or `CONFLICTING_ACCOUNTING_CONTROL` code.
-Those indicate legacy edges that cannot safely be assigned to the default tenant. Keep runtime reads
-dual-compatible until the final reconciliation is clean and every new write is tenant-derived.
 
 ## Captured pricing and payment ledger immutability
 

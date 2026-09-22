@@ -83,9 +83,9 @@
       }
     },
     "securitySchemes": {
-      "tenantBearer": {
-        "bearerFormat": "Meridian tenant API key",
-        "description": "An opaque server-to-server tenant API key. Browser sessions are a separate future credential flow.",
+      "operatorBearer": {
+        "bearerFormat": "Meridian operator API key",
+        "description": "An opaque server-to-server operator API key for internal staff and integrations. Browser sessions are a separate future credential flow.",
         "scheme": "bearer",
         "type": "http"
       }
@@ -100,7 +100,7 @@
   "paths": {
     "/accounting-periods/close": {
       "post": {
-        "description": "Requires an active ADMIN tenant API key. The inclusive close date may only advance and every actual transition is audited.",
+        "description": "Requires an active ADMIN operator API key. The inclusive close date may only advance and every actual transition is audited.",
         "operationId": "closeAccountingPeriod",
         "parameters": [
           {
@@ -379,10 +379,10 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
-        "summary": "Close a tenant accounting period"
+        "summary": "Close the accounting period"
       }
     },
     "/customers": {
@@ -635,7 +635,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "List customers"
@@ -1268,7 +1268,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "List invoices"
@@ -1543,7 +1543,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Refresh an invoice transmission"
@@ -2145,7 +2145,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Get an invoice"
@@ -2896,7 +2896,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Partially update invoice dates"
@@ -3648,7 +3648,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Replace invoice dates"
@@ -4324,7 +4324,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Post a draft invoice"
@@ -5003,10 +5003,581 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Send an invoice through a delivery method"
+      }
+    },
+    "/operator-api-keys": {
+      "post": {
+        "description": "Requires an active ADMIN operator API key. The plaintext token is returned exactly once and Idempotency-Key is unsupported.",
+        "operationId": "issueOperatorApiKey",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "role": {
+                    "enum": [
+                      "ADMIN",
+                      "BILLING",
+                      "VIEWER"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "role"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "createdAt": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "id": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "keyPrefix": {
+                          "pattern": "^mrd_[A-Za-z0-9]{8,32}$/u",
+                          "type": "string"
+                        },
+                        "name": {
+                          "maxLength": 160,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "role": {
+                          "enum": [
+                            "ADMIN",
+                            "BILLING",
+                            "VIEWER"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "role",
+                        "keyPrefix",
+                        "createdAt"
+                      ],
+                      "type": "object"
+                    },
+                    "token": {
+                      "pattern": "^mrd_[A-Za-z0-9]{8,32}_[A-Za-z0-9-]{32,128}$/u",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "token"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Issued operator API key and one-time token",
+            "headers": {
+              "Cache-Control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-cache"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "operatorBearer": []
+          }
+        ],
+        "summary": "Issue an operator API key"
+      }
+    },
+    "/operator-api-keys/revoke": {
+      "post": {
+        "description": "Requires an active ADMIN operator API key. Revocation is monotonic.",
+        "operationId": "revokeOperatorApiKey",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Client",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "keyId": {
+                    "maxLength": 191,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "keyPrefix": {
+                    "pattern": "^mrd_[A-Za-z0-9]{8,32}$/u",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "key": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "keyPrefix": {
+                          "pattern": "^mrd_[A-Za-z0-9]{8,32}$/u",
+                          "type": "string"
+                        },
+                        "revokedAt": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "state": {
+                          "enum": [
+                            "REVOKED",
+                            "ALREADY_REVOKED"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "keyPrefix",
+                        "state",
+                        "revokedAt"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Operator API key revocation result",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "operatorBearer": []
+          }
+        ],
+        "summary": "Revoke an operator API key"
       }
     },
     "/orders": {
@@ -5440,7 +6011,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "List orders"
@@ -5923,7 +6494,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Create an order with materialized pricing"
@@ -6328,7 +6899,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Get an order"
@@ -6929,7 +7500,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Partially update an order"
@@ -7531,7 +8102,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Update an order"
@@ -8186,7 +8757,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Create an invoice from a materialized order"
@@ -8601,7 +9172,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "List payments"
@@ -9032,7 +9603,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Record a payment receipt"
@@ -9396,7 +9967,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Get a payment"
@@ -9770,7 +10341,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Reverse an applied payment amount"
@@ -10265,7 +10836,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Apply a payment across invoices"
@@ -10517,7 +11088,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "List catalog products"
@@ -10681,7 +11252,7 @@
                 }
               }
             },
-            "description": "Rates visible to the tenant",
+            "description": "Customer-specific rates",
             "headers": {
               "X-Request-ID": {
                 "required": true,
@@ -10815,7 +11386,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "List customer-specific rates"
@@ -10914,7 +11485,7 @@
                 }
               }
             },
-            "description": "Customer-specific and tenant-wide combo discounts",
+            "description": "Customer-specific and global combo discounts",
             "headers": {
               "X-Request-ID": {
                 "required": true,
@@ -11048,10 +11619,10 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
-        "summary": "List tenant combo discounts"
+        "summary": "List combo discounts"
       },
       "post": {
         "operationId": "createComboDiscount",
@@ -11403,10 +11974,10 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
-        "summary": "Create a tenant combo discount"
+        "summary": "Create a combo discount"
       }
     },
     "/rates/{id}": {
@@ -11707,7 +12278,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Get a rate"
@@ -12222,7 +12793,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Partially update a rate's mutable commercial terms"
@@ -12738,7 +13309,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Update a rate's mutable commercial terms"
@@ -12828,7 +13399,7 @@
                 }
               }
             },
-            "description": "Tenant-scoped annual recognized revenue in exact decimal strings",
+            "description": "Company-wide annual recognized revenue in exact decimal strings",
             "headers": {
               "X-Request-ID": {
                 "required": true,
@@ -12962,7 +13533,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Summarize recognized revenue by year"
@@ -13057,7 +13628,7 @@
                 }
               }
             },
-            "description": "Tenant-scoped customer recognized revenue in exact decimal strings",
+            "description": "Company-wide customer recognized revenue in exact decimal strings",
             "headers": {
               "X-Request-ID": {
                 "required": true,
@@ -13191,7 +13762,7 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Summarize recognized revenue by customer"
@@ -13281,7 +13852,7 @@
                 }
               }
             },
-            "description": "Tenant-scoped quarterly recognized revenue in exact decimal strings",
+            "description": "Company-wide quarterly recognized revenue in exact decimal strings",
             "headers": {
               "X-Request-ID": {
                 "required": true,
@@ -13415,581 +13986,10 @@
         },
         "security": [
           {
-            "tenantBearer": []
+            "operatorBearer": []
           }
         ],
         "summary": "Summarize recognized revenue by quarter"
-      }
-    },
-    "/tenant-api-keys": {
-      "post": {
-        "description": "Requires an active ADMIN tenant API key. The plaintext token is returned exactly once and Idempotency-Key is deliberately unsupported.",
-        "operationId": "issueTenantApiKey",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Request-ID",
-            "required": false,
-            "schema": {
-              "maxLength": 128,
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": false,
-                "properties": {
-                  "name": {
-                    "maxLength": 160,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "role": {
-                    "enum": [
-                      "ADMIN",
-                      "BILLING",
-                      "VIEWER"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "name",
-                  "role"
-                ],
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "key": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "createdAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "id": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "keyPrefix": {
-                          "pattern": "^mrd_[A-Za-z0-9]{8,32}$/u",
-                          "type": "string"
-                        },
-                        "name": {
-                          "maxLength": 160,
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "role": {
-                          "enum": [
-                            "ADMIN",
-                            "BILLING",
-                            "VIEWER"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "name",
-                        "role",
-                        "keyPrefix",
-                        "createdAt"
-                      ],
-                      "type": "object"
-                    },
-                    "token": {
-                      "pattern": "^mrd_[A-Za-z0-9]{8,32}_[A-Za-z0-9-]{32,128}$/u",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "key",
-                    "token"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Issued tenant API key and one-time token",
-            "headers": {
-              "Cache-Control": {
-                "required": true,
-                "schema": {
-                  "enum": [
-                    "no-store"
-                  ],
-                  "type": "string"
-                }
-              },
-              "Pragma": {
-                "required": true,
-                "schema": {
-                  "enum": [
-                    "no-cache"
-                  ],
-                  "type": "string"
-                }
-              },
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationError"
-                }
-              },
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Invalid request syntax, headers, or validated input",
-            "headers": {
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Error 401",
-            "headers": {
-              "WWW-Authenticate": {
-                "required": true,
-                "schema": {
-                  "maxLength": 512,
-                  "minLength": 1,
-                  "type": "string"
-                }
-              },
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Error 403",
-            "headers": {
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "409": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Error 409",
-            "headers": {
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "413": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "JSON request payload exceeds the 102400-byte limit",
-            "headers": {
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "500": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Error 500",
-            "headers": {
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "tenantBearer": []
-          }
-        ],
-        "summary": "Issue a tenant API key"
-      }
-    },
-    "/tenant-api-keys/revoke": {
-      "post": {
-        "description": "Requires an active ADMIN tenant API key. Revocation is tenant-scoped and monotonic.",
-        "operationId": "revokeTenantApiKey",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Request-ID",
-            "required": false,
-            "schema": {
-              "maxLength": 128,
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": false,
-            "schema": {
-              "maxLength": 128,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "Idempotency-Client",
-            "required": false,
-            "schema": {
-              "maxLength": 128,
-              "minLength": 1,
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": false,
-                "properties": {
-                  "keyId": {
-                    "maxLength": 191,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "keyPrefix": {
-                    "pattern": "^mrd_[A-Za-z0-9]{8,32}$/u",
-                    "type": "string"
-                  }
-                },
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "key": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "id": {
-                          "minLength": 1,
-                          "type": "string"
-                        },
-                        "keyPrefix": {
-                          "pattern": "^mrd_[A-Za-z0-9]{8,32}$/u",
-                          "type": "string"
-                        },
-                        "revokedAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "state": {
-                          "enum": [
-                            "REVOKED",
-                            "ALREADY_REVOKED"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "keyPrefix",
-                        "state",
-                        "revokedAt"
-                      ],
-                      "type": "object"
-                    }
-                  },
-                  "required": [
-                    "key"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Tenant API key revocation result",
-            "headers": {
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ValidationError"
-                }
-              },
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Invalid request syntax, headers, or validated input",
-            "headers": {
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "401": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Error 401",
-            "headers": {
-              "WWW-Authenticate": {
-                "required": true,
-                "schema": {
-                  "maxLength": 512,
-                  "minLength": 1,
-                  "type": "string"
-                }
-              },
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "403": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Error 403",
-            "headers": {
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "404": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Error 404",
-            "headers": {
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "409": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Error 409",
-            "headers": {
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "413": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "JSON request payload exceeds the 102400-byte limit",
-            "headers": {
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "500": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "Error 500",
-            "headers": {
-              "X-Request-ID": {
-                "required": true,
-                "schema": {
-                  "maxLength": 128,
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "tenantBearer": []
-          }
-        ],
-        "summary": "Revoke a tenant API key"
       }
     }
   },

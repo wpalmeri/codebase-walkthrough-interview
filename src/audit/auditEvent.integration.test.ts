@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 void test(
-  "audit events remain strict, tenant-bound, and append-only on a freshly migrated database",
+  "audit events remain strict, global, and append-only on a freshly migrated database",
   { timeout: 30_000 },
   async () => {
     const temporaryDirectory = await mkdtemp(join(tmpdir(), "meridian-audit-event-"));

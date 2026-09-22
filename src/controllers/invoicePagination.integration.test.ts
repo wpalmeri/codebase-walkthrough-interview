@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-void test("invoice keyset pagination preserves traversal, tenant scope, and invoice data", { timeout: 45_000 }, async () => {
+void test("invoice keyset pagination preserves company-wide traversal and invoice data", { timeout: 45_000 }, async () => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "meridian-invoice-controller-pagination-"));
   const environment = { ...process.env, DATABASE_URL: `file:${join(temporaryDirectory, "integration.db")}`, RUST_LOG: "info" };
   try {

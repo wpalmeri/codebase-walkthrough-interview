@@ -1,11 +1,6 @@
 import { ExactRateTierSchema } from "@meridian/contracts";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../src/db";
-import {
-  LEGACY_DEFAULT_TENANT_ID,
-  LEGACY_DEFAULT_TENANT_NAME,
-  LEGACY_DEFAULT_TENANT_SLUG,
-} from "../src/tenancy/constants";
 import { utcAccountingDateFromInstant } from "../src/domain/accountingPeriod";
 import {
   MONEY_PRECISION,
@@ -121,10 +116,6 @@ async function requireEmptyDatabase(): Promise<void> {
     prisma.comboDiscount.count(),
     prisma.idempotencyRecord.count(),
     prisma.accountingPeriodControl.count(),
-    prisma.tenantAccountingPeriodControl.count({
-      where: { tenantId: { not: LEGACY_DEFAULT_TENANT_ID } },
-    }),
-    prisma.tenant.count({ where: { id: { not: LEGACY_DEFAULT_TENANT_ID } } }),
     prisma.backfillCheckpoint.count(),
   ]);
   if (counts.some((count) => count !== 0)) {
@@ -203,7 +194,6 @@ async function createOrder(seed: SeedOrder): Promise<void> {
       data: {
         id: seed.id,
         reference: `SO-${seed.id.replace("ord_", "").padStart(4, "0")}`,
-        tenantId: LEGACY_DEFAULT_TENANT_ID,
         customerId: seed.customerId,
         orderDate: instant(seed.orderDate),
         status: seed.status,
@@ -265,7 +255,6 @@ async function createInvoice(seed: SeedInvoice): Promise<{ id: string; total: st
       data: {
         id: seed.id,
         number: seed.number,
-        tenantId: LEGACY_DEFAULT_TENANT_ID,
         customerId: order.customerId,
         orderId: order.id,
         // InvoiceLine guards require immutable lines to be inserted while the
@@ -311,7 +300,6 @@ async function createPayment(input: {
   await prisma.payment.create({
     data: {
       id: input.id,
-      tenantId: LEGACY_DEFAULT_TENANT_ID,
       customerId: input.customerId,
       amount: legacyNumber(amountDecimal, moneyFormat),
       amountDecimal,
@@ -339,29 +327,11 @@ async function createPayment(input: {
 
 async function main(): Promise<void> {
   await requireEmptyDatabase();
-  await prisma.tenant.upsert({
-    where: { id: LEGACY_DEFAULT_TENANT_ID },
-    create: {
-      id: LEGACY_DEFAULT_TENANT_ID,
-      slug: LEGACY_DEFAULT_TENANT_SLUG,
-      name: LEGACY_DEFAULT_TENANT_NAME,
-    },
-    update: {
-      slug: LEGACY_DEFAULT_TENANT_SLUG,
-      name: LEGACY_DEFAULT_TENANT_NAME,
-    },
-  });
-  await prisma.tenantAccountingPeriodControl.upsert({
-    where: { tenantId: LEGACY_DEFAULT_TENANT_ID },
-    create: { tenantId: LEGACY_DEFAULT_TENANT_ID },
-    update: {},
-  });
-
   await prisma.customer.createMany({
     data: [
-      { id: "cust_acme", tenantId: LEGACY_DEFAULT_TENANT_ID, name: "Acme Logistics", email: "ap@acmelogistics.com", billingAddress: "1 Freight Way, Reno, NV", portalAccount: "ACME-AP-291", clearinghouseId: "TP-ACME-01" },
-      { id: "cust_bluebird", tenantId: LEGACY_DEFAULT_TENANT_ID, name: "Bluebird Media", email: "billing@bluebird.media", billingAddress: "88 Aviary Ave, Austin, TX", clearinghouseId: "TP-BLUE-77" },
-      { id: "cust_cascade", tenantId: LEGACY_DEFAULT_TENANT_ID, name: "Cascade Manufacturing", email: "payables@cascademfg.com", billingAddress: "400 Mill Rd, Tacoma, WA", portalAccount: "CASC-PORTAL-8" },
+      { id: "cust_acme", name: "Acme Logistics", email: "ap@acmelogistics.com", billingAddress: "1 Freight Way, Reno, NV", portalAccount: "ACME-AP-291", clearinghouseId: "TP-ACME-01" },
+      { id: "cust_bluebird", name: "Bluebird Media", email: "billing@bluebird.media", billingAddress: "88 Aviary Ave, Austin, TX", clearinghouseId: "TP-BLUE-77" },
+      { id: "cust_cascade", name: "Cascade Manufacturing", email: "payables@cascademfg.com", billingAddress: "400 Mill Rd, Tacoma, WA", portalAccount: "CASC-PORTAL-8" },
     ],
   });
 
@@ -375,7 +345,7 @@ async function main(): Promise<void> {
   await prisma.product.createMany({
     data: products.map(([id, sku, name, unit, listPrice]) => {
       const decimal = canonicalMoney(listPrice, `${sku} list price`);
-      return { id, tenantId: LEGACY_DEFAULT_TENANT_ID, sku, name, unit, listPrice: legacyNumber(decimal, moneyFormat), listPriceDecimal: decimal, currencyCode: CURRENCY };
+      return { id, sku, name, unit, listPrice: legacyNumber(decimal, moneyFormat), listPriceDecimal: decimal, currencyCode: CURRENCY };
     }),
   });
 
@@ -423,7 +393,6 @@ async function main(): Promise<void> {
     await prisma.comboDiscount.create({
       data: {
         id,
-        tenantId: LEGACY_DEFAULT_TENANT_ID,
         customerId,
         name,
         percentOff: legacyNumber(percentOffDecimal, { scale: 4, precision: 7, field: "percent off" }),

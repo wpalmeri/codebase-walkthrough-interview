@@ -26,7 +26,7 @@ void test("runtime success validation rejects invalid output without disclosing 
     request: requestSchema,
     hasJsonBody: false,
     success: { status: 200, description: "Valid response", schema: z.strictObject({ id: z.string() }) },
-    security: "tenantBearer",
+    security: "operatorBearer",
     roles: ["ADMIN"] as const,
     errors: [500] as const,
     handler: async () => JSON.parse('{"id":42,"secret":"must-not-leak"}'),
@@ -34,10 +34,9 @@ void test("runtime success validation rejects invalid output without disclosing 
   const app = express();
   app.use((request, _response, next) => {
     request.principal = {
-      tenantId: "output-contract-tenant",
       subjectId: "output-contract-subject",
       credentialId: "output-contract-credential",
-      kind: "TENANT_API_KEY",
+      kind: "OPERATOR_API_KEY",
       role: "ADMIN",
     };
     next();

@@ -44,17 +44,17 @@ const listOrdersOperation = defineOperation({
     schema: OrderListResponseSchema,
     openApiSchema: OrderPageSchema,
   },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 500],
   responseHeaders: PaginationResponseHeadersSchema,
-  handler: async ({ input, principal, request, response }) => {
+  handler: async ({ input, request, response }) => {
     if (!isV1Request(request)) {
       validateRequest(ListOrdersRequestSchema, request);
-      return orders.listOrders(principal.tenantId);
+      return orders.listOrders();
     }
 
-    const page = await orders.listOrdersPage(principal.tenantId, input.query);
+    const page = await orders.listOrdersPage(input.query);
     if (!page.ok) {
       throw new RequestValidationError([
         {
@@ -79,12 +79,12 @@ const getOrderOperation = defineOperation({
   request: GetOrderRequestSchema,
   hasJsonBody: false,
   success: { status: 200, description: "Order representation", schema: OrderSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 404, 500],
   responseHeaders: EtagResponseHeadersSchema,
-  handler: async ({ input, principal, request, response }) => {
-    const result = await orders.getVersionedOrder(principal.tenantId, input.params.id);
+  handler: async ({ input, request, response }) => {
+    const result = await orders.getVersionedOrder(input.params.id);
     if (isV1Request(request)) response.setHeader("ETag", result.etag);
     return result.order;
   },
@@ -98,12 +98,12 @@ const createOrderOperation = defineOperation({
   request: CreateOrderRequestSchema,
   hasJsonBody: true,
   success: { status: 200, description: "Created order", schema: OrderSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: BILLING_WRITE_ROLES,
   errors: [400, 401, 403, 404, 422, 500],
   requestHeaders: IdempotencyRequestHeadersSchema,
   handler: async ({ input, principal, request }) =>
-    orders.createOrder(principal.tenantId, input.body, requestAuditMetadata(request, principal)),
+    orders.createOrder(input.body, requestAuditMetadata(request, principal)),
 });
 
 const updateOrderOperation = defineOperation({
@@ -117,17 +117,16 @@ const updateOrderOperation = defineOperation({
   request: UpdateOrderRequestSchema,
   hasJsonBody: true,
   success: { status: 200, description: "Updated order", schema: OrderSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: BILLING_WRITE_ROLES,
   errors: [400, 401, 403, 404, 409, 412, 422, 428, 500],
   requestHeaders: IdempotencyRequestHeadersSchema.merge(OrderConditionalRequestHeadersSchema),
   responseHeaders: EtagResponseHeadersSchema,
   handler: async ({ input, principal, request, response }) => {
     const audit = requestAuditMetadata(request, principal);
-    if (!isV1Request(request)) return orders.saveOrder(principal.tenantId, input.params.id, input.body, audit);
+    if (!isV1Request(request)) return orders.saveOrder(input.params.id, input.body, audit);
 
     const result = await orders.saveOrderConditionally(
-      principal.tenantId,
       input.params.id,
       input.body,
       request.get("if-match"),
@@ -148,17 +147,16 @@ const patchOrderOperation = defineOperation({
   request: UpdateOrderRequestSchema,
   hasJsonBody: true,
   success: { status: 200, description: "Updated order", schema: OrderSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: BILLING_WRITE_ROLES,
   errors: [400, 401, 403, 404, 409, 412, 422, 428, 500],
   requestHeaders: IdempotencyRequestHeadersSchema.merge(OrderConditionalRequestHeadersSchema),
   responseHeaders: EtagResponseHeadersSchema,
   handler: async ({ input, principal, request, response }) => {
     const audit = requestAuditMetadata(request, principal);
-    if (!isV1Request(request)) return orders.saveOrder(principal.tenantId, input.params.id, input.body, audit);
+    if (!isV1Request(request)) return orders.saveOrder(input.params.id, input.body, audit);
 
     const result = await orders.saveOrderConditionally(
-      principal.tenantId,
       input.params.id,
       input.body,
       request.get("if-match"),
@@ -177,12 +175,12 @@ const createInvoiceForOrderOperation = defineOperation({
   request: CreateInvoiceForOrderRequestSchema,
   hasJsonBody: false,
   success: { status: 200, description: "Created draft invoice", schema: InvoiceSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: BILLING_WRITE_ROLES,
   errors: [400, 401, 403, 404, 409, 422, 500],
   requestHeaders: IdempotencyRequestHeadersSchema,
   handler: async ({ input, principal, request }) =>
-    invoices.createInvoiceForOrder(principal.tenantId, input.params.id, {
+    invoices.createInvoiceForOrder(input.params.id, {
       metadata: requestAuditMetadata(request, principal),
     }),
 });

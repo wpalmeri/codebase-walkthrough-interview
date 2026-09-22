@@ -110,7 +110,6 @@ void describe("invoice delivery", () => {
       async recordSuccessfulTransmission(input) {
         events.push("record-success");
         assert.deepEqual(input, {
-          tenantId: "tenant-1",
           invoiceId: "invoice-1",
           method: "EMAIL",
           status: "SENT",
@@ -123,7 +122,7 @@ void describe("invoice delivery", () => {
       },
     });
 
-    await sendInvoiceWithDependencies("tenant-1", "invoice-1", "EMAIL", deps);
+    await sendInvoiceWithDependencies("invoice-1", "EMAIL", deps);
 
     assert.deepEqual(events, ["find", "render", "deliver", "record-success", "load-result"]);
   });
@@ -144,7 +143,7 @@ void describe("invoice delivery", () => {
       },
     });
 
-    await assert.rejects(sendInvoiceWithDependencies("tenant-1", "invoice-1", "EMAIL", deps), (error) => {
+    await assert.rejects(sendInvoiceWithDependencies("invoice-1", "EMAIL", deps), (error) => {
       assert.ok(error instanceof ConflictError);
       assert.equal(error.problem.status, 409);
       assert.equal(error.problem.code, "INVOICE_NOT_DELIVERABLE");
@@ -170,7 +169,7 @@ void describe("invoice delivery", () => {
       },
     });
 
-    await assert.rejects(sendInvoiceWithDependencies("tenant-1", "invoice-1", "EMAIL", deps), (error) => {
+    await assert.rejects(sendInvoiceWithDependencies("invoice-1", "EMAIL", deps), (error) => {
       assert.ok(error instanceof PreconditionError);
       assert.equal(error.problem.status, 412);
       assert.equal(error.problem.code, "DELIVERY_RECIPIENT_INVALID");
@@ -204,7 +203,7 @@ void describe("invoice delivery", () => {
       },
     });
 
-    await assert.rejects(sendInvoiceWithDependencies("tenant-1", "invoice-1", "PORTAL", deps), (error) => {
+    await assert.rejects(sendInvoiceWithDependencies("invoice-1", "PORTAL", deps), (error) => {
       assert.ok(error instanceof PreconditionError);
       assert.equal(error.problem.status, 412);
       assert.equal(error.problem.code, "DELIVERY_DESTINATION_MISSING");
@@ -233,7 +232,7 @@ void describe("invoice delivery", () => {
     });
 
     await assert.rejects(
-      sendInvoiceWithDependencies("tenant-1", "invoice-1", "EMAIL", deps),
+      sendInvoiceWithDependencies("invoice-1", "EMAIL", deps),
       /render buffer exhausted/
     );
     assert.equal(delivered, false);
@@ -256,7 +255,7 @@ void describe("invoice delivery", () => {
     });
 
     await assert.rejects(
-      sendInvoiceWithDependencies("tenant-1", "invoice-1", "PORTAL", deps),
+      sendInvoiceWithDependencies("invoice-1", "PORTAL", deps),
       /portal rejected PDF/
     );
     assert.equal(successRecorded, false);
@@ -280,7 +279,7 @@ void describe("invoice delivery", () => {
     });
 
     await assert.rejects(
-      sendInvoiceWithDependencies("tenant-1", "invoice-1", "EMAIL", deps),
+      sendInvoiceWithDependencies("invoice-1", "EMAIL", deps),
       /SMTP relay unavailable/
     );
     assert.equal(successRecorded, false);

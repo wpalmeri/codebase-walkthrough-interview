@@ -45,17 +45,17 @@ const listInvoicesOperation = defineOperation({
     schema: InvoiceListResponseSchema,
     openApiSchema: InvoicePageSchema,
   },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 500],
   responseHeaders: PaginationResponseHeadersSchema,
-  handler: async ({ input, principal, request, response }) => {
+  handler: async ({ input, request, response }) => {
     if (!isV1Request(request)) {
       validateRequest(ListInvoicesRequestSchema, request);
-      return invoices.listInvoices(principal.tenantId);
+      return invoices.listInvoices();
     }
 
-    const page = await invoices.listInvoicesPage(principal.tenantId, input.query);
+    const page = await invoices.listInvoicesPage(input.query);
     if (!page.ok) {
       throw new RequestValidationError([
         {
@@ -80,12 +80,12 @@ const getInvoiceOperation = defineOperation({
   request: GetInvoiceRequestSchema,
   hasJsonBody: false,
   success: { status: 200, description: "Invoice representation", schema: InvoiceSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 403, 404, 500],
   responseHeaders: EtagResponseHeadersSchema,
-  handler: async ({ input, principal, request, response }) => {
-    const result = await invoices.getVersionedInvoice(principal.tenantId, input.params.id);
+  handler: async ({ input, request, response }) => {
+    const result = await invoices.getVersionedInvoice(input.params.id);
     if (isV1Request(request)) response.setHeader("ETag", result.etag);
     return result.invoice;
   },
@@ -109,16 +109,15 @@ function updateInvoiceOperation(
     request: UpdateInvoiceRequestSchema,
     hasJsonBody: true,
     success: { status: 200, description: "Updated invoice", schema: InvoiceSchema },
-    security: "tenantBearer",
+    security: "operatorBearer",
     roles: BILLING_WRITE_ROLES,
     errors: [400, 401, 403, 404, 409, 412, 422, 428, 500],
     requestHeaders: IdempotencyRequestHeadersSchema.merge(InvoiceConditionalRequestHeadersSchema),
     responseHeaders: EtagResponseHeadersSchema,
     handler: async ({ input, principal, request, response }) => {
       const audit = { metadata: requestAuditMetadata(request, principal) };
-      if (!isV1Request(request)) return invoices.updateInvoice(principal.tenantId, input.params.id, input.body, audit);
+      if (!isV1Request(request)) return invoices.updateInvoice(input.params.id, input.body, audit);
       const result = await invoices.updateInvoiceConditionally(
-        principal.tenantId,
         input.params.id,
         input.body,
         request.get("if-match"),
@@ -141,12 +140,12 @@ const postInvoiceOperation = defineOperation({
   request: PostInvoiceRequestSchema,
   hasJsonBody: false,
   success: { status: 200, description: "Posted invoice", schema: InvoiceSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: BILLING_WRITE_ROLES,
   errors: [400, 401, 403, 404, 409, 412, 422, 500],
   requestHeaders: IdempotencyRequestHeadersSchema,
   handler: async ({ input, principal, request }) =>
-    invoices.postInvoice(principal.tenantId, input.params.id, {
+    invoices.postInvoice(input.params.id, {
       metadata: requestAuditMetadata(request, principal),
     }),
 });
@@ -159,12 +158,12 @@ const sendInvoiceOperation = defineOperation({
   request: SendInvoiceRequestSchema,
   hasJsonBody: true,
   success: { status: 200, description: "Invoice after delivery attempt", schema: InvoiceSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: BILLING_WRITE_ROLES,
   errors: [400, 401, 403, 404, 409, 412, 500],
   requestHeaders: IdempotencyRequestHeadersSchema,
   handler: async ({ input, principal, request }) =>
-    invoices.sendInvoice(principal.tenantId, input.params.id, input.body.method, {
+    invoices.sendInvoice(input.params.id, input.body.method, {
       metadata: requestAuditMetadata(request, principal),
     }),
 });
@@ -177,12 +176,12 @@ const refreshTransmissionOperation = defineOperation({
   request: RefreshTransmissionRequestSchema,
   hasJsonBody: false,
   success: { status: 200, description: "Refreshed transmission", schema: TransmissionSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: BILLING_WRITE_ROLES,
   errors: [400, 401, 403, 404, 500],
   requestHeaders: IdempotencyRequestHeadersSchema,
   handler: async ({ input, principal, request }) =>
-    invoices.refreshTransmission(principal.tenantId, input.params.transmissionId, {
+    invoices.refreshTransmission(input.params.transmissionId, {
       metadata: requestAuditMetadata(request, principal),
     }),
 });

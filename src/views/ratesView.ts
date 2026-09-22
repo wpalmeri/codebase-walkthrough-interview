@@ -27,45 +27,45 @@ const listRatesOperation = defineOperation({
   summary: "List customer-specific rates",
   request: ListRatesRequestSchema,
   hasJsonBody: false,
-  success: { status: 200, description: "Rates visible to the tenant", schema: RateSchema.array() },
-  security: "tenantBearer",
+  success: { status: 200, description: "Customer-specific rates", schema: RateSchema.array() },
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 404, 500],
-  handler: async ({ input, principal }) => rates.listRates(principal.tenantId, input.query.customerId),
+  handler: async ({ input }) => rates.listRates(input.query.customerId),
 });
 
 const listComboDiscountsOperation = defineOperation({
   method: "get",
   path: "/rates/combos",
   operationId: "listComboDiscounts",
-  summary: "List tenant combo discounts",
+  summary: "List combo discounts",
   request: ListComboDiscountsRequestSchema,
   hasJsonBody: false,
   success: {
     status: 200,
-    description: "Customer-specific and tenant-wide combo discounts",
+    description: "Customer-specific and global combo discounts",
     schema: ComboDiscountSchema.array(),
   },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 404, 500],
-  handler: async ({ input, principal }) => rates.listComboDiscounts(principal.tenantId, input.query.customerId),
+  handler: async ({ input }) => rates.listComboDiscounts(input.query.customerId),
 });
 
 const createComboDiscountOperation = defineOperation({
   method: "post",
   path: "/rates/combos",
   operationId: "createComboDiscount",
-  summary: "Create a tenant combo discount",
+  summary: "Create a combo discount",
   request: CreateComboDiscountRequestSchema,
   hasJsonBody: true,
   success: { status: 200, description: "Created combo discount", schema: ComboDiscountSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: ADMIN_ROLES,
   errors: [400, 401, 403, 404, 409, 422, 500],
   requestHeaders: IdempotencyRequestHeadersSchema,
   handler: async ({ input, principal, request }) =>
-    rates.createComboDiscount(principal.tenantId, {
+    rates.createComboDiscount({
       ...input.body,
       customerId: input.body.customerId ?? null,
     }, { metadata: requestAuditMetadata(request, principal) }),
@@ -80,12 +80,12 @@ const getRateOperation = defineOperation({
   request: GetRateRequestSchema,
   hasJsonBody: false,
   success: { status: 200, description: "Rate representation", schema: RateSchema },
-  security: "tenantBearer",
+  security: "operatorBearer",
   roles: READ_ROLES,
   errors: [400, 401, 404, 500],
   responseHeaders: EtagResponseHeadersSchema,
-  handler: async ({ input, principal, request, response }) => {
-    const result = await rates.getVersionedRate(principal.tenantId, input.params.id);
+  handler: async ({ input, request, response }) => {
+    const result = await rates.getVersionedRate(input.params.id);
     if (isV1Request(request)) response.setHeader("ETag", result.etag);
     return result.rate;
   },
@@ -109,17 +109,16 @@ function updateRateOperation(
     request: UpdateRateRequestSchema,
     hasJsonBody: true,
     success: { status: 200, description: "Updated rate representation", schema: RateSchema },
-    security: "tenantBearer",
+    security: "operatorBearer",
     roles: ADMIN_ROLES,
     errors: [400, 401, 403, 404, 409, 412, 428, 500],
     requestHeaders: IdempotencyRequestHeadersSchema.merge(RateConditionalRequestHeadersSchema),
     responseHeaders: EtagResponseHeadersSchema,
     handler: async ({ input, principal, request, response }) => {
       const audit = { metadata: requestAuditMetadata(request, principal) };
-      if (!isV1Request(request)) return rates.updateRate(principal.tenantId, input.params.id, input.body, audit);
+      if (!isV1Request(request)) return rates.updateRate(input.params.id, input.body, audit);
 
       const result = await rates.updateRateConditionally(
-        principal.tenantId,
         input.params.id,
         input.body,
         request.get("if-match"),
