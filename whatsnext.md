@@ -2,6 +2,15 @@
 
 These items are intentionally deferred while core financial correctness, transaction safety, snapshots, and tests are completed.
 
+## Continuous financial reconciliation
+
+The read-only `bun run db:audit:financial` scanner is implemented and detects inconsistent existing state across exact values, currencies, captured pricing and invoice identity, line and invoice totals, payment applications and reversals, and lifecycle/accounting dates. It reports stable issue codes and nonzero exit statuses without modifying financial history.
+
+- Run a complete scan against a consistent restored production snapshot before rollout, investigate every violation or incomplete page, and retain the machine-readable zero-issue result as deployment evidence before making exact financial fields required.
+- Run the scanner in production with read-only database credentials, bounded batches, and an explicit low-write or consistent-snapshot strategy so concurrent writes cannot create misleading cross-page results.
+- Schedule recurring scans, export reconciliation freshness and violation counts as bounded metrics, and alert operators on new drift. Never automatically rewrite inconsistent financial history; route each issue through an auditable correction or compensating-entry workflow.
+- Add a reviewed issue-suppression or disposition record for irreducible legacy evidence so accepted exceptions remain explicit, attributable, time-bounded, and distinct from a clean result.
+
 ## Production observability
 
 The service has a useful minimum operational foundation—validated request IDs, redacted structured 5xx events, public liveness/readiness checks, graceful shutdown, append-only business audit events, and constrained delivery telemetry—but it does not yet have production-grade observability.
