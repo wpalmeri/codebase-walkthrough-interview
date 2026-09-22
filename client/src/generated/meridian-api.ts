@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    readonly "/accounting-periods/close": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Close a tenant accounting period
+         * @description Requires an active ADMIN tenant API key. The inclusive close date may only advance and every actual transition is audited.
+         */
+        readonly post: operations["closeAccountingPeriod"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/customers": {
         readonly parameters: {
             readonly query?: never;
@@ -459,6 +479,125 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    readonly closeAccountingPeriod: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: {
+                readonly "Idempotency-Client"?: string;
+                readonly "Idempotency-Key"?: string;
+                readonly "X-Request-ID"?: string;
+            };
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": {
+                    /** Format: date */
+                    readonly closedThroughDate: string;
+                };
+            };
+        };
+        readonly responses: {
+            /** @description Accounting-period close result */
+            readonly 200: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        /** Format: date */
+                        readonly closedThroughDate: string;
+                        /** @enum {string} */
+                        readonly state: "CLOSED" | "ALREADY_CLOSED";
+                    };
+                };
+            };
+            /** @description Invalid request syntax, headers, or validated input */
+            readonly 400: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ValidationError"];
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 401 */
+            readonly 401: {
+                headers: {
+                    readonly "WWW-Authenticate": string;
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 403 */
+            readonly 403: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 404 */
+            readonly 404: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 409 */
+            readonly 409: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 412 */
+            readonly 412: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description JSON request payload exceeds the 102400-byte limit */
+            readonly 413: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Error 500 */
+            readonly 500: {
+                headers: {
+                    readonly "X-Request-ID": string;
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     readonly listCustomers: {
         readonly parameters: {
             readonly query?: {

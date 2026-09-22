@@ -60,6 +60,7 @@ void describe("generated version-one OpenAPI contract", () => {
         .flatMap(([path, item]) => Object.keys(item).map((method) => `${method} ${path}`))
         .toSorted(),
       [
+        "post /accounting-periods/close",
         "get /customers",
         "get /invoices",
         "get /invoices/{id}",

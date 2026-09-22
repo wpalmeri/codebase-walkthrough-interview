@@ -79,6 +79,20 @@ existing null dates during rollout. Do not bulk-update historical closed dates t
 application credentials; handle an accounting correction through an auditable, separately
 approved procedure.
 
+`20260922210000_tenant_accounting_close_guards` is a trigger-only follow-up for the
+tenant control introduced during the ownership expansion. It blocks creating or advancing a
+tenant control while that tenant has a finalized invoice without an accounting date, and makes
+an established control's tenant identity and row immutable. It also blocks finalized invoice
+insert/post/redate/tenant-backfill with a missing or closed accounting date, plus payment-
+application reversals in that tenant's closed period. Existing historical rows are not scanned
+or rewritten when the migration is installed.
+
+SQLite serializes writes. The close readiness lookup uses the tenant prefix of the existing
+Invoice indexes, but still inspects that tenant's relevant invoice rows rather than claiming a
+covering index; rehearse on a production-sized copy and record lock duration and busy retries.
+Deploy in a low-write window and retain a backup/rollback plan. Do not run global reconciliation
+inside the close transaction; use the separate bounded reconciliation workflow beforehand.
+
 ## SQLite limitations and production path
 
 SQLite permits `DECIMAL(19,4)` declarations but applies numeric affinity rather than enforcing

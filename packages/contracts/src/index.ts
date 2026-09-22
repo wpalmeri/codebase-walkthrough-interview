@@ -268,6 +268,13 @@ export const RevokeTenantApiKeyResponseSchema = z.strictObject({
 });
 export type RevokeTenantApiKeyResponse = z.infer<typeof RevokeTenantApiKeyResponseSchema>;
 
+/** Result of a monotonic, tenant-scoped accounting-period close. */
+export const CloseAccountingPeriodResponseSchema = z.strictObject({
+  state: z.enum(["CLOSED", "ALREADY_CLOSED"]),
+  closedThroughDate: z.iso.date(),
+});
+export type CloseAccountingPeriodResponse = z.infer<typeof CloseAccountingPeriodResponseSchema>;
+
 export const PaymentApplicationSchema = z.object({
   id,
   invoiceId: id,

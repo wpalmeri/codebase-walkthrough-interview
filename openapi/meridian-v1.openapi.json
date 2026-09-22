@@ -98,6 +98,293 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/accounting-periods/close": {
+      "post": {
+        "description": "Requires an active ADMIN tenant API key. The inclusive close date may only advance and every actual transition is audited.",
+        "operationId": "closeAccountingPeriod",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Client",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "closedThroughDate": {
+                    "format": "date",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "closedThroughDate"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "closedThroughDate": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "state": {
+                      "enum": [
+                        "CLOSED",
+                        "ALREADY_CLOSED"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "closedThroughDate"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Accounting-period close result",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              },
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Invalid request syntax, headers, or validated input",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 401",
+            "headers": {
+              "WWW-Authenticate": {
+                "required": true,
+                "schema": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 403",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 404",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 409",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 412",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "JSON request payload exceeds the 102400-byte limit",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Error 500",
+            "headers": {
+              "X-Request-ID": {
+                "required": true,
+                "schema": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$/u",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "tenantBearer": []
+          }
+        ],
+        "summary": "Close a tenant accounting period"
+      }
+    },
     "/customers": {
       "get": {
         "description": "`/api/v1` returns cursor-paginated customers ordered by name then id; the legacy `/api` adapter remains an array.",

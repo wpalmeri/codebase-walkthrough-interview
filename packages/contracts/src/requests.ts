@@ -357,6 +357,17 @@ export const RevokeTenantApiKeyRequestSchema = requestSchema(
 );
 export type RevokeTenantApiKeyRequest = z.infer<typeof RevokeTenantApiKeyRequestSchema>;
 
+/** The authenticated tenant administrator chooses an explicit inclusive UTC close date. */
+export const CloseAccountingPeriodBodySchema = z.strictObject({ closedThroughDate: z.iso.date() });
+export type CloseAccountingPeriodBody = z.infer<typeof CloseAccountingPeriodBodySchema>;
+
+export const CloseAccountingPeriodRequestSchema = requestSchema(
+  EmptyParamsSchema,
+  EmptyQuerySchema,
+  CloseAccountingPeriodBodySchema
+);
+export type CloseAccountingPeriodRequest = z.infer<typeof CloseAccountingPeriodRequestSchema>;
+
 export const GetInvoiceRequestSchema = requestSchema(
   IdParamsSchema,
   EmptyQuerySchema,

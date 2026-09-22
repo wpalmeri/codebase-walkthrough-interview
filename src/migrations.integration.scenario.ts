@@ -48,6 +48,7 @@ async function main(): Promise<void> {
       "20260922180000_order_cursor_pagination",
       "20260922190000_invoice_cursor_pagination",
       "20260922200000_tenant_api_key_admin_guard",
+      "20260922210000_tenant_accounting_close_guards",
     ]
   );
 
@@ -113,6 +114,13 @@ async function main(): Promise<void> {
     "Transmission_invoice_version_delete_bump",
     "TenantApiKey_retain_active_admin_update_guard",
     "TenantApiKey_retain_active_admin_delete_guard",
+    "TenantAccountingPeriodControl_finalized_invoice_date_insert_guard",
+    "TenantAccountingPeriodControl_finalized_invoice_date_update_guard",
+    "TenantAccountingPeriodControl_tenant_identity_guard",
+    "TenantAccountingPeriodControl_delete_guard",
+    "Invoice_tenant_closed_period_insert_guard",
+    "Invoice_tenant_closed_period_post_or_redate_guard",
+    "PaymentApplicationReversal_tenant_closed_period_insert_guard",
   ];
   const triggers = await prisma.$queryRaw<NamedRow[]>`
     SELECT name
@@ -317,6 +325,100 @@ async function main(): Promise<void> {
     `,
     /invalid TenantAccountingPeriodControl\.closedThroughDate/u
   );
+  // The tenant-close expansion is enforced below the application boundary:
+  // no tenant control can close around a finalized row without an accounting date.
+  await prisma.$executeRaw`
+    UPDATE "Invoice"
+    SET "status" = 'POSTED', "accountingDate" = NULL
+    WHERE "id" = 'tenant-invoice-a'
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      INSERT INTO "TenantAccountingPeriodControl" ("id", "tenantId", "closedThroughDate", "updatedAt")
+      VALUES ('tenant-a-period', 'tenant-a', '2026-01-31', CURRENT_TIMESTAMP)
+    `,
+    /finalized tenant invoice accounting dates must be backfilled before closing/u
+  );
+  await prisma.$executeRaw`
+    UPDATE "Invoice" SET "accountingDate" = '2026-02-01' WHERE "id" = 'tenant-invoice-a'
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO "TenantAccountingPeriodControl" ("id", "tenantId", "closedThroughDate", "updatedAt")
+    VALUES ('tenant-a-period', 'tenant-a', '2026-01-31', CURRENT_TIMESTAMP)
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      UPDATE "TenantAccountingPeriodControl" SET "tenantId" = 'tenant-b' WHERE "id" = 'tenant-a-period'
+    `,
+    /tenant accounting control identity is immutable/u
+  );
+  await assert.rejects(
+    prisma.$executeRaw`DELETE FROM "TenantAccountingPeriodControl" WHERE "id" = 'tenant-a-period'`,
+    /tenant accounting control cannot be deleted/u
+  );
+  await assert.rejects(
+    prisma.$executeRaw`
+      INSERT INTO "Invoice" (
+        "id", "number", "tenantId", "customerId", "orderId", "status", "issueDate", "dueDate",
+        "total", "amountPaid", "currencyCode", "postedAt"
+      ) VALUES (
+        'tenant-undated-finalized', 'TENANT-UNDATED-FINALIZED', 'tenant-a', 'tenant-customer-a', 'tenant-order-a',
+        'POSTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0, 0, 'USD', CURRENT_TIMESTAMP
+      )
+    `,
+    /a finalized tenant invoice requires an open accounting date/u
+  );
+  await prisma.$executeRaw`
+    INSERT INTO "Customer" ("id", "name", "email")
+    VALUES ('closed-period-backfill-customer', 'Closed Backfill', 'closed-backfill@example.com')
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO "Order" ("id", "customerId", "status", "orderDate", "currencyCode")
+    VALUES ('closed-period-backfill-order', 'closed-period-backfill-customer', 'OPEN', CURRENT_TIMESTAMP, 'USD')
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO "Invoice" (
+      "id", "number", "customerId", "orderId", "status", "issueDate", "dueDate", "total",
+      "amountPaid", "accountingDate", "currencyCode", "postedAt"
+    ) VALUES (
+      'closed-period-backfill-invoice', 'CLOSED-PERIOD-BACKFILL', 'closed-period-backfill-customer',
+      'closed-period-backfill-order', 'POSTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0, 0,
+      '2026-01-31', 'USD', CURRENT_TIMESTAMP
+    )
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      UPDATE "Invoice" SET "tenantId" = 'tenant-a' WHERE "id" = 'closed-period-backfill-invoice'
+    `,
+    /a finalized tenant invoice requires an open accounting date/u
+  );
+  await prisma.$executeRaw`
+    INSERT INTO "Payment" ("id", "tenantId", "customerId", "amount", "amountDecimal", "currencyCode", "receivedAt")
+    VALUES ('tenant-payment-a', 'tenant-a', 'tenant-customer-a', 1, 1, 'USD', CURRENT_TIMESTAMP)
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO "PaymentApplication" ("id", "paymentId", "invoiceId", "amount", "amountDecimal", "appliedAt")
+    VALUES ('tenant-application-a', 'tenant-payment-a', 'tenant-invoice-a', 1, 1, CURRENT_TIMESTAMP)
+  `;
+  await assert.rejects(
+    prisma.$executeRaw`
+      INSERT INTO "PaymentApplicationReversal" ("id", "paymentApplicationId", "amountDecimal", "reason", "accountingDate", "actor")
+      VALUES ('tenant-reversal-closed', 'tenant-application-a', 1, 'migration close guard', '2026-01-31', 'migration-test')
+    `,
+    /cannot reverse a tenant payment application into a closed accounting period/u
+  );
+  await assert.rejects(
+    prisma.$executeRaw`
+      UPDATE "Invoice" SET "accountingDate" = '2026-01-31' WHERE "id" = 'tenant-invoice-a'
+    `,
+    /a finalized tenant invoice requires an open accounting date/u
+  );
+  await assert.rejects(
+    prisma.$executeRaw`
+      UPDATE "Invoice" SET "accountingDate" = NULL WHERE "id" = 'tenant-invoice-a'
+    `,
+    /a finalized tenant invoice requires an open accounting date/u
+  );
   await assert.rejects(
     prisma.$executeRaw`DELETE FROM "Tenant" WHERE "id" = 'tenant-a'`,
     /Tenant has referenced business records/u
@@ -372,7 +474,7 @@ async function main(): Promise<void> {
     /Order\.resourceVersion must increase monotonically/u
   );
   await prisma.$executeRaw`
-    UPDATE "Invoice" SET "resourceVersion" = 2 WHERE "id" = 'tenant-invoice-a'
+    UPDATE "Invoice" SET "resourceVersion" = 4 WHERE "id" = 'tenant-invoice-a'
   `;
   await assert.rejects(
     prisma.$executeRaw`
