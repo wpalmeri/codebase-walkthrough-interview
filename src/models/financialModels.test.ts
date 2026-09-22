@@ -77,6 +77,7 @@ void describe("exact financial response models", () => {
           quantityDecimal: new Prisma.Decimal("2.000000"),
           baseUnitPriceDecimal: new Prisma.Decimal("12.3400"),
           effectiveUnitPriceDecimal: new Prisma.Decimal("10.1250"),
+          amountDecimal: new Prisma.Decimal("20.2499"),
           pricingSnapshot: { version: 1 },
           pricingCapturedAt: createdAt,
           snapshotVersion: 1,
@@ -91,8 +92,8 @@ void describe("exact financial response models", () => {
     assert.equal(model.items[0]?.productName, "Captured product name");
     assert.equal(model.items[0]?.quantity, 2);
     assert.equal(model.items[0]?.unitPrice, 10.125);
-    assert.equal(model.items[0]?.amountDecimal, "20.2500");
-    assert.equal(model.totalDecimal, "20.2500");
+    assert.equal(model.items[0]?.amountDecimal, "20.2499");
+    assert.equal(model.totalDecimal, "20.2499");
   });
 
   void test("derives invoice and payment balances from exact Decimal-first values", () => {

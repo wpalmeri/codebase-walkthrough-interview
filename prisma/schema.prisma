@@ -111,6 +111,7 @@ model OrderItem {
   quantityDecimal           Decimal? // DECIMAL(19,6): supports fractional metered usage.
   baseUnitPriceDecimal      Decimal? // DECIMAL(19,4): pre-tier/discount contracted rate.
   effectiveUnitPriceDecimal Decimal? // DECIMAL(19,4): final billed unit price.
+  amountDecimal             Decimal? // DECIMAL(19,4): authoritative rounded line amount.
   pricingSnapshot           Json? // Tier/discount inputs; monetary JSON values must be decimal strings.
   pricingCapturedAt         DateTime?
   snapshotVersion           Int?
