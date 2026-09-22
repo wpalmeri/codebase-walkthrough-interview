@@ -229,6 +229,23 @@ legacy `/api/orders/:id` writes during client migration. `/api/v1` requires a
 single exact strong `If-Match`; keyed retries include that header in their
 fingerprint and replay the persisted response ETag.
 
+### Invoice conditional writes and aggregate ETags
+
+`20260922160000_invoice_conditional_writes` is trigger-only and expand-only:
+it performs no table rebuild, scan, default fill, or historical backfill. New
+Invoices initialize a version while pre-existing null rows remain logical
+version zero until their first write. Root Invoice changes and observable
+aggregate evidence—lines, payment applications/reversals, and transmissions—
+advance the parent version so an ETag never remains valid for a changed invoice
+representation.
+
+Apply before enabling `/api/v1/invoices/:id` conditional reads/writes. SQLite
+serializes writers and each evidence mutation performs one small parent update;
+rehearse timing on a production-sized copy and deploy in a low-write window.
+Keep headerless legacy invoice updates during client migration. Idempotency
+already fingerprints `If-Match` and persists/replays the exact response ETag,
+so a retry cannot reuse a response for a different invoice revision.
+
 ### Payment cursor pagination
 
 `20260922120000_payment_cursor_pagination` adds one tenant-first keyset index

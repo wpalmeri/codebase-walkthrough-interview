@@ -43,6 +43,7 @@ async function main(): Promise<void> {
       "20260922130000_audit_events",
       "20260922140000_order_conditional_writes",
       "20260922150000_customer_email_guard",
+      "20260922160000_invoice_conditional_writes",
     ]
   );
 
@@ -92,6 +93,20 @@ async function main(): Promise<void> {
     "Invoice_order_version_delete_bump",
     "Customer_email_insert_guard",
     "Customer_email_update_guard",
+    "Invoice_resource_version_initialize",
+    "Invoice_resource_version_business_update_bump",
+    "InvoiceLine_invoice_version_insert_bump",
+    "InvoiceLine_invoice_version_update_bump",
+    "InvoiceLine_invoice_version_delete_bump",
+    "PaymentApplication_invoice_version_insert_bump",
+    "PaymentApplication_invoice_version_update_bump",
+    "PaymentApplication_invoice_version_delete_bump",
+    "PaymentApplicationReversal_invoice_version_insert_bump",
+    "PaymentApplicationReversal_invoice_version_update_bump",
+    "PaymentApplicationReversal_invoice_version_delete_bump",
+    "Transmission_invoice_version_insert_bump",
+    "Transmission_invoice_version_update_bump",
+    "Transmission_invoice_version_delete_bump",
   ];
   const triggers = await prisma.$queryRaw<NamedRow[]>`
     SELECT name

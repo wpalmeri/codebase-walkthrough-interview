@@ -25,7 +25,18 @@ import {
   type DecimalInput,
 } from "../domain/money";
 import { productSubtotal } from "../domain/pricing";
-import { ConflictError, DomainInvariantError, NotFoundError, PreconditionError } from "../errors";
+import {
+  ApplicationError,
+  ConflictError,
+  DomainInvariantError,
+  NotFoundError,
+  PreconditionError,
+} from "../errors";
+import {
+  formatResourceEtag,
+  verifyResourceIfMatch,
+  type ResourceVersionPreconditionFailure,
+} from "../http/resourceVersion";
 import { InvoiceModel, toInvoiceModel } from "../models/invoice";
 import { toTransmissionModel, TransmissionModel } from "../models/transmission";
 import { renderInvoicePdf } from "../services/pdf";
@@ -176,6 +187,25 @@ export async function getInvoice(tenantId: string, invoiceId: string): Promise<I
   return toInvoiceModel(row);
 }
 
+export async function getVersionedInvoice(
+  tenantId: string,
+  invoiceId: string
+): Promise<{ invoice: InvoiceModel; etag: string }> {
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: invoiceId, tenantId },
+    include: invoiceInclude,
+  });
+  if (invoice === null) throw new NotFoundError();
+  return {
+    invoice: toInvoiceModel(invoice),
+    etag: formatResourceEtag({
+      kind: "invoice",
+      id: invoice.id,
+      version: invoice.resourceVersion ?? 0,
+    }),
+  };
+}
+
 function invoiceNumber(id: string): string {
   return `INV-${id.toUpperCase()}`;
 }
@@ -310,7 +340,11 @@ export async function updateInvoice(
         ? invoice.accountingDate
         : utcAccountingDateFromInstant(issueDate);
     if (accountingDate !== null) {
-      await requireOpenAccountingDate(transaction, tenantId, parseAccountingDate(accountingDate));
+      await requireOpenAccountingDate(
+        transaction,
+        tenantId,
+        parseAccountingDate(accountingDate)
+      );
     }
     const updated = await transaction.invoice.updateMany({
       where: { id: invoiceId, tenantId, status: "DRAFT" },
@@ -329,6 +363,112 @@ export async function updateInvoice(
     });
   });
   return getInvoice(tenantId, invoiceId);
+}
+
+/** v1 CAS variant; acquire the root version before validating/mutating dates. */
+export async function updateInvoiceConditionally(
+  tenantId: string,
+  invoiceId: string,
+  input: { issueDate?: string; dueDate?: string },
+  ifMatch: string | undefined,
+  audit: InvoiceMutationAudit
+): Promise<{ invoice: InvoiceModel; etag: string }> {
+  assertInvoiceAuditTenant(tenantId, audit);
+  return prisma.$transaction(async (transaction) => {
+    const existing = await transaction.invoice.findFirst({
+      where: { id: invoiceId, tenantId },
+    });
+    if (existing === null) throw new NotFoundError();
+    const version = existing.resourceVersion ?? 0;
+    const precondition = verifyResourceIfMatch(
+      ifMatch,
+      { kind: "invoice", id: existing.id },
+      version
+    );
+    if (!precondition.ok) throwInvoicePrecondition(precondition);
+    if (version === Number.MAX_SAFE_INTEGER) {
+      throw new PreconditionError(
+        "RESOURCE_VERSION_EXHAUSTED",
+        "This resource version cannot be advanced safely"
+      );
+    }
+    const acquired = await transaction.invoice.updateMany({
+      where: {
+        id: existing.id,
+        tenantId,
+        ...(existing.resourceVersion === null
+          ? { resourceVersion: null }
+          : { resourceVersion: version }),
+      },
+      data: { resourceVersion: version + 1 },
+    });
+    if (acquired.count !== 1) {
+      throw new PreconditionError(
+        "ETAG_VERSION_MISMATCH",
+        "If-Match does not match the current resource version"
+      );
+    }
+    if (existing.status !== "DRAFT") {
+      throw new ConflictError("INVOICE_NOT_DRAFT", "Only a DRAFT invoice can be redated");
+    }
+    const issueDate = input.issueDate === undefined ? existing.issueDate : new Date(input.issueDate);
+    const dueDate = input.dueDate === undefined ? existing.dueDate : new Date(input.dueDate);
+    if (dueDate < issueDate) {
+      throw new DomainInvariantError(
+        "INVOICE_DATE_RANGE_INVALID",
+        "Invoice due date must be on or after issue date"
+      );
+    }
+    const accountingDate =
+      input.issueDate === undefined
+        ? existing.accountingDate
+        : utcAccountingDateFromInstant(issueDate);
+    if (accountingDate !== null) {
+      await requireOpenAccountingDate(transaction, tenantId, parseAccountingDate(accountingDate));
+    }
+    const updated = await transaction.invoice.updateMany({
+      where: { id: invoiceId, tenantId, status: "DRAFT" },
+      data: { issueDate, dueDate, accountingDate },
+    });
+    if (updated.count !== 1) {
+      throw new ConflictError(
+        "CONCURRENT_MODIFICATION",
+        "Invoice changed concurrently; reload and retry"
+      );
+    }
+    await appendInvoiceAudit(transaction, audit, {
+      action: "INVOICE_UPDATED",
+      resourceKind: "INVOICE",
+      resourceId: existing.id,
+    });
+    const final = await transaction.invoice.findFirst({
+      where: { id: invoiceId, tenantId },
+      include: invoiceInclude,
+    });
+    if (final === null) throw new NotFoundError();
+    return {
+      invoice: toInvoiceModel(final),
+      etag: formatResourceEtag({
+        kind: "invoice",
+        id: final.id,
+        version: final.resourceVersion ?? 0,
+      }),
+    };
+  });
+}
+
+function throwInvoicePrecondition(failure: ResourceVersionPreconditionFailure): never {
+  if (failure.status === 412) throw new PreconditionError(failure.code, failure.detail);
+  throw new ApplicationError({
+    type:
+      failure.status === 428
+        ? "urn:meridian:problem:precondition-required"
+        : "urn:meridian:problem:invalid-if-match",
+    title: failure.status === 428 ? "Precondition Required" : "Bad Request",
+    status: failure.status,
+    code: failure.code,
+    detail: failure.detail,
+  });
 }
 
 // Draft invoices copy materialized order snapshots. The delete/create pair is

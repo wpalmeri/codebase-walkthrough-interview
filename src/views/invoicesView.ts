@@ -10,6 +10,7 @@ import { Router } from "express";
 import * as invoices from "../controllers/invoiceController";
 import { BILLING_WRITE_ROLES, READ_ROLES, requireRole } from "../auth/authorization";
 import { requestAuditMetadata } from "../audit/requestAudit";
+import { isV1Request } from "../http/apiVersion";
 import { h, validateRequest } from "./helpers";
 
 export const invoicesView = Router();
@@ -24,18 +25,24 @@ invoicesView.get(
 
 invoicesView.get(
   "/:id",
-  h(async (req) => {
+  h(async (req, response) => {
     const { params } = validateRequest(GetInvoiceRequestSchema, req);
-    return invoices.getInvoice(requireRole(req, READ_ROLES).tenantId, params.id);
+    const result = await invoices.getVersionedInvoice(requireRole(req, READ_ROLES).tenantId, params.id);
+    if (isV1Request(req)) response.setHeader("ETag", result.etag);
+    return result.invoice;
   })
 );
 
-const updateInvoice = h(async (req) => {
+const updateInvoice = h(async (req, response) => {
   const { params, body } = validateRequest(UpdateInvoiceRequestSchema, req);
   const principal = requireRole(req, BILLING_WRITE_ROLES);
-  return invoices.updateInvoice(principal.tenantId, params.id, body, {
+  const audit = {
     metadata: requestAuditMetadata(req, principal),
-  });
+  };
+  if (!isV1Request(req)) return invoices.updateInvoice(principal.tenantId, params.id, body, audit);
+  const result = await invoices.updateInvoiceConditionally(principal.tenantId, params.id, body, req.get("if-match"), audit);
+  response.setHeader("ETag", result.etag);
+  return result.invoice;
 });
 
 invoicesView.put("/:id", updateInvoice);
