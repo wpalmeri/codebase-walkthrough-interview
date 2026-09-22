@@ -24,11 +24,12 @@ model Customer {
 }
 
 model Product {
-  id        String @id @default(cuid())
-  sku       String @unique
-  name      String
-  unit      String // "seat", "GB", "1k calls", ...
-  listPrice Float
+  id               String   @id @default(cuid())
+  sku              String   @unique
+  name             String
+  unit             String // "seat", "GB", "1k calls", ...
+  listPrice        Float // Legacy compatibility column; retire after the decimal cutover.
+  listPriceDecimal Decimal? // DECIMAL(19,4) in the migration; nullable for expand/backfill/contract rollout.
 
   rates      Rate[]
   orderItems OrderItem[]
@@ -37,13 +38,14 @@ model Product {
 
 // One rate per customer+product. Edits update this row with the new price.
 model Rate {
-  id            String   @id @default(cuid())
-  customerId    String
-  productId     String
-  unitPrice     Float
+  id               String   @id @default(cuid())
+  customerId       String
+  productId        String
+  unitPrice        Float // Legacy compatibility column; retire after the decimal cutover.
+  unitPriceDecimal Decimal? // DECIMAL(19,4) in the migration.
   // Volume tiers, e.g. [{"minQty": 100, "unitPrice": 4.5}, {"minQty": 500, "unitPrice": 3.75}]
-  tiers         Json?
-  effectiveDate DateTime @default(now())
+  tiers            Json?
+  effectiveDate    DateTime @default(now())
 
   customer   Customer    @relation(fields: [customerId], references: [id])
   product    Product     @relation(fields: [productId], references: [id])
@@ -55,10 +57,11 @@ model Rate {
 // If an order contains every product in the combo, those lines are discounted
 // by percentOff. Scoped to one customer, or global when customerId is null.
 model ComboDiscount {
-  id         String  @id @default(cuid())
-  customerId String?
-  name       String
-  percentOff Float
+  id                String   @id @default(cuid())
+  customerId        String?
+  name              String
+  percentOff        Float // Legacy compatibility column; retire after the decimal cutover.
+  percentOffDecimal Decimal? // DECIMAL(7,4) in the migration.
 
   customer Customer? @relation(fields: [customerId], references: [id])
   products Product[]
@@ -93,9 +96,21 @@ model OrderItem {
   id        String @id @default(cuid())
   orderId   String
   productId String
-  rateId    String // points at the customer's current Rate for this product
-  quantity  Float
-  unitPrice Float // computed price, kept in sync with the rate
+  rateId    String // legacy provenance only; billing must use the immutable snapshots below
+  quantity  Float // Legacy compatibility column; retire after the decimal cutover.
+  unitPrice Float // Legacy compatibility column; retire after the decimal cutover.
+
+  // Materialized at order time so catalog/rate edits cannot rewrite history.
+  // Existing rows are populated later by the bounded backfill in the migration runbook.
+  productSkuSnapshot        String?
+  productNameSnapshot       String?
+  productUnitSnapshot       String?
+  quantityDecimal           Decimal? // DECIMAL(19,6): supports fractional metered usage.
+  baseUnitPriceDecimal      Decimal? // DECIMAL(19,4): pre-tier/discount contracted rate.
+  effectiveUnitPriceDecimal Decimal? // DECIMAL(19,4): final billed unit price.
+  pricingSnapshot           Json? // Tier/discount inputs; monetary JSON values must be decimal strings.
+  pricingCapturedAt         DateTime?
+  snapshotVersion           Int?
 
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
@@ -103,16 +118,21 @@ model OrderItem {
 }
 
 model Invoice {
-  id         String    @id @default(cuid())
-  number     String    @unique
-  customerId String
-  orderId    String    @unique
-  status     String    @default("DRAFT") // DRAFT | POSTED | SENT | PAID
-  issueDate  DateTime  @default(now())
-  dueDate    DateTime
-  total      Float     @default(0)
-  amountPaid Float     @default(0)
-  postedAt   DateTime?
+  id                     String    @id @default(cuid())
+  number                 String    @unique
+  customerId             String
+  orderId                String    @unique
+  status                 String    @default("DRAFT") // DRAFT | POSTED | SENT | PAID | VOID
+  issueDate              DateTime  @default(now())
+  dueDate                DateTime
+  total                  Float     @default(0) // Legacy compatibility column.
+  amountPaid             Float     @default(0) // Legacy compatibility column.
+  totalDecimal           Decimal? // DECIMAL(19,4) in the migration.
+  amountPaidDecimal      Decimal? // DECIMAL(19,4) in the migration.
+  customerNameSnapshot   String?
+  customerEmailSnapshot  String?
+  billingAddressSnapshot String?
+  postedAt               DateTime?
 
   customer      Customer             @relation(fields: [customerId], references: [id])
   order         Order                @relation(fields: [orderId], references: [id])
@@ -125,9 +145,15 @@ model InvoiceLine {
   id          String @id @default(cuid())
   invoiceId   String
   description String
-  quantity    Float
-  unitPrice   Float
-  amount      Float
+  quantity    Float // Legacy compatibility column.
+  unitPrice   Float // Legacy compatibility column.
+  amount      Float // Legacy compatibility column.
+
+  productSkuSnapshot  String?
+  productUnitSnapshot String?
+  quantityDecimal     Decimal? // DECIMAL(19,6) in the migration.
+  unitPriceDecimal    Decimal? // DECIMAL(19,4) in the migration.
+  amountDecimal       Decimal? // DECIMAL(19,4) in the migration.
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 }
@@ -135,22 +161,24 @@ model InvoiceLine {
 // A payment received from a customer. Recording it is separate from applying it;
 // one payment can be applied across many invoices.
 model Payment {
-  id         String   @id @default(cuid())
-  customerId String
-  amount     Float
-  receivedAt DateTime @default(now())
-  reference  String?
+  id            String   @id @default(cuid())
+  customerId    String
+  amount        Float // Legacy compatibility column.
+  amountDecimal Decimal? // DECIMAL(19,4) in the migration.
+  receivedAt    DateTime @default(now())
+  reference     String?
 
   customer     Customer             @relation(fields: [customerId], references: [id])
   applications PaymentApplication[]
 }
 
 model PaymentApplication {
-  id        String   @id @default(cuid())
-  paymentId String
-  invoiceId String
-  amount    Float
-  appliedAt DateTime @default(now())
+  id            String   @id @default(cuid())
+  paymentId     String
+  invoiceId     String
+  amount        Float // Legacy compatibility column.
+  amountDecimal Decimal? // DECIMAL(19,4) in the migration.
+  appliedAt     DateTime @default(now())
 
   payment Payment @relation(fields: [paymentId], references: [id])
   invoice Invoice @relation(fields: [invoiceId], references: [id])
