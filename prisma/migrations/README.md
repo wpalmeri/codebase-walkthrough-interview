@@ -96,6 +96,22 @@ touching financial rows. Every concrete backfill writes its last successfully co
 key in the same transaction as that batch; dry runs never advance it. Keep checkpoint rows until
 the reconciliation evidence and later contract migration are complete.
 
+## Historical order pricing snapshots
+
+Run `bun run db:backfill:order-pricing` in its default dry-run mode first. The
+`order-pricing-snapshot-v1` job reads only `Order` and `OrderItem.pricingSnapshot`,
+validates/reprices that JSON using the captured product, rate, tier, and discount terms, then fills
+only missing exact and captured fields. It never joins current `Product`, `Rate`, or
+`ComboDiscount` rows, because those rows may have changed after the order was accepted. The job
+is primary-key-bounded, transactionally checkpointed, and throttled between batches; set
+`BACKFILL_DRY_RUN=false` only after reviewing the preview.
+
+It derives an order currency only when every validated item snapshot agrees. Investigate and
+resolve typed `MISSING_PRICING_EVIDENCE`, `INVALID_PRICING_EVIDENCE`,
+`CONFLICTING_PRICING_EVIDENCE`, `CONFLICTING_PERSISTED_EVIDENCE`, or
+`CONFLICTING_SNAPSHOT_CURRENCY` results before retrying; never reconstruct missing history from
+the live catalog or overwrite contradictory records with a best guess.
+
 Run `bun run db:backfill:legacy-financial` first in its default dry-run mode. It processes
 products, rates/tiers, discounts, payments, and payment applications as five independently
 checkpointed primary-key streams, refusing exact/legacy disagreement or unreconciled ownership,
