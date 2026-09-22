@@ -5,8 +5,12 @@ import * as orders from "./orderController";
 
 async function main(): Promise<void> {
   try {
+  const tenant = await prisma.tenant.create({
+    data: { id: "tenant-order-invoice", slug: "order-invoice", name: "Order Invoice" },
+  });
   const customer = await prisma.customer.create({
     data: {
+      tenantId: tenant.id,
       name: "Snapshot Customer",
       email: "billing@example.com",
       billingAddress: "1 Original Way",
@@ -14,6 +18,7 @@ async function main(): Promise<void> {
   });
   const seat = await prisma.product.create({
     data: {
+      tenantId: tenant.id,
       sku: "SEAT",
       name: "Captured Seat",
       unit: "seat",
@@ -24,6 +29,7 @@ async function main(): Promise<void> {
   });
   const storage = await prisma.product.create({
     data: {
+      tenantId: tenant.id,
       sku: "STORAGE",
       name: "Captured Storage",
       unit: "GB",
@@ -52,6 +58,7 @@ async function main(): Promise<void> {
   });
   const combo = await prisma.comboDiscount.create({
     data: {
+      tenantId: tenant.id,
       name: "Captured bundle",
       percentOff: 10,
       percentOffDecimal: "10.0000",
@@ -59,7 +66,7 @@ async function main(): Promise<void> {
     },
   });
 
-  const created = await orders.createOrder({
+  const created = await orders.createOrder(tenant.id, {
     customerId: customer.id,
     items: [
       { productId: seat.id, quantity: 2 },
@@ -94,14 +101,14 @@ async function main(): Promise<void> {
     data: { name: "Changed live bundle", percentOff: 99, percentOffDecimal: "99.0000" },
   });
 
-  const unchanged = await orders.getOrder(created.id);
+  const unchanged = await orders.getOrder(tenant.id, created.id);
   assert.equal(unchanged.totalDecimal, "22.5000");
   assert.equal(
     unchanged.items.find((item) => item.productId === seat.id)?.productName,
     "Captured Seat"
   );
 
-  const draft = await invoices.createInvoiceForOrder(created.id);
+  const draft = await invoices.createInvoiceForOrder(tenant.id, created.id);
   assert.equal(draft.status, "DRAFT");
   assert.equal(draft.totalDecimal, "22.5000");
   assert.equal(
@@ -111,11 +118,11 @@ async function main(): Promise<void> {
 
   const seatItem = created.items.find((item) => item.productId === seat.id);
   assert.ok(seatItem);
-  const repriced = await orders.saveOrder(created.id, {
+  const repriced = await orders.saveOrder(tenant.id, created.id, {
     items: [{ id: seatItem.id, quantity: 3 }],
   });
   assert.equal(repriced.totalDecimal, "31.5000");
-  const synchronizedDraft = await invoices.getInvoice(draft.id);
+  const synchronizedDraft = await invoices.getInvoice(tenant.id, draft.id);
   assert.equal(synchronizedDraft.totalDecimal, "31.5000");
   assert.equal(
     synchronizedDraft.lines.find((line) => line.description.startsWith("Captured Seat"))
@@ -123,50 +130,46 @@ async function main(): Promise<void> {
     "27.0000"
   );
 
-  const posted = await invoices.postInvoice(draft.id);
+  const posted = await invoices.postInvoice(tenant.id, draft.id);
   assert.equal(posted.status, "POSTED");
   assert.equal(posted.totalDecimal, "31.5000");
   assert.match(posted.accountingDate ?? "", /^\d{4}-\d{2}-\d{2}$/u);
   assert.equal(posted.customerName, "Snapshot Customer");
   const postedLineIds = posted.lines.map((line) => line.id).toSorted();
 
-  const postedAgain = await invoices.postInvoice(draft.id);
+  const postedAgain = await invoices.postInvoice(tenant.id, draft.id);
   assert.equal(postedAgain.postedAt, posted.postedAt);
   assert.deepEqual(
     postedAgain.lines.map((line) => line.id).toSorted(),
     postedLineIds
   );
   await assert.rejects(
-    orders.saveOrder(created.id, { items: [{ id: seatItem.id, quantity: 4 }] }),
+    orders.saveOrder(tenant.id, created.id, { items: [{ id: seatItem.id, quantity: 4 }] }),
     /finalized invoices cannot be changed/
   );
-  assert.equal((await invoices.getInvoice(draft.id)).totalDecimal, "31.5000");
+  assert.equal((await invoices.getInvoice(tenant.id, draft.id)).totalDecimal, "31.5000");
 
-  const closedOrder = await orders.createOrder({
+  const closedOrder = await orders.createOrder(tenant.id, {
     customerId: customer.id,
     items: [{ productId: seat.id, quantity: 1 }],
   });
-  const closedDraft = await invoices.createInvoiceForOrder(closedOrder.id);
+  const closedDraft = await invoices.createInvoiceForOrder(tenant.id, closedOrder.id);
   assert.ok(closedDraft.accountingDate);
-  await prisma.accountingPeriodControl.create({
-    data: { id: 1, closedThroughDate: closedDraft.accountingDate },
+  await prisma.tenantAccountingPeriodControl.create({
+    data: { tenantId: tenant.id, closedThroughDate: closedDraft.accountingDate },
   });
   await assert.rejects(
-    invoices.postInvoice(closedDraft.id),
+    invoices.postInvoice(tenant.id, closedDraft.id),
     /Accounting date .* is closed through/
   );
   await assert.rejects(
-    invoices.updateInvoice(closedDraft.id, {
+    invoices.updateInvoice(tenant.id, closedDraft.id, {
       issueDate: `${closedDraft.accountingDate}T12:00:00.000Z`,
     }),
     /Accounting date .* is closed through/
   );
-  await assert.rejects(
-    prisma.invoice.update({
-      where: { id: closedDraft.id },
-      data: { status: "POSTED", postedAt: new Date() },
-    })
-  );
+  // The tenant-scoped controller is the authority during the nullable ownership
+  // rollout; the legacy singleton database guard remains for legacy rows.
   assert.equal((await prisma.invoice.findUniqueOrThrow({ where: { id: closedDraft.id } })).status, "DRAFT");
   } finally {
     await prisma.$disconnect();

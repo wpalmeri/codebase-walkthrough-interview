@@ -45,17 +45,18 @@ function orderReference(id: string): string {
   return `SO-${id.toUpperCase()}`;
 }
 
-export async function listOrders(): Promise<OrderModel[]> {
+export async function listOrders(tenantId: string): Promise<OrderModel[]> {
   const rows = await prisma.order.findMany({
+    where: { tenantId },
     include: orderInclude,
     orderBy: { orderDate: "desc" },
   });
   return rows.map(toOrderModel);
 }
 
-export async function getOrder(orderId: string): Promise<OrderModel> {
-  const row = await prisma.order.findUniqueOrThrow({
-    where: { id: orderId },
+export async function getOrder(tenantId: string, orderId: string): Promise<OrderModel> {
+  const row = await prisma.order.findFirstOrThrow({
+    where: { id: orderId, tenantId },
     include: orderInclude,
   });
   return toOrderModel(row);
@@ -66,26 +67,31 @@ type PricingTransaction = Prisma.TransactionClient;
 async function capturedOrderLines(
   transaction: PricingTransaction,
   input: {
+    tenantId: string;
     customerId: string;
     items: readonly { productId: string; quantity: string | number }[];
     capturedAt: Date;
   }
 ): Promise<CapturedOrderPricing[]> {
-  await transaction.customer.findUniqueOrThrow({ where: { id: input.customerId } });
+  await transaction.customer.findFirstOrThrow({
+    where: { id: input.customerId, tenantId: input.tenantId },
+  });
   const productIds = input.items.map((item) => item.productId);
-  const products = await transaction.product.findMany({ where: { id: { in: productIds } } });
+  const products = await transaction.product.findMany({
+    where: { id: { in: productIds }, tenantId: input.tenantId },
+  });
   if (products.length !== productIds.length) {
-    const found = new Set(products.map((product) => product.id));
-    const missing = productIds.find((productId) => !found.has(productId));
-    throw new NotFoundError(
-      "PRODUCT_NOT_FOUND",
-      `Product ${missing ?? "unknown"} was not found`
-    );
+    throw new NotFoundError();
   }
 
   const productsById = new Map(products.map((product) => [product.id, product]));
   const existingRates = await transaction.rate.findMany({
-    where: { customerId: input.customerId, productId: { in: productIds } },
+    where: {
+      customerId: input.customerId,
+      productId: { in: productIds },
+      customer: { tenantId: input.tenantId },
+      product: { tenantId: input.tenantId },
+    },
   });
   const ratesByProductId = new Map(existingRates.map((rate) => [rate.productId, rate]));
 
@@ -93,7 +99,7 @@ async function capturedOrderLines(
     if (ratesByProductId.has(productId)) continue;
     const product = productsById.get(productId);
     if (!product) {
-      throw new NotFoundError("PRODUCT_NOT_FOUND", `Product ${productId} was not found`);
+      throw new NotFoundError();
     }
     const listPriceDecimal = decimalOrLegacy(
       { decimal: product.listPriceDecimal, legacy: product.listPrice },
@@ -112,7 +118,10 @@ async function capturedOrderLines(
   }
 
   const discounts = await transaction.comboDiscount.findMany({
-    where: { OR: [{ customerId: input.customerId }, { customerId: null }] },
+    where: {
+      tenantId: input.tenantId,
+      OR: [{ customerId: input.customerId }, { customerId: null }],
+    },
     include: { products: true },
   });
   const productIdSet = new Set(productIds);
@@ -187,7 +196,7 @@ function orderItemCreateData(orderId: string, captured: CapturedOrderPricing) {
   };
 }
 
-export async function createOrder(input: {
+export async function createOrder(tenantId: string, input: {
   customerId: string;
   items: { productId: string; quantity: string | number }[];
   notes?: string;
@@ -195,6 +204,7 @@ export async function createOrder(input: {
   const orderId = randomUUID();
   await prisma.$transaction(async (transaction) => {
     const lines = await capturedOrderLines(transaction, {
+      tenantId,
       customerId: input.customerId,
       items: input.items,
       capturedAt: new Date(),
@@ -210,6 +220,7 @@ export async function createOrder(input: {
     await transaction.order.create({
       data: {
         id: orderId,
+        tenantId,
         reference: orderReference(orderId),
         customerId: input.customerId,
         notes: input.notes,
@@ -220,12 +231,13 @@ export async function createOrder(input: {
       data: lines.map((line) => orderItemCreateData(orderId, line)),
     });
   });
-  return getOrder(orderId);
+  return getOrder(tenantId, orderId);
 }
 
 // Order terms are captured once. Quantity changes recalculate from those terms;
 // changing the customer would require an explicit re-contracting workflow.
 export async function saveOrder(
+  tenantId: string,
   orderId: string,
   input: {
     customerId?: string;
@@ -236,8 +248,8 @@ export async function saveOrder(
   }
 ): Promise<OrderModel> {
   await prisma.$transaction(async (transaction) => {
-    const order = await transaction.order.findUniqueOrThrow({
-      where: { id: orderId },
+    const order = await transaction.order.findFirstOrThrow({
+      where: { id: orderId, tenantId },
       include: { items: true, invoice: true },
     });
     const hasFinancialChange =
@@ -289,6 +301,7 @@ export async function saveOrder(
 
     if (input.orderDate !== undefined || input.notes !== undefined) {
       await transaction.order.update({
+        // The tenant-qualified read above proves ownership inside this transaction.
         where: { id: orderId },
         data: {
           orderDate: input.orderDate === undefined ? undefined : new Date(input.orderDate),
@@ -305,7 +318,7 @@ export async function saveOrder(
         },
       });
     }
-    await syncDraftInvoiceInTransaction(transaction, orderId);
+    await syncDraftInvoiceInTransaction(transaction, tenantId, orderId);
   });
-  return getOrder(orderId);
+  return getOrder(tenantId, orderId);
 }

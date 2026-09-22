@@ -25,7 +25,7 @@ import {
   type DecimalInput,
 } from "../domain/money";
 import { productSubtotal } from "../domain/pricing";
-import { ConflictError, DomainInvariantError, PreconditionError } from "../errors";
+import { ConflictError, DomainInvariantError, NotFoundError, PreconditionError } from "../errors";
 import { InvoiceModel, toInvoiceModel } from "../models/invoice";
 import { toTransmissionModel, TransmissionModel } from "../models/transmission";
 import { renderInvoicePdf } from "../services/pdf";
@@ -59,9 +59,12 @@ type InvoiceSourceItem = OrderItem & { product: Product };
 
 async function requireOpenAccountingDate(
   transaction: InvoiceTransaction,
+  tenantId: string,
   accountingDate: AccountingDate
 ): Promise<void> {
-  const control = await transaction.accountingPeriodControl.findUnique({ where: { id: 1 } });
+  const control = await transaction.tenantAccountingPeriodControl.findUnique({
+    where: { tenantId },
+  });
   const closedThroughDate =
     control?.closedThroughDate === null || control?.closedThroughDate === undefined
       ? null
@@ -112,11 +115,13 @@ interface TransmissionResult {
 }
 
 interface TransmissionRecordInput extends TransmissionResult {
+  tenantId: string;
   invoiceId: string;
   method: TransmissionMethod;
 }
 
 interface FailedTransmissionInput {
+  tenantId: string;
   invoiceId: string;
   method: TransmissionMethod;
   externalJobId?: string;
@@ -124,7 +129,7 @@ interface FailedTransmissionInput {
 }
 
 export interface InvoiceDeliveryDependencies {
-  findInvoice(invoiceId: string): Promise<DeliverableInvoice>;
+  findInvoice(tenantId: string, invoiceId: string): Promise<DeliverableInvoice>;
   renderPdf(invoice: Parameters<typeof renderInvoicePdf>[0]): Buffer;
   sendEmail(to: string, invoiceNumber: string, pdf: Buffer): TransmissionResult;
   createPortalJob(portalAccount: string, invoiceNumber: string): TransmissionResult;
@@ -132,20 +137,21 @@ export interface InvoiceDeliveryDependencies {
   attachDocument(method: TransmissionMethod, reference: string, pdf: Buffer): void;
   recordSuccessfulTransmission(input: TransmissionRecordInput): Promise<void>;
   recordFailedTransmission(input: FailedTransmissionInput): Promise<void>;
-  getInvoice(invoiceId: string): Promise<InvoiceModel>;
+  getInvoice(tenantId: string, invoiceId: string): Promise<InvoiceModel>;
 }
 
-export async function listInvoices(): Promise<InvoiceModel[]> {
+export async function listInvoices(tenantId: string): Promise<InvoiceModel[]> {
   const rows = await prisma.invoice.findMany({
+    where: { tenantId },
     include: invoiceInclude,
     orderBy: { issueDate: "desc" },
   });
   return rows.map(toInvoiceModel);
 }
 
-export async function getInvoice(invoiceId: string): Promise<InvoiceModel> {
-  const row = await prisma.invoice.findUniqueOrThrow({
-    where: { id: invoiceId },
+export async function getInvoice(tenantId: string, invoiceId: string): Promise<InvoiceModel> {
+  const row = await prisma.invoice.findFirstOrThrow({
+    where: { id: invoiceId, tenantId },
     include: invoiceInclude,
   });
   return toInvoiceModel(row);
@@ -191,15 +197,14 @@ function invoiceTotal(lines: readonly ReturnType<typeof invoiceLineData>[]): str
   );
 }
 
-export async function createInvoiceForOrder(orderId: string): Promise<InvoiceModel> {
+export async function createInvoiceForOrder(tenantId: string, orderId: string): Promise<InvoiceModel> {
   const invoiceId = await prisma.$transaction(async (transaction) => {
-    const existing = await transaction.invoice.findUnique({ where: { orderId } });
-    if (existing) return existing.id;
-
-    const order = await transaction.order.findUniqueOrThrow({
-      where: { id: orderId },
+    const order = await transaction.order.findFirstOrThrow({
+      where: { id: orderId, tenantId },
       include: { customer: true, items: { include: { product: true } } },
     });
+    const existing = await transaction.invoice.findFirst({ where: { orderId, tenantId } });
+    if (existing) return existing.id;
     if (order.items.length === 0) {
       throw new DomainInvariantError(
         "ORDER_ITEMS_REQUIRED",
@@ -215,6 +220,7 @@ export async function createInvoiceForOrder(orderId: string): Promise<InvoiceMod
     await transaction.invoice.create({
       data: {
         id,
+        tenantId,
         number: invoiceNumber(id),
         customerId: order.customerId,
         orderId,
@@ -233,7 +239,7 @@ export async function createInvoiceForOrder(orderId: string): Promise<InvoiceMod
       },
     });
     const updated = await transaction.order.updateMany({
-      where: { id: orderId, status: "OPEN" },
+      where: { id: orderId, tenantId, status: "OPEN" },
       data: { status: "INVOICED" },
     });
     if (updated.count !== 1) {
@@ -241,16 +247,17 @@ export async function createInvoiceForOrder(orderId: string): Promise<InvoiceMod
     }
     return id;
   });
-  return getInvoice(invoiceId);
+  return getInvoice(tenantId, invoiceId);
 }
 
 // Update the invoice's dates.
 export async function updateInvoice(
+  tenantId: string,
   invoiceId: string,
   input: { issueDate?: string; dueDate?: string }
 ): Promise<InvoiceModel> {
   await prisma.$transaction(async (transaction) => {
-    const invoice = await transaction.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    const invoice = await transaction.invoice.findFirstOrThrow({ where: { id: invoiceId, tenantId } });
     if (invoice.status !== "DRAFT") {
       throw new ConflictError("INVOICE_NOT_DRAFT", "Only a DRAFT invoice can be redated");
     }
@@ -267,10 +274,10 @@ export async function updateInvoice(
         ? invoice.accountingDate
         : utcAccountingDateFromInstant(issueDate);
     if (accountingDate !== null) {
-      await requireOpenAccountingDate(transaction, parseAccountingDate(accountingDate));
+      await requireOpenAccountingDate(transaction, tenantId, parseAccountingDate(accountingDate));
     }
     const updated = await transaction.invoice.updateMany({
-      where: { id: invoiceId, status: "DRAFT" },
+      where: { id: invoiceId, tenantId, status: "DRAFT" },
       data: { issueDate, dueDate, accountingDate },
     });
     if (updated.count !== 1) {
@@ -280,7 +287,7 @@ export async function updateInvoice(
       );
     }
   });
-  return getInvoice(invoiceId);
+  return getInvoice(tenantId, invoiceId);
 }
 
 // Draft invoices copy materialized order snapshots. The delete/create pair is
@@ -288,20 +295,21 @@ export async function updateInvoice(
 // lines or all new lines and never a partially rebuilt draft.
 export async function syncDraftInvoiceInTransaction(
   transaction: InvoiceTransaction,
+  tenantId: string,
   orderId: string
 ): Promise<void> {
-  const invoice = await transaction.invoice.findUnique({ where: { orderId } });
+  const invoice = await transaction.invoice.findFirst({ where: { orderId, tenantId } });
   if (!invoice || invoice.status !== "DRAFT") return;
 
-  const order = await transaction.order.findUniqueOrThrow({
-    where: { id: orderId },
+  const order = await transaction.order.findFirstOrThrow({
+    where: { id: orderId, tenantId },
     include: { customer: true, items: { include: { product: true } } },
   });
   const lines = order.items.map(invoiceLineData);
   const totalDecimal = invoiceTotal(lines);
   await transaction.invoiceLine.deleteMany({ where: { invoiceId: invoice.id } });
   const updated = await transaction.invoice.updateMany({
-    where: { id: invoice.id, status: "DRAFT" },
+    where: { id: invoice.id, tenantId, status: "DRAFT" },
     data: {
       customerId: order.customerId,
       total: legacyNumber(totalDecimal, moneyFormat),
@@ -326,22 +334,22 @@ export async function syncDraftInvoiceInTransaction(
   });
 }
 
-export async function syncDraftInvoice(orderId: string): Promise<void> {
-  await prisma.$transaction((transaction) => syncDraftInvoiceInTransaction(transaction, orderId));
+export async function syncDraftInvoice(tenantId: string, orderId: string): Promise<void> {
+  await prisma.$transaction((transaction) => syncDraftInvoiceInTransaction(transaction, tenantId, orderId));
 }
 
 // Posting copies order snapshots one final time and freezes the invoice. It is
 // idempotent for already-finalized non-void invoices.
-export async function postInvoice(invoiceId: string): Promise<InvoiceModel> {
+export async function postInvoice(tenantId: string, invoiceId: string): Promise<InvoiceModel> {
   await prisma.$transaction(async (transaction) => {
-    const invoice = await transaction.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    const invoice = await transaction.invoice.findFirstOrThrow({ where: { id: invoiceId, tenantId } });
     if (["POSTED", "SENT", "PAID"].includes(invoice.status)) return;
     if (invoice.status !== "DRAFT") {
       throw new ConflictError("INVOICE_NOT_POSTABLE", "Only a DRAFT invoice can be posted");
     }
 
-    const order = await transaction.order.findUniqueOrThrow({
-      where: { id: invoice.orderId },
+    const order = await transaction.order.findFirstOrThrow({
+      where: { id: invoice.orderId, tenantId },
       include: { customer: true, items: { include: { product: true } } },
     });
     const lines = order.items.map(invoiceLineData);
@@ -350,11 +358,11 @@ export async function postInvoice(invoiceId: string): Promise<InvoiceModel> {
       invoice.accountingDate === null
         ? utcAccountingDateFromInstant(invoice.issueDate)
         : parseAccountingDate(invoice.accountingDate);
-    await requireOpenAccountingDate(transaction, accountingDate);
+    await requireOpenAccountingDate(transaction, tenantId, accountingDate);
     await transaction.invoiceLine.deleteMany({ where: { invoiceId } });
     await transaction.invoice.update({ where: { id: invoiceId }, data: { lines: { create: lines } } });
     const updated = await transaction.invoice.updateMany({
-      where: { id: invoiceId, status: "DRAFT" },
+      where: { id: invoiceId, tenantId, status: "DRAFT" },
       data: {
         status: "POSTED",
         postedAt: new Date(),
@@ -375,13 +383,13 @@ export async function postInvoice(invoiceId: string): Promise<InvoiceModel> {
       );
     }
   });
-  return getInvoice(invoiceId);
+  return getInvoice(tenantId, invoiceId);
 }
 
 const defaultInvoiceDeliveryDependencies: InvoiceDeliveryDependencies = {
-  async findInvoice(invoiceId) {
-    const invoice = await prisma.invoice.findUniqueOrThrow({
-      where: { id: invoiceId },
+  async findInvoice(tenantId, invoiceId) {
+    const invoice = await prisma.invoice.findFirstOrThrow({
+      where: { id: invoiceId, tenantId },
       include: { customer: true, lines: true },
     });
     return invoice;
@@ -402,10 +410,18 @@ const defaultInvoiceDeliveryDependencies: InvoiceDeliveryDependencies = {
           detail: input.detail,
         },
       }),
-      prisma.invoice.update({ where: { id: input.invoiceId }, data: { status: "SENT" } }),
+      prisma.invoice.updateMany({
+        where: { id: input.invoiceId, tenantId: input.tenantId },
+        data: { status: "SENT" },
+      }),
     ]);
   },
   async recordFailedTransmission(input) {
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: input.invoiceId, tenantId: input.tenantId },
+      select: { id: true },
+    });
+    if (invoice === null) throw new NotFoundError();
     await prisma.transmission.create({
       data: {
         invoiceId: input.invoiceId,
@@ -464,12 +480,13 @@ async function recordDeliveryFailure(
 }
 
 export async function sendInvoiceWithDependencies(
+  tenantId: string,
   invoiceId: string,
   rawMethod: string,
   dependencies: InvoiceDeliveryDependencies
 ): Promise<InvoiceModel> {
   const method = TransmissionMethodSchema.parse(rawMethod);
-  const invoice = await dependencies.findInvoice(invoiceId);
+  const invoice = await dependencies.findInvoice(tenantId, invoiceId);
   if (invoice.status !== "POSTED" && invoice.status !== "SENT") {
     throw new ConflictError(
       "INVOICE_NOT_DELIVERABLE",
@@ -529,6 +546,7 @@ export async function sendInvoiceWithDependencies(
 
     stage = "state recording";
     await dependencies.recordSuccessfulTransmission({
+      tenantId,
       invoiceId,
       method,
       ...result,
@@ -537,6 +555,7 @@ export async function sendInvoiceWithDependencies(
     return recordDeliveryFailure(
       dependencies,
       {
+        tenantId,
         invoiceId,
         method,
         externalJobId: result?.externalJobId,
@@ -546,25 +565,26 @@ export async function sendInvoiceWithDependencies(
     );
   }
 
-  return dependencies.getInvoice(invoiceId);
+  return dependencies.getInvoice(tenantId, invoiceId);
 }
 
-export async function sendInvoice(invoiceId: string, method: string): Promise<InvoiceModel> {
-  return sendInvoiceWithDependencies(invoiceId, method, defaultInvoiceDeliveryDependencies);
+export async function sendInvoice(tenantId: string, invoiceId: string, method: string): Promise<InvoiceModel> {
+  return sendInvoiceWithDependencies(tenantId, invoiceId, method, defaultInvoiceDeliveryDependencies);
 }
 
 // Poll the external portal service and refresh the job status.
-export async function refreshTransmission(transmissionId: string): Promise<TransmissionModel> {
-  const transmission = await prisma.transmission.findUniqueOrThrow({
-    where: { id: transmissionId },
+export async function refreshTransmission(tenantId: string, transmissionId: string): Promise<TransmissionModel> {
+  const transmission = await prisma.transmission.findFirstOrThrow({
+    where: { id: transmissionId, invoice: { tenantId } },
   });
   if (transmission.method === "PORTAL" && transmission.status !== "DELIVERED") {
     const status = checkPortalJob(transmission.createdAt);
-    const updated = await prisma.transmission.update({
-      where: { id: transmissionId },
+    const updated = await prisma.transmission.updateMany({
+      where: { id: transmissionId, invoice: { tenantId } },
       data: { status },
     });
-    return toTransmissionModel(updated);
+    if (updated.count !== 1) throw new NotFoundError();
+    return toTransmissionModel({ ...transmission, status });
   }
   return toTransmissionModel(transmission);
 }
