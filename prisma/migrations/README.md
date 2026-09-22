@@ -82,3 +82,10 @@ Use a `CHECK` or trigger for the singleton/control semantics and serialize close
 with row locks on the control row. Add date/period constraints as `NOT VALID`, validate them
 separately, then make the column required only after reconciliation confirms no finalized
 invoices remain null. This preserves online migration behavior and avoids a long table lock.
+
+## Resumable backfill checkpoints
+
+`20260922040000_backfill_checkpoints` creates an empty operational checkpoint table without
+touching financial rows. Every concrete backfill writes its last successfully committed primary
+key in the same transaction as that batch; dry runs never advance it. Keep checkpoint rows until
+the reconciliation evidence and later contract migration are complete.

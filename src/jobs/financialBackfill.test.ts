@@ -14,7 +14,10 @@ const rows: readonly FinancialBackfillRow[] = [
   { id: "c", beforeAmount: "0.3000" },
 ];
 
-function repository(source: readonly FinancialBackfillRow[], failTransactions = 0): FinancialBackfillRepository<Write> & {
+function repository(
+  source: readonly FinancialBackfillRow[],
+  failTransactions = 0
+): FinancialBackfillRepository<FinancialBackfillRow, Write> & {
   readonly writes: Write[];
   readonly checkpoints: string[];
   readonly cursors: (string | null)[];
@@ -128,6 +131,20 @@ void describe("financial backfill", () => {
     assert.equal(result.afterTotal, "0.6000");
     assert.equal(result.mismatchedRows, 0);
     assert.deepEqual(transformedIds, ["a", "b", "c"]);
+  });
+
+  void test("accepts concrete rows with additional reconciliation facts", async () => {
+    const concreteRows: readonly (FinancialBackfillRow & { readonly legacyTotal: number })[] = [
+      { id: "a", beforeAmount: "0.1000", legacyTotal: 0.1 },
+    ];
+    const store = repository(concreteRows);
+    const result = await runFinancialBackfill(
+      { jobName: "concrete-v1" },
+      { repository: store, transform: exactTransform }
+    );
+
+    assert.equal(result.state, "COMPLETE");
+    assert.deepEqual(store.writes, [{ id: "a" }]);
   });
 
   void test("stops before a write when a configurable row mismatch threshold is crossed", async () => {

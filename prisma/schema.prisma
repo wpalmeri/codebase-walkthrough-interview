@@ -157,6 +157,13 @@ model AccountingPeriodControl {
   updatedAt         DateTime @updatedAt
 }
 
+model BackfillCheckpoint {
+  jobName     String    @id
+  lastId      String?
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+}
+
 model InvoiceLine {
   id          String @id @default(cuid())
   invoiceId   String

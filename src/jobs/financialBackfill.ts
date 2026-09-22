@@ -67,16 +67,16 @@ export interface FinancialBackfillTransaction<Write> {
   saveCheckpoint(jobName: string, checkpoint: string): Promise<void>;
 }
 
-export interface FinancialBackfillRepository<Write> {
+export interface FinancialBackfillRepository<Row extends FinancialBackfillRow, Write> {
   loadCheckpoint(jobName: string): Promise<string | null>;
   /** Must return at most limit rows, strictly ordered by id and after afterId. */
-  fetchAfter(afterId: string | null, limit: number): Promise<readonly FinancialBackfillRow[]>;
+  fetchAfter(afterId: string | null, limit: number): Promise<readonly Row[]>;
   transaction<T>(operation: (transaction: FinancialBackfillTransaction<Write>) => Promise<T>): Promise<T>;
 }
 
-export interface FinancialBackfillDependencies<Write> {
-  readonly repository: FinancialBackfillRepository<Write>;
-  readonly transform: (row: FinancialBackfillRow) => BackfillTransformResult<Write>;
+export interface FinancialBackfillDependencies<Row extends FinancialBackfillRow, Write> {
+  readonly repository: FinancialBackfillRepository<Row, Write>;
+  readonly transform: (row: Row) => BackfillTransformResult<Write>;
   /** Injected so production can throttle without making tests sleep. */
   readonly wait?: () => Promise<void>;
 }
@@ -113,7 +113,13 @@ function result(run: MutableRun, dryRun: boolean, stop?: FinancialBackfillResult
 function invalidBatch(rows: readonly FinancialBackfillRow[], checkpoint: string | null): FinancialBackfillResult["stop"] | undefined {
   let previousId = checkpoint;
   for (const row of rows) {
-    const parsed = FinancialBackfillRowSchema.safeParse(row);
+    // Concrete backfills extend the base row with the historical facts needed
+    // for their own reconciliation. Validate the engine-owned projection so
+    // those facts are neither rejected nor silently treated as engine input.
+    const parsed = FinancialBackfillRowSchema.safeParse({
+      id: row.id,
+      beforeAmount: row.beforeAmount,
+    });
     if (!parsed.success) {
       return { code: "INVALID_SOURCE_ROW", detail: "Repository returned an invalid backfill row" };
     }
@@ -134,9 +140,9 @@ function invalidBatch(rows: readonly FinancialBackfillRow[], checkpoint: string 
  * written in the same transaction as writes, so a failed batch is retried from
  * its prior checkpoint and cannot skip rows.
  */
-export async function runFinancialBackfill<Write>(
+export async function runFinancialBackfill<Row extends FinancialBackfillRow, Write>(
   rawOptions: FinancialBackfillOptions,
-  dependencies: FinancialBackfillDependencies<Write>
+  dependencies: FinancialBackfillDependencies<Row, Write>
 ): Promise<FinancialBackfillResult> {
   const options = FinancialBackfillOptionsSchema.parse(rawOptions);
   const run: MutableRun = {

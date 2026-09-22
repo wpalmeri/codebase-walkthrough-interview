@@ -14,6 +14,7 @@
     "client": "bun run --cwd client dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:backfill:invoices": "tsx src/jobs/runInvoiceDecimalBackfill.ts",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
     "db:validate": "prisma validate",
     "test": "bun test",
