@@ -1,8 +1,28 @@
 // Stubbed integrations with the outside world. In production these talk to the
 // SMTP relay, the customer-portal upload service, and the clearinghouse API.
 
-export function sendEmail(to: string, invoiceNumber: string): { status: string; detail: string } {
-  console.log(`[email] sending invoice ${invoiceNumber} to ${to}`);
+export interface EmailDeliveryDependencies {
+  attachDocument(method: string, reference: string, pdf: Buffer): void;
+  deliver(to: string, invoiceNumber: string): void;
+}
+
+const defaultEmailDeliveryDependencies: EmailDeliveryDependencies = {
+  attachDocument,
+  deliver(to, invoiceNumber) {
+    console.log(`[email] sending invoice ${invoiceNumber} to ${to}`);
+  },
+};
+
+export function sendEmail(
+  to: string,
+  invoiceNumber: string,
+  pdf: Buffer,
+  dependencies: EmailDeliveryDependencies = defaultEmailDeliveryDependencies
+): { status: string; detail: string } {
+  // Email is a single delivery operation: the document must be accepted by the
+  // carrier before the message can be reported as sent.
+  dependencies.attachDocument("EMAIL", `email:${invoiceNumber}`, pdf);
+  dependencies.deliver(to, invoiceNumber);
   return { status: "SENT", detail: `Emailed to ${to}` };
 }
 

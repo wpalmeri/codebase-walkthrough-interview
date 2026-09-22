@@ -5,13 +5,11 @@ import {
   type AnnualRevenue,
   type CustomerRevenue,
   type QuarterRevenue,
+  type RevenueReportRequest,
 } from "@meridian/contracts";
 import { prisma } from "../db";
 
-export interface ReportPeriod {
-  from?: string;
-  to?: string;
-}
+export type ReportPeriod = RevenueReportRequest["query"];
 
 export const REVENUE_RECOGNIZED_STATUSES = ["POSTED", "SENT", "PAID"] as const;
 

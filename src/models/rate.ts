@@ -6,12 +6,21 @@ import {
   type Rate as ContractRate,
 } from "@meridian/contracts";
 import { parseRateTiers } from "../domain/rateTier";
+import {
+  canonicalMoney,
+  canonicalPercentage,
+  canonicalQuantity,
+  decimalOrLegacy,
+  MONEY_PRECISION,
+  MONEY_SCALE,
+} from "../domain/money";
 
 export type { RateTier } from "@meridian/contracts";
 export type RateModel = ContractRate;
 export type ComboDiscountModel = ContractComboDiscount;
 
 export function toRateModel(row: Rate & { product?: Product }): RateModel {
+  const tiers = parseRateTiers(row.tiers);
   return RateSchema.parse({
     id: row.id,
     customerId: row.customerId,
@@ -19,7 +28,18 @@ export function toRateModel(row: Rate & { product?: Product }): RateModel {
     productSku: row.product?.sku,
     productName: row.product?.name,
     unitPrice: row.unitPrice,
-    tiers: parseRateTiers(row.tiers),
+    unitPriceDecimal: decimalOrLegacy(
+      { decimal: row.unitPriceDecimal, legacy: row.unitPrice },
+      { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "rate unit price" }
+    ),
+    currencyCode: row.currencyCode ?? undefined,
+    tiers,
+    tiersDecimal: tiers.map((tier) => ({
+      upTo: tier.upTo === null ? null : canonicalQuantity(tier.upTo, "tier upper bound"),
+      unitPrice: canonicalMoney(tier.unitPrice, "tier unit price"),
+      floor: tier.floor == null ? tier.floor : canonicalMoney(tier.floor, "tier floor"),
+      ceiling: tier.ceiling == null ? tier.ceiling : canonicalMoney(tier.ceiling, "tier ceiling"),
+    })),
     effectiveDate: row.effectiveDate.toISOString(),
   });
 }
@@ -37,5 +57,8 @@ export function toComboDiscountModel(
       name: product.name,
     })),
     percentOff: row.percentOff,
+    percentOffDecimal: row.percentOffDecimal
+      ? canonicalPercentage(row.percentOffDecimal, "combo discount")
+      : canonicalPercentage(row.percentOff, "combo discount"),
   });
 }

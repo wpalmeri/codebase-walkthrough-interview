@@ -1,34 +1,46 @@
+import {
+  CreateComboDiscountRequestSchema,
+  ListComboDiscountsRequestSchema,
+  ListRatesRequestSchema,
+  UpdateRateRequestSchema,
+} from "@meridian/contracts";
 import { Router } from "express";
 import * as rates from "../controllers/rateController";
-import { h, optionalQueryString } from "./helpers";
+import { h, validateRequest } from "./helpers";
 
 export const ratesView = Router();
 
-ratesView.get("/", h(async (req) => rates.listRates(optionalQueryString(req.query.customerId))));
+ratesView.get(
+  "/",
+  h(async (req) => {
+    const { query } = validateRequest(ListRatesRequestSchema, req);
+    return rates.listRates(query.customerId);
+  })
+);
 
 ratesView.get(
   "/combos",
-  h(async (req) => rates.listComboDiscounts(optionalQueryString(req.query.customerId)))
+  h(async (req) => {
+    const { query } = validateRequest(ListComboDiscountsRequestSchema, req);
+    return rates.listComboDiscounts(query.customerId);
+  })
 );
 
 ratesView.post(
   "/combos",
-  h(async (req) =>
-    rates.createComboDiscount({
-      name: req.body.name,
-      productIds: req.body.productIds,
-      percentOff: req.body.percentOff,
-      customerId: req.body.customerId ?? null,
-    })
-  )
+  h(async (req) => {
+    const { body } = validateRequest(CreateComboDiscountRequestSchema, req);
+    return rates.createComboDiscount({
+      ...body,
+      customerId: body.customerId ?? null,
+    });
+  })
 );
 
 ratesView.put(
   "/:id",
-  h(async (req) =>
-    rates.updateRate(req.params.id, {
-      unitPrice: req.body.unitPrice,
-      tiers: req.body.tiers,
-    })
-  )
+  h(async (req) => {
+    const { params, body } = validateRequest(UpdateRateRequestSchema, req);
+    return rates.updateRate(params.id, body);
+  })
 );
