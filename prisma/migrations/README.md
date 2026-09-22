@@ -46,6 +46,21 @@ requires an explicit currency registry and versioned rounding policy before rela
 
 `20260922020000_order_amount_foundation` adds a nullable `OrderItem.amountDecimal` without a default, constraint validation, or backfill. Deploy the snapshot dual-write before populating existing rows in the same bounded, restartable batches as the other order snapshots; reconcile each order's line-amount sum against its draft invoice before switching reads.
 
+## Payment application reversals
+
+`20260922080000_payment_application_reversals` adds a new append-only compensating-entry
+table. It does not update or scan existing applications: an application must already have its
+exact amount and matching payment/invoice currency facts backfilled before it can be reversed.
+Each reversal records a positive DECIMAL(19,4) amount, reason, explicit open accounting date,
+server-derived actor, and creation timestamp; triggers reject updates, deletes, over-reversal,
+closed-period insertion, and mismatched commercial facts.
+
+The migration also replaces only the invoice status transition trigger so a reversal can move
+`PAID` back to `SENT` when a successful transmission is still evidenced, or `POSTED` otherwise.
+This is a metadata-only trigger change and new-empty-table/index creation; it performs no legacy
+backfill or business-table rewrite. Rehearse the transaction and rollback on a production-sized
+copy, and monitor SQLite writer contention even though the deploy itself has no data scan.
+
 ## Accounting close and accounting dates
 
 `20260922030000_accounting_close` adds a nullable `Invoice.accountingDate` (an explicit

@@ -74,6 +74,10 @@ export const PercentageInputSchema = z.union([
 const EmptyParamsSchema = EmptyObjectSchema;
 const EmptyQuerySchema = EmptyObjectSchema;
 const IdParamsSchema = z.strictObject({ id: IdentifierSchema });
+const PaymentApplicationParamsSchema = z.strictObject({
+  id: IdentifierSchema,
+  applicationId: IdentifierSchema,
+});
 
 function requestSchema<
   Params extends z.ZodType,
@@ -370,6 +374,19 @@ export const ApplyPaymentRequestSchema = requestSchema(
   })
 );
 export type ApplyPaymentRequest = z.infer<typeof ApplyPaymentRequestSchema>;
+
+export const ReversePaymentApplicationRequestSchema = requestSchema(
+  PaymentApplicationParamsSchema,
+  EmptyQuerySchema,
+  z.strictObject({
+    amount: PositiveMoneyInputSchema,
+    reason: z.string().trim().min(1).max(1_000),
+    accountingDate: z.iso.date(),
+  })
+);
+export type ReversePaymentApplicationRequest = z.infer<
+  typeof ReversePaymentApplicationRequestSchema
+>;
 
 export const RevenueReportRequestSchema = requestSchema(
   EmptyParamsSchema,

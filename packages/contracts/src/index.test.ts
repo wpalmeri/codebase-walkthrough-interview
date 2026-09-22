@@ -11,6 +11,7 @@ import {
   OrderItemSchema,
   OrderSchema,
   PaymentApplicationSchema,
+  PaymentApplicationReversalSchema,
   PaymentSchema,
   PercentageStringSchema,
   ProblemDetailsSchema,
@@ -235,5 +236,28 @@ void describe("problem-details contract", () => {
       false
     );
     assert.equal(ProblemDetailsSchema.safeParse({ ...valid, debug: "secret" }).success, false);
+  });
+});
+
+void describe("payment reversal contract", () => {
+  void test("requires canonical exact amounts and server audit fields", () => {
+    const reversal = {
+      id: "reversal-1",
+      paymentApplicationId: "application-1",
+      amount: 25,
+      amountDecimal: "25.0000",
+      reason: "Duplicate application",
+      accountingDate: "2026-09-22",
+      actor: "system:meridian-api",
+      createdAt: date,
+    };
+    assert.equal(PaymentApplicationReversalSchema.safeParse(reversal).success, true);
+    assert.equal(
+      PaymentApplicationReversalSchema.safeParse({
+        ...reversal,
+        amountDecimal: "25.00",
+      }).success,
+      false
+    );
   });
 });

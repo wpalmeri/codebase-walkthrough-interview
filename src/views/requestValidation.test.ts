@@ -3,6 +3,7 @@ import {
   CreateComboDiscountRequestSchema,
   CreateOrderRequestSchema,
   RecordPaymentRequestSchema,
+  ReversePaymentApplicationRequestSchema,
   RevenueReportRequestSchema,
   SendInvoiceRequestSchema,
   UpdateRateRequestSchema,
@@ -125,6 +126,35 @@ void describe("request contracts", () => {
       }).success,
       false
     );
+  });
+
+  void test("accepts exact reversal facts and rejects caller-controlled actors", () => {
+    const request = {
+      params: { id: "payment-1", applicationId: "application-1" },
+      query: {},
+      body: {
+        amount: "25.0000",
+        reason: "Duplicate application",
+        accountingDate: "2026-09-22",
+      },
+    };
+    assert.equal(ReversePaymentApplicationRequestSchema.safeParse(request).success, true);
+    assert.equal(
+      ReversePaymentApplicationRequestSchema.safeParse({
+        ...request,
+        body: { ...request.body, actor: "user:attacker" },
+      }).success,
+      false
+    );
+    for (const amount of ["0.0000", "25.00001", -1]) {
+      assert.equal(
+        ReversePaymentApplicationRequestSchema.safeParse({
+          ...request,
+          body: { ...request.body, amount },
+        }).success,
+        false
+      );
+    }
   });
 
   void test("accepts ISO dates and rejects inverted report periods", () => {

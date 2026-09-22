@@ -24,6 +24,7 @@ async function main(): Promise<void> {
       "20260922050000_idempotency_records",
       "20260922060000_usd_currency_policy",
       "20260922070000_ledger_immutability_guards",
+      "20260922080000_payment_application_reversals",
     ]
   );
 
@@ -35,6 +36,9 @@ async function main(): Promise<void> {
     "Order_status_update_guard",
     "PaymentApplication_currency_insert_guard",
     "Payment_supported_currency_insert_guard",
+    "PaymentApplicationReversal_append_only_update_guard",
+    "PaymentApplicationReversal_amount_guard",
+    "Invoice_reversal_status_evidence_guard",
   ];
   const triggers = await prisma.$queryRaw<NamedRow[]>`
     SELECT name

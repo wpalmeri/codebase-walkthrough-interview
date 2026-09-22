@@ -3,6 +3,7 @@ import {
   GetPaymentRequestSchema,
   ListPaymentsRequestSchema,
   RecordPaymentRequestSchema,
+  ReversePaymentApplicationRequestSchema,
 } from "@meridian/contracts";
 import { Router } from "express";
 import * as payments from "../controllers/paymentController";
@@ -32,6 +33,23 @@ paymentsView.post(
   h(async (req) => {
     const { body } = validateRequest(RecordPaymentRequestSchema, req);
     return payments.recordPayment(body);
+  })
+);
+
+paymentsView.post(
+  "/:id/applications/:applicationId/reversals",
+  h(async (req, res) => {
+    const { params, body } = validateRequest(
+      ReversePaymentApplicationRequestSchema,
+      req
+    );
+    const reversal = await payments.reversePaymentApplication(
+      params.id,
+      params.applicationId,
+      body
+    );
+    res.status(201);
+    return reversal;
   })
 );
 

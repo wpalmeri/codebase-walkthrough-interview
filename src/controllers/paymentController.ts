@@ -1,4 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { prisma } from "../db";
+import {
+  assertAccountingDateOpen,
+  parseAccountingDate,
+  type AccountingDate,
+} from "../domain/accountingPeriod";
 import {
   MONEY_PRECISION,
   MONEY_SCALE,
@@ -12,12 +18,29 @@ import {
   type DecimalInput,
 } from "../domain/money";
 import { planPaymentAllocation, type PaymentAllocationPlan } from "../domain/paymentAllocation";
-import { ConflictError, DomainInvariantError, NotFoundError } from "../errors";
-import { PaymentModel, toPaymentModel } from "../models/payment";
+import {
+  planPaymentApplicationReversal,
+  type PaymentReversalPlan,
+} from "../domain/paymentReversal";
+import {
+  ConflictError,
+  DomainInvariantError,
+  NotFoundError,
+  PreconditionError,
+} from "../errors";
+import {
+  PaymentModel,
+  toPaymentApplicationReversalModel,
+  toPaymentModel,
+  type PaymentApplicationReversalModel,
+} from "../models/payment";
 
 const paymentInclude = {
   customer: true,
-  applications: { include: { invoice: true }, orderBy: { appliedAt: "asc" } },
+  applications: {
+    include: { invoice: true, reversals: { orderBy: { createdAt: "asc" } } },
+    orderBy: { appliedAt: "asc" },
+  },
 } as const;
 const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "amount" } as const;
 const zeroMoney = canonicalMoney("0");
@@ -25,10 +48,12 @@ const SERIALIZATION_ATTEMPTS = 3;
 
 /** Existing clients have no currency field; their explicit temporary default is USD. */
 export const DEFAULT_PAYMENT_CURRENCY = "USD";
+export const PAYMENT_REVERSAL_ACTOR = "system:meridian-api";
 
 interface LedgerAmount {
   readonly amount: number;
   readonly amountDecimal: DecimalInput | null;
+  readonly reversals?: readonly ExactReversalAmount[];
 }
 
 export interface PaymentLedgerSnapshot extends LedgerAmount {
@@ -107,6 +132,16 @@ export class PaymentAllocationConflictError extends ConflictError {
   }
 }
 
+export class PaymentReversalConflictError extends ConflictError {
+  constructor() {
+    super(
+      "CONCURRENT_MODIFICATION",
+      "Payment reversal conflicted with a concurrent ledger update; reload and retry"
+    );
+    this.name = "PaymentReversalConflictError";
+  }
+}
+
 function currencyCode(value: string | null | undefined): string {
   const code = value ?? DEFAULT_PAYMENT_CURRENCY;
   if (!/^[A-Z]{3}$/.test(code)) throw new Error("payment currency must be an ISO 4217 code");
@@ -119,7 +154,17 @@ function exactAmount(value: LedgerAmount, field: string): CanonicalDecimal {
 
 function sumApplicationAmounts(applications: readonly LedgerAmount[], field: string): CanonicalDecimal {
   return applications.reduce(
-    (sum, application) => addDecimal(sum, exactAmount(application, field), { ...moneyFormat, field }),
+    (sum, application) => {
+      const net = subtractDecimal(
+        exactAmount(application, field),
+        sumExactAmounts(
+          application.reversals ?? [],
+          `${field} reversal amount`
+        ),
+        { ...moneyFormat, field }
+      );
+      return addDecimal(sum, net, { ...moneyFormat, field });
+    },
     zeroMoney
   );
 }
@@ -149,15 +194,323 @@ function reconciledInvoice(invoice: InvoiceLedgerSnapshot): {
 }
 
 function isRetryableSerializationError(error: unknown): boolean {
-  if (error instanceof PaymentAllocationConflictError) return true;
+  if (
+    error instanceof PaymentAllocationConflictError ||
+    error instanceof PaymentReversalConflictError
+  ) {
+    return true;
+  }
   if (typeof error !== "object" || error === null) return false;
   const code = "code" in error ? error.code : undefined;
   return code === "P2034" || code === "40001";
 }
 
-async function withSerializationRetry<T>(
-  dependencies: PaymentAllocationDependencies,
-  operation: (transaction: PaymentAllocationTransaction) => Promise<T>
+interface ExactReversalAmount {
+  readonly amountDecimal: DecimalInput;
+}
+
+export interface PaymentReversalSnapshot {
+  readonly id: string;
+  readonly paymentId: string;
+  readonly amountDecimal: DecimalInput | null;
+  readonly payment: {
+    readonly customerId: string;
+    readonly currencyCode: string | null;
+  };
+  readonly reversals: readonly ExactReversalAmount[];
+  readonly invoice: {
+    readonly id: string;
+    readonly customerId: string;
+    readonly currencyCode: string | null;
+    readonly status: string;
+    readonly total: number;
+    readonly totalDecimal: DecimalInput | null;
+    readonly amountPaid: number;
+    readonly amountPaidDecimal: DecimalInput | null;
+    readonly applications: readonly (LedgerAmount & {
+      readonly reversals: readonly ExactReversalAmount[];
+    })[];
+    readonly transmissions: readonly { readonly method: string; readonly status: string }[];
+  };
+  readonly closedThroughDate: string | null;
+}
+
+export interface PaymentReversalWrite {
+  readonly id: string;
+  readonly paymentApplicationId: string;
+  readonly amountDecimal: CanonicalDecimal;
+  readonly reason: string;
+  readonly accountingDate: AccountingDate;
+  readonly actor: typeof PAYMENT_REVERSAL_ACTOR;
+  readonly createdAt: Date;
+}
+
+export interface PaymentReversalInvoiceWrite {
+  readonly invoiceId: string;
+  readonly expectedAmountPaid: number;
+  readonly expectedAmountPaidDecimal: CanonicalDecimal;
+  readonly expectedStatus: string;
+  readonly amountPaid: number;
+  readonly amountPaidDecimal: CanonicalDecimal;
+  readonly status: "POSTED" | "SENT" | "PAID";
+}
+
+export interface PaymentReversalTransaction {
+  loadApplication(applicationId: string): Promise<PaymentReversalSnapshot | null>;
+  /** Inserts the reversal and CAS-updates its invoice, or atomically writes neither. */
+  persistReversal(input: {
+    readonly reversal: PaymentReversalWrite;
+    readonly invoice: PaymentReversalInvoiceWrite;
+  }): Promise<boolean>;
+}
+
+export interface PaymentReversalDependencies {
+  transaction<T>(operation: (transaction: PaymentReversalTransaction) => Promise<T>): Promise<T>;
+}
+
+export interface ReversePaymentApplicationInput {
+  readonly amount: DecimalInput;
+  readonly reason: string;
+  readonly accountingDate: string;
+}
+
+function requiredExactAmount(value: DecimalInput | null, field: string): CanonicalDecimal {
+  if (value === null) {
+    throw new PreconditionError(
+      "PAYMENT_REVERSAL_BACKFILL_REQUIRED",
+      `${field} must be backfilled before this application can be reversed`
+    );
+  }
+  return canonicalMoney(value, field);
+}
+
+function sumExactAmounts(
+  values: readonly ExactReversalAmount[],
+  field: string
+): CanonicalDecimal {
+  return values.reduce(
+    (sum, value) =>
+      addDecimal(sum, canonicalMoney(value.amountDecimal, field), {
+        ...moneyFormat,
+        field,
+      }),
+    zeroMoney
+  );
+}
+
+function successfulDelivery(
+  transmissions: PaymentReversalSnapshot["invoice"]["transmissions"]
+): boolean {
+  return transmissions.some(
+    ({ method, status }) =>
+      (method === "EMAIL" && status === "SENT") ||
+      (method === "PORTAL" && status === "DELIVERED") ||
+      (method === "API" && status === "ACCEPTED")
+  );
+}
+
+function requireOpenReversalDate(
+  accountingDate: AccountingDate,
+  closedThroughDate: string | null
+): void {
+  const parsedClose =
+    closedThroughDate === null ? null : parseAccountingDate(closedThroughDate);
+  try {
+    assertAccountingDateOpen(accountingDate, parsedClose);
+  } catch {
+    throw new PreconditionError(
+      "ACCOUNTING_PERIOD_CLOSED",
+      `Accounting date ${accountingDate} is closed through ${parsedClose}`
+    );
+  }
+}
+
+export async function reversePaymentApplicationWithDependencies(
+  paymentId: string,
+  applicationId: string,
+  input: ReversePaymentApplicationInput,
+  dependencies: PaymentReversalDependencies
+): Promise<{ readonly reversalId: string; readonly plan: PaymentReversalPlan }> {
+  let amountDecimal: CanonicalDecimal;
+  let accountingDate: AccountingDate;
+  try {
+    amountDecimal = canonicalMoney(input.amount, "payment reversal amount");
+    accountingDate = parseAccountingDate(input.accountingDate);
+  } catch {
+    throw new DomainInvariantError(
+      "PAYMENT_REVERSAL_INVALID",
+      "The reversal amount and accounting date must be valid"
+    );
+  }
+  if (compareDecimal(amountDecimal, zeroMoney, moneyFormat) <= 0) {
+    throw new DomainInvariantError(
+      "PAYMENT_REVERSAL_INVALID",
+      "Payment reversal amount must be greater than zero"
+    );
+  }
+  const reason = input.reason.trim();
+  if (reason.length === 0 || reason.length > 1_000) {
+    throw new DomainInvariantError(
+      "PAYMENT_REVERSAL_INVALID",
+      "Payment reversal reason must contain 1-1000 characters"
+    );
+  }
+  const reversal: PaymentReversalWrite = {
+    id: randomUUID(),
+    paymentApplicationId: applicationId,
+    amountDecimal,
+    reason,
+    accountingDate,
+    actor: PAYMENT_REVERSAL_ACTOR,
+    createdAt: new Date(),
+  };
+
+  const plan = await withSerializationRetry(dependencies, async (transaction) => {
+    const application = await transaction.loadApplication(applicationId);
+    if (application === null || application.paymentId !== paymentId) {
+      throw new NotFoundError(
+        "PAYMENT_APPLICATION_NOT_FOUND",
+        "The payment application was not found on this payment"
+      );
+    }
+    if (
+      application.payment.currencyCode === null ||
+      application.invoice.currencyCode === null
+    ) {
+      throw new PreconditionError(
+        "PAYMENT_REVERSAL_BACKFILL_REQUIRED",
+        "Payment and invoice currency must be backfilled before reversal"
+      );
+    }
+    if (
+      application.payment.customerId !== application.invoice.customerId ||
+      application.payment.currencyCode !== application.invoice.currencyCode
+    ) {
+      throw new DomainInvariantError(
+        "PAYMENT_APPLICATION_COMMERCIAL_MISMATCH",
+        "Payment and invoice customer and currency facts must match"
+      );
+    }
+    requireOpenReversalDate(reversal.accountingDate, application.closedThroughDate);
+
+    const applicationAmount = requiredExactAmount(
+      application.amountDecimal,
+      "payment application amount"
+    );
+    const invoiceTotal = requiredExactAmount(
+      application.invoice.totalDecimal,
+      "invoice total"
+    );
+    const storedInvoicePaid = requiredExactAmount(
+      application.invoice.amountPaidDecimal,
+      "invoice amount paid"
+    );
+    const applicationReversed = sumExactAmounts(
+      application.reversals,
+      "payment application reversed amount"
+    );
+    const grossApplied = application.invoice.applications.reduce(
+      (sum, invoiceApplication) =>
+        addDecimal(
+          sum,
+          requiredExactAmount(
+            invoiceApplication.amountDecimal,
+            "invoice payment application amount"
+          ),
+          { ...moneyFormat, field: "invoice gross applied amount" }
+        ),
+      zeroMoney
+    );
+    const invoiceReversed = application.invoice.applications.reduce(
+      (sum, invoiceApplication) =>
+        addDecimal(
+          sum,
+          sumExactAmounts(
+            invoiceApplication.reversals,
+            "invoice payment reversal amount"
+          ),
+          { ...moneyFormat, field: "invoice reversed amount" }
+        ),
+      zeroMoney
+    );
+    if (
+      compareDecimal(applicationReversed, applicationAmount, moneyFormat) > 0 ||
+      compareDecimal(invoiceReversed, grossApplied, moneyFormat) > 0
+    ) {
+      throw new DomainInvariantError(
+        "PAYMENT_REVERSAL_INVALID",
+        "Existing reversals exceed their immutable payment applications"
+      );
+    }
+    const reconciledPaid = subtractDecimal(grossApplied, invoiceReversed, {
+      ...moneyFormat,
+      field: "invoice reconciled amount paid",
+    });
+    if (reconciledPaid !== storedInvoicePaid) {
+      throw new Error(
+        `invoice ${application.invoice.id} amount paid is not reconciled to applications and reversals`
+      );
+    }
+
+    let planned: PaymentReversalPlan;
+    try {
+      planned = planPaymentApplicationReversal({
+        requestedPaymentId: paymentId,
+        amount: reversal.amountDecimal,
+        application: {
+          id: application.id,
+          paymentId: application.paymentId,
+          amount: applicationAmount,
+          reversedAmount: applicationReversed,
+          paymentCustomerId: application.payment.customerId,
+          paymentCurrencyCode: application.payment.currencyCode,
+          invoiceCustomerId: application.invoice.customerId,
+          invoiceCurrencyCode: application.invoice.currencyCode,
+        },
+        invoice: {
+          status: application.invoice.status,
+          total: invoiceTotal,
+          grossAppliedAmount: grossApplied,
+          reversedAmount: invoiceReversed,
+          hasSuccessfulDelivery: successfulDelivery(
+            application.invoice.transmissions
+          ),
+        },
+      });
+    } catch (error) {
+      if (error instanceof DomainInvariantError) throw error;
+      throw new DomainInvariantError(
+        "PAYMENT_REVERSAL_INVALID",
+        "The reversal violates application, invoice, amount, or lifecycle rules"
+      );
+    }
+
+    const persisted = await transaction.persistReversal({
+      reversal,
+      invoice: {
+        invoiceId: application.invoice.id,
+        expectedAmountPaid: application.invoice.amountPaid,
+        expectedAmountPaidDecimal: storedInvoicePaid,
+        expectedStatus: application.invoice.status,
+        amountPaid: legacyNumber(planned.invoiceAmountPaidAfter, moneyFormat),
+        amountPaidDecimal: planned.invoiceAmountPaidAfter,
+        status: planned.invoiceStatusAfter,
+      },
+    });
+    if (!persisted) throw new PaymentReversalConflictError();
+    return planned;
+  });
+
+  return { reversalId: reversal.id, plan };
+}
+
+async function withSerializationRetry<T, Transaction>(
+  dependencies: {
+    transaction<Result>(
+      operation: (transaction: Transaction) => Promise<Result>
+    ): Promise<Result>;
+  },
+  operation: (transaction: Transaction) => Promise<T>
 ): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt < SERIALIZATION_ATTEMPTS; attempt += 1) {
@@ -307,10 +660,11 @@ function prismaAllocationDependencies(): PaymentAllocationDependencies {
       prisma.$transaction(
         async (transaction) =>
           operation({
-            loadPayment: (paymentId) => transaction.payment.findUniqueOrThrow({ where: { id: paymentId }, include: { applications: true } }),
+            loadPayment: (paymentId) => transaction.payment.findUniqueOrThrow({ where: { id: paymentId }, include: { applications: { include: { reversals: true } } } }),
             loadInvoices: (invoiceIds) =>
-              transaction.invoice.findMany({ where: { id: { in: [...invoiceIds] } }, include: { applications: true } }),
+              transaction.invoice.findMany({ where: { id: { in: [...invoiceIds] } }, include: { applications: { include: { reversals: true } } } }),
             persistAllocation: async ({ applications, invoiceBalances }) => {
+              await transaction.paymentApplication.createMany({ data: [...applications] });
               for (const invoice of invoiceBalances) {
                 const updated = await transaction.invoice.updateMany({
                   where: { id: invoice.invoiceId, amountPaid: invoice.expectedAmountPaid, amountPaidDecimal: invoice.expectedAmountPaidDecimal },
@@ -318,7 +672,6 @@ function prismaAllocationDependencies(): PaymentAllocationDependencies {
                 });
                 if (updated.count !== 1) return false;
               }
-              await transaction.paymentApplication.createMany({ data: [...applications] });
               return true;
             },
           }),
@@ -333,4 +686,77 @@ export async function applyPayment(
 ): Promise<PaymentModel> {
   await applyPaymentWithDependencies(paymentId, applications, prismaAllocationDependencies());
   return getPayment(paymentId);
+}
+
+function prismaReversalDependencies(): PaymentReversalDependencies {
+  return {
+    transaction: (operation) =>
+      prisma.$transaction(
+        async (transaction) =>
+          operation({
+            async loadApplication(applicationId) {
+              const [application, control] = await Promise.all([
+                transaction.paymentApplication.findUnique({
+                  where: { id: applicationId },
+                  include: {
+                    payment: true,
+                    reversals: true,
+                    invoice: {
+                      include: {
+                        applications: { include: { reversals: true } },
+                        transmissions: true,
+                      },
+                    },
+                  },
+                }),
+                transaction.accountingPeriodControl.findUnique({
+                  where: { id: 1 },
+                }),
+              ]);
+              if (application === null) return null;
+              return {
+                ...application,
+                closedThroughDate: control?.closedThroughDate ?? null,
+              };
+            },
+            async persistReversal({ reversal, invoice }) {
+              await transaction.paymentApplicationReversal.create({
+                data: reversal,
+              });
+              const updated = await transaction.invoice.updateMany({
+                where: {
+                  id: invoice.invoiceId,
+                  amountPaid: invoice.expectedAmountPaid,
+                  amountPaidDecimal: invoice.expectedAmountPaidDecimal,
+                  status: invoice.expectedStatus,
+                },
+                data: {
+                  amountPaid: invoice.amountPaid,
+                  amountPaidDecimal: invoice.amountPaidDecimal,
+                  status: invoice.status,
+                },
+              });
+              return updated.count === 1;
+            },
+          }),
+        { isolationLevel: "Serializable" }
+      ),
+  };
+}
+
+export async function reversePaymentApplication(
+  paymentId: string,
+  applicationId: string,
+  input: ReversePaymentApplicationInput
+): Promise<PaymentApplicationReversalModel> {
+  const { reversalId } = await reversePaymentApplicationWithDependencies(
+    paymentId,
+    applicationId,
+    input,
+    prismaReversalDependencies()
+  );
+  const row = await prisma.paymentApplicationReversal.findUniqueOrThrow({
+    where: { id: reversalId },
+  });
+  return toPaymentApplicationReversalModel(row);
 }

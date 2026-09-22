@@ -182,8 +182,13 @@ export const InvoicePaymentSchema = z.object({
   paymentId: id,
   amount: nonNegativeMoney,
   amountDecimal: MoneyStringSchema.optional(),
+  reversedAmount: nonNegativeMoney.optional(),
+  reversedAmountDecimal: MoneyStringSchema.optional(),
+  netAmount: nonNegativeMoney.optional(),
+  netAmountDecimal: MoneyStringSchema.optional(),
   receivedAt: isoDateTime,
   reference: z.string().nullable(),
+  reversals: z.array(z.lazy(() => PaymentApplicationReversalSchema)).optional(),
 });
 export type InvoicePayment = z.infer<typeof InvoicePaymentSchema>;
 
@@ -221,9 +226,28 @@ export const PaymentApplicationSchema = z.object({
   invoiceNumber: z.string().optional(),
   amount: nonNegativeMoney,
   amountDecimal: MoneyStringSchema.optional(),
+  reversedAmount: nonNegativeMoney.optional(),
+  reversedAmountDecimal: MoneyStringSchema.optional(),
+  netAmount: nonNegativeMoney.optional(),
+  netAmountDecimal: MoneyStringSchema.optional(),
   appliedAt: isoDateTime,
+  reversals: z.array(z.lazy(() => PaymentApplicationReversalSchema)).optional(),
 });
 export type PaymentApplication = z.infer<typeof PaymentApplicationSchema>;
+
+export const PaymentApplicationReversalSchema = z.object({
+  id,
+  paymentApplicationId: id,
+  amount: nonNegativeMoney,
+  amountDecimal: MoneyStringSchema,
+  reason: z.string().min(1).max(1_000),
+  accountingDate: z.iso.date(),
+  actor: z.string().min(1).max(200),
+  createdAt: isoDateTime,
+});
+export type PaymentApplicationReversal = z.infer<
+  typeof PaymentApplicationReversalSchema
+>;
 
 export const PaymentSchema = z.object({
   id,

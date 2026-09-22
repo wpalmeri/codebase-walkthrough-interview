@@ -40,7 +40,10 @@ const invoiceInclude = {
   customer: true,
   order: true,
   lines: true,
-  applications: { include: { payment: true }, orderBy: { appliedAt: "asc" } },
+  applications: {
+    include: { payment: true, reversals: { orderBy: { createdAt: "asc" } } },
+    orderBy: { appliedAt: "asc" },
+  },
   transmissions: { orderBy: { createdAt: "asc" } },
 } as const;
 
