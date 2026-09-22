@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { z } from "zod";
 import { createOpenApiV1Document } from "./document";
 import { customerOperations } from "../views/customersView";
+import { invoiceOperations } from "../views/invoicesView";
 import { orderOperations } from "../views/ordersView";
 import { paymentOperations } from "../views/paymentsView";
 import { productOperations } from "../views/productsView";
@@ -14,6 +15,7 @@ const documentedOperations = [
   ...productOperations,
   ...rateOperations,
   ...orderOperations,
+  ...invoiceOperations,
   ...paymentOperations,
   ...reportOperations,
 ] as const;
@@ -34,7 +36,7 @@ function operation(document: unknown, path: string, method: string) {
 }
 
 void describe("generated version-one OpenAPI contract", () => {
-  void test("is deterministic and inventories the exact mounted catalog, rate, order, payment, and report operations", () => {
+  void test("is deterministic and inventories the exact mounted catalog, rate, order, invoice, payment, and report operations", () => {
     const first = createOpenApiV1Document(documentedOperations);
     const second = createOpenApiV1Document(documentedOperations);
     assert.deepEqual(first, second);
@@ -52,6 +54,8 @@ void describe("generated version-one OpenAPI contract", () => {
         .toSorted(),
       [
         "get /customers",
+        "get /invoices",
+        "get /invoices/{id}",
         "get /orders",
         "get /orders/{id}",
         "get /products",
@@ -64,13 +68,18 @@ void describe("generated version-one OpenAPI contract", () => {
         "get /reports/revenue-by-customer",
         "get /reports/revenue-by-quarter",
         "patch /orders/{id}",
+        "patch /invoices/{id}",
         "post /orders",
         "post /orders/{id}/invoice",
+        "post /invoices/{id}/post",
+        "post /invoices/{id}/send",
+        "post /invoices/transmissions/{transmissionId}/refresh",
         "post /rates/combos",
         "post /payments",
         "post /payments/{id}/apply",
         "post /payments/{id}/applications/{applicationId}/reversals",
         "put /rates/{id}",
+        "put /invoices/{id}",
         "put /orders/{id}",
       ].toSorted()
     );
@@ -260,6 +269,87 @@ void describe("generated version-one OpenAPI contract", () => {
     }
     assert.equal("200" in paths["/orders/{id}/invoice"].post.responses, true);
     assert.equal("409" in paths["/orders/{id}/invoice"].post.responses, true);
+  });
+
+  void test("documents only version-one Invoice contracts, exact decimals, delivery boundaries, and conditional writes", () => {
+    const document = createOpenApiV1Document(documentedOperations);
+    const list = operation(document, "/invoices", "get");
+    const get = operation(document, "/invoices/{id}", "get");
+    const put = operation(document, "/invoices/{id}", "put");
+    const patch = operation(document, "/invoices/{id}", "patch");
+    const post = operation(document, "/invoices/{id}/post", "post");
+    const send = operation(document, "/invoices/{id}/send", "post");
+    const refresh = operation(document, "/invoices/transmissions/{transmissionId}/refresh", "post");
+    for (const invoiceOperation of [list, get, put, patch, post, send, refresh]) {
+      assert.deepEqual(invoiceOperation.security, [{ tenantBearer: [] }]);
+      assert.equal(
+        invoiceOperation.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"),
+        true
+      );
+    }
+    for (const mutation of [put, patch, post, send, refresh]) {
+      assert.equal(mutation.parameters.some((parameter) => parameter.name === "Idempotency-Key"), true);
+      assert.equal(mutation.parameters.some((parameter) => parameter.name === "Idempotency-Client"), true);
+    }
+    for (const conditional of [put, patch]) {
+      assert.equal(conditional.parameters.some((parameter) => parameter.name === "If-Match" && parameter.required === true), true);
+      assert.equal("412" in conditional.responses, true);
+      assert.equal("428" in conditional.responses, true);
+    }
+
+    const paths = z
+      .object({
+        paths: z.object({
+          "/invoices": z.object({ get: z.object({ responses: z.record(z.string(), z.unknown()) }) }),
+          "/invoices/{id}": z.object({
+            get: z.object({ responses: z.record(z.string(), z.unknown()) }),
+            put: z.object({ responses: z.record(z.string(), z.unknown()), description: z.string() }),
+            patch: z.object({ responses: z.record(z.string(), z.unknown()), description: z.string() }),
+          }),
+          "/invoices/{id}/send": z.object({ post: z.object({ requestBody: z.unknown() }) }),
+          "/invoices/transmissions/{transmissionId}/refresh": z.object({
+            post: z.object({ responses: z.record(z.string(), z.unknown()) }),
+          }),
+        }),
+      })
+      .parse(document).paths;
+    const invoiceJson = JSON.stringify(paths["/invoices"].get.responses["200"]);
+    assert.match(invoiceJson, /totalDecimal|amountPaidDecimal|balanceDecimal/u);
+    const invoiceProperties = z
+      .object({
+        content: z.object({
+          "application/json": z.object({
+            schema: z.object({
+              items: z.object({
+                properties: z.object({
+                  totalDecimal: z.object({ pattern: z.string() }),
+                  amountPaidDecimal: z.object({ pattern: z.string() }),
+                  balanceDecimal: z.object({ pattern: z.string() }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      })
+      .parse(paths["/invoices"].get.responses["200"]).content["application/json"].schema.items.properties;
+    for (const decimal of [
+      invoiceProperties.totalDecimal,
+      invoiceProperties.amountPaidDecimal,
+      invoiceProperties.balanceDecimal,
+    ]) {
+      assert.equal(decimal.pattern, "^(?:0|[1-9]\\d{0,14})\\.\\d{4}$");
+    }
+    assert.match(JSON.stringify(paths["/invoices/{id}/send"].post.requestBody), /EMAIL|PORTAL|API/u);
+    assert.match(JSON.stringify(paths["/invoices/transmissions/{transmissionId}/refresh"].post.responses["200"]), /externalJobId/u);
+    for (const response of [
+      paths["/invoices/{id}"].get.responses["200"],
+      paths["/invoices/{id}"].put.responses["200"],
+      paths["/invoices/{id}"].patch.responses["200"],
+    ]) {
+      assert.ok(z.object({ headers: z.object({ ETag: z.unknown() }) }).parse(response).headers.ETag);
+    }
+    assert.doesNotMatch(paths["/invoices/{id}"].put.description, /legacy|\/api(?!\/v1)/u);
+    assert.doesNotMatch(paths["/invoices/{id}"].patch.description, /legacy|\/api(?!\/v1)/u);
   });
 
   void test("documents tenant-scoped exact-decimal revenue reports and bounded period filters", () => {

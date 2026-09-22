@@ -15,6 +15,6 @@ api.use(customersView);
 api.use(productsView);
 api.use(ratesView);
 api.use(ordersView);
-api.use("/invoices", invoicesView);
+api.use(invoicesView);
 api.use(paymentsView);
 api.use(reportsView);

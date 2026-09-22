@@ -1,84 +1,163 @@
 import {
   GetInvoiceRequestSchema,
+  InvoiceSchema,
   ListInvoicesRequestSchema,
   PostInvoiceRequestSchema,
   RefreshTransmissionRequestSchema,
   SendInvoiceRequestSchema,
+  TransmissionSchema,
   UpdateInvoiceRequestSchema,
 } from "@meridian/contracts";
 import { Router } from "express";
-import * as invoices from "../controllers/invoiceController";
-import { BILLING_WRITE_ROLES, READ_ROLES, requireRole } from "../auth/authorization";
+import { BILLING_WRITE_ROLES, READ_ROLES } from "../auth/authorization";
 import { requestAuditMetadata } from "../audit/requestAudit";
+import * as invoices from "../controllers/invoiceController";
 import { isV1Request } from "../http/apiVersion";
-import { h, validateRequest } from "./helpers";
+import {
+  EtagResponseHeadersSchema,
+  IdempotencyRequestHeadersSchema,
+  RateConditionalRequestHeadersSchema,
+  defineOperation,
+  mountOperation,
+} from "../openapi/operation";
 
-export const invoicesView = Router();
+// The header syntax is identical for every versioned resource ETag. Keep the
+// invoice name at this boundary while reusing the committed shared schema.
+const InvoiceConditionalRequestHeadersSchema = RateConditionalRequestHeadersSchema;
 
-invoicesView.get(
-  "/",
-  h(async (req) => {
-    validateRequest(ListInvoicesRequestSchema, req);
-    return invoices.listInvoices(requireRole(req, READ_ROLES).tenantId);
-  })
-);
-
-invoicesView.get(
-  "/:id",
-  h(async (req, response) => {
-    const { params } = validateRequest(GetInvoiceRequestSchema, req);
-    const result = await invoices.getVersionedInvoice(requireRole(req, READ_ROLES).tenantId, params.id);
-    if (isV1Request(req)) response.setHeader("ETag", result.etag);
-    return result.invoice;
-  })
-);
-
-const updateInvoice = h(async (req, response) => {
-  const { params, body } = validateRequest(UpdateInvoiceRequestSchema, req);
-  const principal = requireRole(req, BILLING_WRITE_ROLES);
-  const audit = {
-    metadata: requestAuditMetadata(req, principal),
-  };
-  if (!isV1Request(req)) return invoices.updateInvoice(principal.tenantId, params.id, body, audit);
-  const result = await invoices.updateInvoiceConditionally(principal.tenantId, params.id, body, req.get("if-match"), audit);
-  response.setHeader("ETag", result.etag);
-  return result.invoice;
+const listInvoicesOperation = defineOperation({
+  method: "get",
+  path: "/invoices",
+  operationId: "listInvoices",
+  summary: "List invoices",
+  request: ListInvoicesRequestSchema,
+  hasJsonBody: false,
+  success: { status: 200, description: "Invoices visible to the tenant", schema: InvoiceSchema.array() },
+  security: "tenantBearer",
+  roles: READ_ROLES,
+  errors: [400, 401, 403, 500],
+  handler: async ({ principal }) => invoices.listInvoices(principal.tenantId),
 });
 
-invoicesView.put("/:id", updateInvoice);
-invoicesView.patch("/:id", updateInvoice);
+const getInvoiceOperation = defineOperation({
+  method: "get",
+  path: "/invoices/:id",
+  operationId: "getInvoice",
+  summary: "Get an invoice",
+  description: "On `/api/v1`, returns a strong ETag for conditional updates.",
+  request: GetInvoiceRequestSchema,
+  hasJsonBody: false,
+  success: { status: 200, description: "Invoice representation", schema: InvoiceSchema },
+  security: "tenantBearer",
+  roles: READ_ROLES,
+  errors: [400, 401, 403, 404, 500],
+  responseHeaders: EtagResponseHeadersSchema,
+  handler: async ({ input, principal, request, response }) => {
+    const result = await invoices.getVersionedInvoice(principal.tenantId, input.params.id);
+    if (isV1Request(request)) response.setHeader("ETag", result.etag);
+    return result.invoice;
+  },
+});
 
-invoicesView.post(
-  "/:id/post",
-  h(async (req) => {
-    const { params } = validateRequest(PostInvoiceRequestSchema, req);
-    const principal = requireRole(req, BILLING_WRITE_ROLES);
-    return invoices.postInvoice(principal.tenantId, params.id, {
-      metadata: requestAuditMetadata(req, principal),
-    });
-  })
-);
+function updateInvoiceOperation(method: "put" | "patch", operationId: string, summary: string) {
+  return defineOperation({
+    method,
+    path: "/invoices/:id",
+    operationId,
+    summary,
+    description:
+      "`/api/v1` requires an exact strong If-Match ETag and returns the next ETag.",
+    request: UpdateInvoiceRequestSchema,
+    hasJsonBody: true,
+    success: { status: 200, description: "Updated invoice", schema: InvoiceSchema },
+    security: "tenantBearer",
+    roles: BILLING_WRITE_ROLES,
+    errors: [400, 401, 403, 404, 409, 412, 422, 428, 500],
+    requestHeaders: IdempotencyRequestHeadersSchema.merge(InvoiceConditionalRequestHeadersSchema),
+    responseHeaders: EtagResponseHeadersSchema,
+    handler: async ({ input, principal, request, response }) => {
+      const audit = { metadata: requestAuditMetadata(request, principal) };
+      if (!isV1Request(request)) return invoices.updateInvoice(principal.tenantId, input.params.id, input.body, audit);
+      const result = await invoices.updateInvoiceConditionally(
+        principal.tenantId,
+        input.params.id,
+        input.body,
+        request.get("if-match"),
+        audit
+      );
+      response.setHeader("ETag", result.etag);
+      return result.invoice;
+    },
+  });
+}
 
-invoicesView.post(
-  "/:id/send",
-  h(async (req) => {
-    const { params, body } = validateRequest(SendInvoiceRequestSchema, req);
-    const principal = requireRole(req, BILLING_WRITE_ROLES);
-    return invoices.sendInvoice(principal.tenantId, params.id, body.method, {
-      metadata: requestAuditMetadata(req, principal),
-    });
-  })
-);
+const replaceInvoiceOperation = updateInvoiceOperation("put", "replaceInvoice", "Replace invoice dates");
+const updateInvoiceOperationDescriptor = updateInvoiceOperation("patch", "updateInvoice", "Partially update invoice dates");
 
-invoicesView.post(
-  "/transmissions/:transmissionId/refresh",
-  h(async (req) => {
-    const { params } = validateRequest(RefreshTransmissionRequestSchema, req);
-    const principal = requireRole(req, BILLING_WRITE_ROLES);
-    return invoices.refreshTransmission(
-      principal.tenantId,
-      params.transmissionId,
-      { metadata: requestAuditMetadata(req, principal) }
-    );
-  })
-);
+const postInvoiceOperation = defineOperation({
+  method: "post",
+  path: "/invoices/:id/post",
+  operationId: "postInvoice",
+  summary: "Post a draft invoice",
+  request: PostInvoiceRequestSchema,
+  hasJsonBody: false,
+  success: { status: 200, description: "Posted invoice", schema: InvoiceSchema },
+  security: "tenantBearer",
+  roles: BILLING_WRITE_ROLES,
+  errors: [400, 401, 403, 404, 409, 412, 422, 500],
+  requestHeaders: IdempotencyRequestHeadersSchema,
+  handler: async ({ input, principal, request }) =>
+    invoices.postInvoice(principal.tenantId, input.params.id, {
+      metadata: requestAuditMetadata(request, principal),
+    }),
+});
+
+const sendInvoiceOperation = defineOperation({
+  method: "post",
+  path: "/invoices/:id/send",
+  operationId: "sendInvoice",
+  summary: "Send an invoice through a delivery method",
+  request: SendInvoiceRequestSchema,
+  hasJsonBody: true,
+  success: { status: 200, description: "Invoice after delivery attempt", schema: InvoiceSchema },
+  security: "tenantBearer",
+  roles: BILLING_WRITE_ROLES,
+  errors: [400, 401, 403, 404, 409, 412, 500],
+  requestHeaders: IdempotencyRequestHeadersSchema,
+  handler: async ({ input, principal, request }) =>
+    invoices.sendInvoice(principal.tenantId, input.params.id, input.body.method, {
+      metadata: requestAuditMetadata(request, principal),
+    }),
+});
+
+const refreshTransmissionOperation = defineOperation({
+  method: "post",
+  path: "/invoices/transmissions/:transmissionId/refresh",
+  operationId: "refreshInvoiceTransmission",
+  summary: "Refresh an invoice transmission",
+  request: RefreshTransmissionRequestSchema,
+  hasJsonBody: false,
+  success: { status: 200, description: "Refreshed transmission", schema: TransmissionSchema },
+  security: "tenantBearer",
+  roles: BILLING_WRITE_ROLES,
+  errors: [400, 401, 403, 404, 500],
+  requestHeaders: IdempotencyRequestHeadersSchema,
+  handler: async ({ input, principal, request }) =>
+    invoices.refreshTransmission(principal.tenantId, input.params.transmissionId, {
+      metadata: requestAuditMetadata(request, principal),
+    }),
+});
+
+/** Reused by the OpenAPI inventory; these descriptors are what Express mounts. */
+export const invoiceOperations = [
+  listInvoicesOperation,
+  getInvoiceOperation,
+  replaceInvoiceOperation,
+  updateInvoiceOperationDescriptor,
+  postInvoiceOperation,
+  sendInvoiceOperation,
+  refreshTransmissionOperation,
+] as const;
+
+export const invoicesView = Router();
+for (const operation of invoiceOperations) mountOperation(invoicesView, operation);
