@@ -1,6 +1,7 @@
 import {
   AnnualRevenueSchema,
   CustomerRevenueSchema,
+  InvoiceStatusSchema,
   QuarterRevenueSchema,
   type AnnualRevenue,
   type CustomerRevenue,
@@ -28,7 +29,12 @@ import {
 
 export type ReportPeriod = RevenueReportRequest["query"];
 
-export const REVENUE_RECOGNIZED_STATUSES = ["POSTED", "SENT", "PAID"] as const;
+const invoiceStatus = InvoiceStatusSchema.enum;
+export const REVENUE_RECOGNIZED_STATUSES = [
+  invoiceStatus.POSTED,
+  invoiceStatus.SENT,
+  invoiceStatus.PAID,
+] as const;
 const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "revenue" } as const;
 const zeroMoney = decimalOrLegacy({ decimal: "0", legacy: null }, moneyFormat);
 

@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import {
+  InvoiceStatusSchema,
   PaymentPageSchema,
   fingerprintPaginationFilters,
   formatPaginationCursor,
   parsePaginationCursor,
+  TransmissionMethodSchema,
+  TransmissionStatusSchema,
   type InvoiceStatus,
   type ListPaymentsV1Request,
   type PaymentPage,
@@ -65,6 +68,13 @@ const paymentInclude = {
 const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "amount" } as const;
 const zeroMoney = canonicalMoney("0");
 const SERIALIZATION_ATTEMPTS = 3;
+const invoiceStatus = InvoiceStatusSchema.enum;
+const transmissionMethod = TransmissionMethodSchema.enum;
+const transmissionStatus = TransmissionStatusSchema.enum;
+type PaymentInvoiceStatus =
+  | typeof invoiceStatus.POSTED
+  | typeof invoiceStatus.SENT
+  | typeof invoiceStatus.PAID;
 
 /** Existing clients have no currency field; their explicit temporary default is USD. */
 export const DEFAULT_PAYMENT_CURRENCY = "USD";
@@ -109,7 +119,7 @@ export interface InvoiceBalanceWrite {
   readonly expectedAmountPaidDecimal: CanonicalDecimal | null;
   readonly amountPaid: number;
   readonly amountPaidDecimal: CanonicalDecimal;
-  readonly status: "POSTED" | "SENT" | "PAID";
+  readonly status: PaymentInvoiceStatus;
 }
 
 export interface PaymentAllocationTransaction {
@@ -279,7 +289,7 @@ export interface PaymentReversalInvoiceWrite {
   readonly expectedStatus: InvoiceStatus;
   readonly amountPaid: number;
   readonly amountPaidDecimal: CanonicalDecimal;
-  readonly status: "POSTED" | "SENT" | "PAID";
+  readonly status: PaymentInvoiceStatus;
 }
 
 export interface PaymentReversalTransaction {
@@ -344,9 +354,9 @@ function successfulDelivery(
 ): boolean {
   return transmissions.some(
     ({ method, status }) =>
-      (method === "EMAIL" && status === "SENT") ||
-      (method === "PORTAL" && status === "DELIVERED") ||
-      (method === "API" && status === "ACCEPTED")
+      (method === transmissionMethod.EMAIL && status === transmissionStatus.SENT) ||
+      (method === transmissionMethod.PORTAL && status === transmissionStatus.DELIVERED) ||
+      (method === transmissionMethod.API && status === transmissionStatus.ACCEPTED)
   );
 }
 
@@ -643,10 +653,10 @@ function prepareAllocation(
       amountPaidDecimal,
       status:
         compareDecimal(amountPaidDecimal, existing.total, moneyFormat) === 0
-          ? "PAID"
-          : existing.invoice.status === "SENT"
-            ? "SENT"
-            : "POSTED",
+          ? invoiceStatus.PAID
+          : existing.invoice.status === invoiceStatus.SENT
+            ? invoiceStatus.SENT
+            : invoiceStatus.POSTED,
     };
   });
   return { plan, applications: applicationWrites, invoiceBalances: invoiceBalanceWrites };

@@ -9,6 +9,7 @@ export type ArchitectureDiagnostic = {
     | "ARCH003"
     | "ARCH004"
     | "ARCH005"
+    | "ARCH006"
     | "MIG001"
     | "MIG002"
     | "MIG003"
@@ -44,6 +45,39 @@ const ENUM_BACKED_LIFECYCLE_FIELDS = new Map([
   ["AuditEvent.action", "AuditAction"],
   ["AuditEvent.principalKind", "AuditPrincipalKind"],
   ["AuditEvent.resourceKind", "AuditResourceKind"],
+]);
+
+const LIFECYCLE_LITERAL_VALUES = new Set([
+  "OPEN",
+  "INVOICED",
+  "CLOSED",
+  "DRAFT",
+  "POSTED",
+  "SENT",
+  "PAID",
+  "VOID",
+  "QUEUED",
+  "UPLOADING",
+  "DELIVERED",
+  "ACCEPTED",
+  "FAILED",
+  "EMAIL",
+  "PORTAL",
+  "API",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "IN_PROGRESS",
+  "COMPLETED",
+]);
+
+// Literal enum definitions belong only in the contracts package and the
+// idempotency schema, which is the source of truth for its Prisma enum. All
+// application code must derive values from those schemas instead.
+const LIFECYCLE_LITERAL_SCHEMA_DEFINITION_FILES = new Set([
+  "packages/contracts/src/index.ts",
+  "packages/contracts/src/requests.ts",
 ]);
 
 const CENTRALIZED_LEGACY_CONVERSION_BOUNDARIES = new Set([
@@ -443,6 +477,36 @@ async function checkLifecycleEnumColumns(root: string): Promise<ArchitectureDiag
   });
 }
 
+async function checkRawLifecycleLiterals(root: string): Promise<ArchitectureDiagnostic[]> {
+  const files = await sourceFiles(root, ["src", "packages/contracts/src"]);
+  const diagnostics: ArchitectureDiagnostic[] = [];
+  for (const file of files) {
+    if (LIFECYCLE_LITERAL_SCHEMA_DEFINITION_FILES.has(file)) continue;
+    const lines = (await readFile(path.join(root, file), "utf8")).split("\n");
+    lines.forEach((line, index) => {
+      // The idempotency method schema has no shared API representation, so
+      // its one-line Zod declaration is its explicitly approved boundary.
+      if (file === "src/idempotency.ts" && /\bz\.enum\s*\(/u.test(line)) return;
+      // Match only a complete, quoted literal. This deliberately does not
+      // match explanatory text such as "Only a DRAFT invoice can...".
+      const literals = line.matchAll(/(["'`])([A-Z_]+)\1/gu);
+      for (const literal of literals) {
+        const value = literal[2];
+        if (!LIFECYCLE_LITERAL_VALUES.has(value)) continue;
+        diagnostics.push(
+          diagnostic(
+            "ARCH006",
+            file,
+            index + 1,
+            `raw lifecycle literal ${value} must be derived from its authoritative Zod schema`,
+          ),
+        );
+      }
+    });
+  }
+  return diagnostics;
+}
+
 function financialConversionOnLine(line: string): boolean {
   return (
     /\bparseFloat\s*\(/.test(line) ||
@@ -525,6 +589,7 @@ export async function runArchitectureIntegrity(root = process.cwd()): Promise<Ar
     await Promise.all([
       checkFloatColumns(root),
       checkLifecycleEnumColumns(root),
+      checkRawLifecycleLiterals(root),
       checkFinancialConversions(root),
       checkPaymentApplicationMutations(root),
       checkZodModelTypes(root),

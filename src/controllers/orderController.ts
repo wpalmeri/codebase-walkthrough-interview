@@ -41,6 +41,7 @@ import { syncDraftInvoiceInTransaction } from "./invoiceController";
 import {
   fingerprintTenantPaginationBinding,
   formatPaginationCursor,
+  InvoiceStatusSchema,
   OrderPageSchema,
   parsePaginationCursor,
   type ListOrdersV1Request,
@@ -50,6 +51,7 @@ import {
 import { z } from "zod";
 
 const DEFAULT_BILLING_CURRENCY = "USD";
+const invoiceStatus = InvoiceStatusSchema.enum;
 const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "amount" } as const;
 const quantityFormat = {
   scale: QUANTITY_SCALE,
@@ -382,7 +384,7 @@ async function saveOrderInTransaction(
       input.orderDate !== undefined ||
       input.notes !== undefined ||
       input.items !== undefined;
-    const invoiceIsFinal = order.invoice !== null && order.invoice.status !== "DRAFT";
+    const invoiceIsFinal = order.invoice !== null && order.invoice.status !== invoiceStatus.DRAFT;
     if (invoiceIsFinal && hasFinancialChange) {
       throw new ConflictError(
         "ORDER_FINALIZED",

@@ -3,8 +3,11 @@ import {
   fingerprintTenantPaginationBinding,
   formatPaginationCursor,
   InvoicePageSchema,
+  InvoiceStatusSchema,
+  OrderStatusSchema,
   parsePaginationCursor,
   TransmissionMethodSchema,
+  TransmissionStatusSchema,
   type InvoicePage,
   type ListInvoicesV1Request,
   type PaginationCursorFailureCode,
@@ -75,6 +78,15 @@ const invoiceInclude = {
 } as const;
 
 const moneyFormat = { scale: MONEY_SCALE, precision: MONEY_PRECISION, field: "amount" } as const;
+const invoiceStatus = InvoiceStatusSchema.enum;
+const orderStatus = OrderStatusSchema.enum;
+const transmissionMethod = TransmissionMethodSchema.enum;
+const transmissionStatus = TransmissionStatusSchema.enum;
+const finalizedInvoiceStatuses = new Set<string>([
+  invoiceStatus.POSTED,
+  invoiceStatus.SENT,
+  invoiceStatus.PAID,
+]);
 const quantityFormat = {
   scale: QUANTITY_SCALE,
   precision: QUANTITY_PRECISION,
@@ -367,8 +379,8 @@ export async function createInvoiceForOrder(
       },
     });
     const updated = await transaction.order.updateMany({
-      where: { id: orderId, tenantId, status: "OPEN" },
-      data: { status: "INVOICED" },
+      where: { id: orderId, tenantId, status: orderStatus.OPEN },
+      data: { status: orderStatus.INVOICED },
     });
     if (updated.count !== 1) {
       throw new ConflictError("ORDER_NOT_OPEN", "Only an OPEN order can be invoiced");
@@ -398,7 +410,7 @@ export async function updateInvoice(
   assertInvoiceAuditTenant(tenantId, audit);
   await prisma.$transaction(async (transaction) => {
     const invoice = await transaction.invoice.findFirstOrThrow({ where: { id: invoiceId, tenantId } });
-    if (invoice.status !== "DRAFT") {
+    if (invoice.status !== invoiceStatus.DRAFT) {
       throw new ConflictError("INVOICE_NOT_DRAFT", "Only a DRAFT invoice can be redated");
     }
     const issueDate = input.issueDate === undefined ? invoice.issueDate : new Date(input.issueDate);
@@ -421,7 +433,7 @@ export async function updateInvoice(
       );
     }
     const updated = await transaction.invoice.updateMany({
-      where: { id: invoiceId, tenantId, status: "DRAFT" },
+      where: { id: invoiceId, tenantId, status: invoiceStatus.DRAFT },
       data: { issueDate, dueDate, accountingDate },
     });
     if (updated.count !== 1) {
@@ -482,7 +494,7 @@ export async function updateInvoiceConditionally(
         "If-Match does not match the current resource version"
       );
     }
-    if (existing.status !== "DRAFT") {
+    if (existing.status !== invoiceStatus.DRAFT) {
       throw new ConflictError("INVOICE_NOT_DRAFT", "Only a DRAFT invoice can be redated");
     }
     const issueDate = input.issueDate === undefined ? existing.issueDate : new Date(input.issueDate);
@@ -501,7 +513,7 @@ export async function updateInvoiceConditionally(
       await requireOpenAccountingDate(transaction, tenantId, parseAccountingDate(accountingDate));
     }
     const updated = await transaction.invoice.updateMany({
-      where: { id: invoiceId, tenantId, status: "DRAFT" },
+      where: { id: invoiceId, tenantId, status: invoiceStatus.DRAFT },
       data: { issueDate, dueDate, accountingDate },
     });
     if (updated.count !== 1) {
@@ -554,7 +566,7 @@ export async function syncDraftInvoiceInTransaction(
   orderId: string
 ): Promise<void> {
   const invoice = await transaction.invoice.findFirst({ where: { orderId, tenantId } });
-  if (!invoice || invoice.status !== "DRAFT") return;
+  if (!invoice || invoice.status !== invoiceStatus.DRAFT) return;
 
   const order = await transaction.order.findFirstOrThrow({
     where: { id: orderId, tenantId },
@@ -564,7 +576,7 @@ export async function syncDraftInvoiceInTransaction(
   const totalDecimal = invoiceTotal(lines);
   await transaction.invoiceLine.deleteMany({ where: { invoiceId: invoice.id } });
   const updated = await transaction.invoice.updateMany({
-    where: { id: invoice.id, tenantId, status: "DRAFT" },
+    where: { id: invoice.id, tenantId, status: invoiceStatus.DRAFT },
     data: {
       customerId: order.customerId,
       total: legacyNumber(totalDecimal, moneyFormat),
@@ -603,8 +615,8 @@ export async function postInvoice(
   assertInvoiceAuditTenant(tenantId, audit);
   await prisma.$transaction(async (transaction) => {
     const invoice = await transaction.invoice.findFirstOrThrow({ where: { id: invoiceId, tenantId } });
-    if (["POSTED", "SENT", "PAID"].includes(invoice.status)) return;
-    if (invoice.status !== "DRAFT") {
+    if (finalizedInvoiceStatuses.has(invoice.status)) return;
+    if (invoice.status !== invoiceStatus.DRAFT) {
       throw new ConflictError("INVOICE_NOT_POSTABLE", "Only a DRAFT invoice can be posted");
     }
 
@@ -622,9 +634,9 @@ export async function postInvoice(
     await transaction.invoiceLine.deleteMany({ where: { invoiceId } });
     await transaction.invoice.update({ where: { id: invoiceId }, data: { lines: { create: lines } } });
     const updated = await transaction.invoice.updateMany({
-      where: { id: invoiceId, tenantId, status: "DRAFT" },
+      where: { id: invoiceId, tenantId, status: invoiceStatus.DRAFT },
       data: {
-        status: "POSTED",
+        status: invoiceStatus.POSTED,
         postedAt: new Date(),
         accountingDate,
         customerId: order.customerId,
@@ -678,7 +690,7 @@ function invoiceDeliveryDependencies(audit: InvoiceMutationAudit): InvoiceDelive
       });
       const updated = await transaction.invoice.updateMany({
         where: { id: input.invoiceId, tenantId: input.tenantId },
-        data: { status: "SENT" },
+        data: { status: invoiceStatus.SENT },
       });
       if (updated.count !== 1) throw new NotFoundError();
       await appendInvoiceAudit(transaction, audit, {
@@ -704,7 +716,7 @@ function invoiceDeliveryDependencies(audit: InvoiceMutationAudit): InvoiceDelive
         data: {
           invoiceId: input.invoiceId,
           method: input.method,
-          status: "FAILED",
+          status: transmissionStatus.FAILED,
           externalJobId: input.externalJobId ?? null,
           detail: input.detail,
         },
@@ -772,7 +784,7 @@ export async function sendInvoiceWithDependencies(
 ): Promise<InvoiceModel> {
   const method = TransmissionMethodSchema.parse(rawMethod);
   const invoice = await dependencies.findInvoice(tenantId, invoiceId);
-  if (invoice.status !== "POSTED" && invoice.status !== "SENT") {
+  if (invoice.status !== invoiceStatus.POSTED && invoice.status !== invoiceStatus.SENT) {
     throw new ConflictError(
       "INVOICE_NOT_DELIVERABLE",
       `Invoice ${invoice.number} must be POSTED or SENT before transmission (current status: ${invoice.status})`
@@ -787,7 +799,7 @@ export async function sendInvoiceWithDependencies(
     const billingAddress = invoice.billingAddressSnapshot ?? invoice.customer.billingAddress;
 
     let destination: string;
-    if (method === "EMAIL") {
+    if (method === transmissionMethod.EMAIL) {
       const parsedEmail = EmailAddressSchema.safeParse(customerEmail);
       if (!parsedEmail.success) {
         throw new PreconditionError(
@@ -796,7 +808,7 @@ export async function sendInvoiceWithDependencies(
         );
       }
       destination = parsedEmail.data;
-    } else if (method === "PORTAL") {
+    } else if (method === transmissionMethod.PORTAL) {
       destination = requiredDestination(invoice.customer.portalAccount, "Portal account");
     } else {
       destination = requiredDestination(
@@ -817,9 +829,9 @@ export async function sendInvoiceWithDependencies(
     });
 
     stage = "delivery";
-    if (method === "EMAIL") {
+    if (method === transmissionMethod.EMAIL) {
       result = dependencies.sendEmail(destination, invoice.number, pdf);
-    } else if (method === "PORTAL") {
+    } else if (method === transmissionMethod.PORTAL) {
       result = dependencies.createPortalJob(destination, invoice.number);
       stage = "attachment";
       dependencies.attachDocument(method, result.externalJobId ?? invoice.number, pdf);
@@ -874,7 +886,10 @@ export async function refreshTransmission(
     const transmission = await transaction.transmission.findFirstOrThrow({
       where: { id: transmissionId, invoice: { tenantId } },
     });
-    if (transmission.method === "PORTAL" && transmission.status !== "DELIVERED") {
+    if (
+      transmission.method === transmissionMethod.PORTAL &&
+      transmission.status !== transmissionStatus.DELIVERED
+    ) {
       const status = checkPortalJob(transmission.createdAt);
       if (status === transmission.status) return toTransmissionModel(transmission);
       const updated = await transaction.transmission.updateMany({

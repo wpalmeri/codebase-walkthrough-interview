@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { IdempotencyRecordState } from "@prisma/client";
 import type { Request, RequestHandler, Response } from "express";
 import { z } from "zod";
 import { PrincipalSchema, TenantIdSchema } from "./auth/principal";
@@ -33,6 +34,8 @@ export const IdempotencyRecordSchema = z.object({
   requestFingerprint: z.string().length(64),
 });
 export type IdempotencyRecord = z.infer<typeof IdempotencyRecordSchema>;
+const idempotencyHttpMethod = IdempotencyRecordSchema.shape.method.enum;
+const idempotencyWriteMethods = new Set<string>(Object.values(idempotencyHttpMethod));
 
 export type IdempotencyReservation =
   | { readonly kind: "reserved"; readonly id: string }
@@ -98,7 +101,7 @@ function routeFor(request: Request): string {
 }
 
 function recordFor(request: Request): IdempotencyRecord | null {
-  if (!new Set(["POST", "PUT", "PATCH", "DELETE"]).has(request.method)) return null;
+  if (!idempotencyWriteMethods.has(request.method)) return null;
 
   const suppliedKey = request.get("idempotency-key");
   if (suppliedKey === undefined) return null;
@@ -183,7 +186,7 @@ export function createPrismaIdempotencyStore(): IdempotencyStore {
       // A raced insert may not yet be observable on a replica; fail closed rather than execute twice.
       if (existing === null) return { kind: "in-progress" };
       if (existing.requestFingerprint !== record.requestFingerprint) return { kind: "fingerprint-mismatch" };
-      if (existing.state === "IN_PROGRESS") return { kind: "in-progress" };
+      if (existing.state === IdempotencyRecordState.IN_PROGRESS) return { kind: "in-progress" };
 
       return {
         kind: "completed",
@@ -199,7 +202,7 @@ export function createPrismaIdempotencyStore(): IdempotencyStore {
       await prisma.idempotencyRecord.update({
         where: { id },
         data: {
-          state: "COMPLETED",
+          state: IdempotencyRecordState.COMPLETED,
           responseStatus: response.status,
           responseContentType: response.contentType,
           responseBodyBase64: response.bodyBase64,

@@ -143,6 +143,30 @@ describe("architecture integrity guard", () => {
     ]);
   });
 
+  test("requires application code to derive lifecycle values from approved Zod schema boundaries", async () => {
+    const root = await fixture({
+      "packages/contracts/src/index.ts": "export const InvoiceStatusSchema = z.enum(['DRAFT', 'POSTED']);\n",
+      "packages/contracts/src/requests.ts": "export const TransmissionMethodSchema = z.enum(['EMAIL']);\n",
+      "src/idempotency.ts": "export const MethodSchema = z.enum(['POST']);\n",
+      "src/controllers/invoice.ts": [
+        'const status = "DRAFT";',
+        'const message = "Only a DRAFT invoice can be changed";',
+      ].join("\n"),
+      "src/controllers/invoice.test.ts": 'const status = "DRAFT";\n',
+      "src/controllers/invoice.scenario.ts": 'const status = "DRAFT";\n',
+      "prisma/migrations/20260923000000_safe/migration.sql": "ALTER TABLE Invoice ADD COLUMN status_copy TEXT DEFAULT 'DRAFT';\n",
+    });
+
+    expect(await runArchitectureIntegrity(root)).toEqual([
+      {
+        ruleId: "ARCH006",
+        path: "src/controllers/invoice.ts",
+        line: 1,
+        message: "raw lifecycle literal DRAFT must be derived from its authoritative Zod schema",
+      },
+    ]);
+  });
+
   test("permits additive DDL and row-level trigger DML while ignoring comments, strings, and casing", async () => {
     const root = await fixture({
       "prisma/migrations/20260923000000_safe/migration.sql": [

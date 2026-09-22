@@ -35,6 +35,8 @@ export function createJsonTransmissionTelemetry(
 }
 
 const defaultTelemetry = createJsonTransmissionTelemetry();
+const transmissionMethod = TransmissionMethodSchema.enum;
+const transmissionStatus = TransmissionStatusSchema.enum;
 
 const defaultEmailDeliveryDependencies: EmailDeliveryDependencies = {
   attachDocument,
@@ -50,15 +52,15 @@ export function sendEmail(
 ): { status: TransmissionStatus; detail: string } {
   // Email is a single delivery operation: the document must be accepted by the
   // carrier before the message can be reported as sent.
-  dependencies.attachDocument("EMAIL", `email:${invoiceNumber}`, pdf);
+  dependencies.attachDocument(transmissionMethod.EMAIL, `email:${invoiceNumber}`, pdf);
   dependencies.deliver(to, invoiceNumber);
   dependencies.telemetry?.({
     level: "info",
     event: "DELIVERY_ACCEPTED",
-    method: "EMAIL",
-    status: "SENT",
+    method: transmissionMethod.EMAIL,
+    status: transmissionStatus.SENT,
   });
-  return { status: "SENT", detail: `Emailed to ${to}` };
+  return { status: transmissionStatus.SENT, detail: `Emailed to ${to}` };
 }
 
 // Kicks off an upload job at the external portal service and returns its job id.
@@ -75,19 +77,23 @@ export function createPortalJob(
   telemetry({
     level: "info",
     event: "PORTAL_JOB_QUEUED",
-    method: "PORTAL",
-    status: "QUEUED",
+    method: transmissionMethod.PORTAL,
+    status: transmissionStatus.QUEUED,
     jobId: externalJobId,
   });
-  return { externalJobId, status: "QUEUED", detail: `Upload queued for portal account ${portalAccount}` };
+  return {
+    externalJobId,
+    status: transmissionStatus.QUEUED,
+    detail: `Upload queued for portal account ${portalAccount}`,
+  };
 }
 
 // Polls the external portal service for job status. The stub advances by elapsed time.
 export function checkPortalJob(createdAt: Date): TransmissionStatus {
   const elapsedMs = Date.now() - createdAt.getTime();
-  if (elapsedMs < 10_000) return "QUEUED";
-  if (elapsedMs < 30_000) return "UPLOADING";
-  return "DELIVERED";
+  if (elapsedMs < 10_000) return transmissionStatus.QUEUED;
+  if (elapsedMs < 30_000) return transmissionStatus.UPLOADING;
+  return transmissionStatus.DELIVERED;
 }
 
 // Hands the rendered invoice document to the carrier for a transmission.
@@ -119,9 +125,13 @@ export function submitToClearinghouse(
   telemetry({
     level: "info",
     event: "CLEARINGHOUSE_ACCEPTED",
-    method: "API",
-    status: "ACCEPTED",
+    method: transmissionMethod.API,
+    status: transmissionStatus.ACCEPTED,
     jobId: externalJobId,
   });
-  return { externalJobId, status: "ACCEPTED", detail: `Accepted by clearinghouse (${clearinghouseId})` };
+  return {
+    externalJobId,
+    status: transmissionStatus.ACCEPTED,
+    detail: `Accepted by clearinghouse (${clearinghouseId})`,
+  };
 }
