@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiGet, apiPost, apiPut, errorMessage, money, shortDate } from "../api";
+import { apiGet, apiPost, apiPut, decimalDisplay, errorMessage, financialValue, money, shortDate } from "../api";
 import { Card, Modal, PageHeader } from "../components";
 import type { ComboDiscount, Customer, Product, Rate, RateTier } from "../types";
 
@@ -17,7 +17,7 @@ interface RateEditor {
   tiers: TierRow[];
 }
 
-function tierLabel(tier: RateTier): string {
+function tierLabel(tier: RateTier | { upTo: string | null; unitPrice: string; floor?: string | null; ceiling?: string | null }): string {
   const bound = tier.upTo === null ? "beyond" : `≤ ${tier.upTo}`;
   const extras = [
     tier.floor != null ? `min ${money(tier.floor)}` : null,
@@ -70,8 +70,8 @@ export function ProductsPage() {
     setEditor({
       rateId: rate.id,
       productName: rate.productName ?? "",
-      unitPrice: String(rate.unitPrice),
-      tiers: rate.tiers.map((tier) => ({
+      unitPrice: rate.unitPriceDecimal ?? String(rate.unitPrice),
+      tiers: (rate.tiersDecimal ?? rate.tiers).map((tier) => ({
         upTo: tier.upTo === null ? "" : String(tier.upTo),
         unitPrice: String(tier.unitPrice),
         floor: tier.floor != null ? String(tier.floor) : "",
@@ -149,7 +149,7 @@ export function ProductsPage() {
                 <td className="strong">{product.sku}</td>
                 <td>{product.name}</td>
                 <td className="muted">{product.unit}</td>
-                <td className="num">{money(product.listPrice)}</td>
+                <td className="num">{money(financialValue(product.listPriceDecimal, product.listPrice))}</td>
               </tr>
             ))}
           </tbody>
@@ -185,11 +185,13 @@ export function ProductsPage() {
                 <td className="strong">
                   {rate.productName} <span className="muted">({rate.productSku})</span>
                 </td>
-                <td className="num">{money(rate.unitPrice)}</td>
+                <td className="num">{money(financialValue(rate.unitPriceDecimal, rate.unitPrice))}</td>
                 <td className="muted">
-                  {rate.tiers.length > 0
-                    ? rate.tiers
-                        .toSorted((a, b) => (a.upTo ?? Infinity) - (b.upTo ?? Infinity))
+                  {(rate.tiersDecimal ?? rate.tiers).length > 0
+                    ? (rate.tiersDecimal ?? rate.tiers)
+                        .toSorted(
+                          (a, b) => Number(a.upTo ?? Infinity) - Number(b.upTo ?? Infinity)
+                        )
                         .map(tierLabel)
                         .join(" · ")
                     : "Flat rate"}
@@ -228,7 +230,9 @@ export function ProductsPage() {
                     customer?.name
                   )}
                 </td>
-                <td className="num">{combo.percentOff}% off</td>
+                <td className="num">
+                  {decimalDisplay(combo.percentOffDecimal ?? combo.percentOff)}% off
+                </td>
               </tr>
             ))}
             {combos.length === 0 && (

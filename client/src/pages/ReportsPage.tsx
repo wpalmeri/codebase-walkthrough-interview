@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiGet, compactMoney, errorMessage, money } from "../api";
+import {
+  apiGet,
+  compactMoney,
+  decimalNumber,
+  errorMessage,
+  financialValue,
+  money,
+  sumMoney,
+} from "../api";
 import { Card, EmptyState, PageHeader, StatTile } from "../components";
 import type { AnnualRevenue, CustomerRevenue, QuarterRevenue } from "../types";
 
@@ -10,7 +18,9 @@ function QuarterChart({ data }: { data: QuarterRevenue[] }) {
   const pad = { top: 24, bottom: 26, left: 8, right: 8 };
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
-  const max = Math.max(1, ...data.map((d) => d.revenue)) * 1.08;
+  const values = data.map((row) => financialValue(row.revenueDecimal, row.revenue));
+  const numericValues = values.map(decimalNumber);
+  const max = Math.max(1, ...numericValues) * 1.08;
   const slot = innerW / data.length;
   const barW = Math.max(4, Math.min(44, slot * 0.55));
   // On long ranges, thin out labels so they stay legible.
@@ -25,23 +35,25 @@ function QuarterChart({ data }: { data: QuarterRevenue[] }) {
       aria-label="Revenue by quarter"
     >
       {data.map((d, i) => {
-        const barH = Math.max(d.revenue > 0 ? 2 : 1, (d.revenue / max) * innerH);
+        const revenue = values[i] ?? 0;
+        const numericRevenue = numericValues[i] ?? 0;
+        const barH = Math.max(numericRevenue > 0 ? 2 : 1, (numericRevenue / max) * innerH);
         const x = pad.left + slot * i + (slot - barW) / 2;
         const y = pad.top + innerH - barH;
         return (
           <g key={d.quarter}>
-            <title>{`${d.quarter}: ${money(d.revenue)} (${d.invoiceCount} invoices)`}</title>
+            <title>{`${d.quarter}: ${money(revenue)} (${d.invoiceCount} invoices)`}</title>
             <rect
               x={x}
               y={y}
               width={barW}
               height={barH}
               rx={Math.min(4, barW / 2)}
-              fill={d.revenue > 0 ? "#4f46e5" : "#e6e9ef"}
+              fill={numericRevenue > 0 ? "#4f46e5" : "#e6e9ef"}
             />
-            {showValues && d.revenue > 0 && (
+            {showValues && numericRevenue > 0 && (
               <text x={x + barW / 2} y={y - 7} textAnchor="middle" fontSize="11" fill="#475467">
-                {compactMoney(d.revenue)}
+                {compactMoney(revenue)}
               </text>
             )}
             {i % labelEvery === 0 && (
@@ -95,7 +107,9 @@ export function ReportsPage() {
   }, []);
   useEffect(() => load("", ""), [load]);
 
-  const totalRevenue = annual.reduce((sum, row) => sum + row.revenue, 0);
+  const totalRevenue = sumMoney(
+    annual.map((row) => financialValue(row.revenueDecimal, row.revenue))
+  );
   const totalInvoices = annual.reduce((sum, row) => sum + row.invoiceCount, 0);
   const topCustomer = byCustomer[0];
 
@@ -136,7 +150,11 @@ export function ReportsPage() {
         <StatTile
           label="Top customer"
           value={topCustomer ? topCustomer.customerName : "—"}
-          hint={topCustomer ? money(topCustomer.revenue) : undefined}
+          hint={
+            topCustomer
+              ? money(financialValue(topCustomer.revenueDecimal, topCustomer.revenue))
+              : undefined
+          }
         />
         <StatTile
           label="Quarters covered"
@@ -174,7 +192,7 @@ export function ReportsPage() {
                   <tr key={row.customerId}>
                     <td className="strong">{row.customerName}</td>
                     <td className="num">{row.invoiceCount}</td>
-                    <td className="num">{money(row.revenue)}</td>
+                    <td className="num">{money(financialValue(row.revenueDecimal, row.revenue))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -198,7 +216,7 @@ export function ReportsPage() {
                   <tr key={row.year}>
                     <td className="strong">{row.year}</td>
                     <td className="num">{row.invoiceCount}</td>
-                    <td className="num">{money(row.revenue)}</td>
+                    <td className="num">{money(financialValue(row.revenueDecimal, row.revenue))}</td>
                   </tr>
                 ))}
               </tbody>

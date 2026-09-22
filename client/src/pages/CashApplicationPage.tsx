@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import { apiGet, apiPost, errorMessage, money, shortDate } from "../api";
+import {
+  apiGet,
+  apiPost,
+  errorMessage,
+  financialValue,
+  isPositiveMoney,
+  money,
+  shortDate,
+  sumMoney,
+} from "../api";
 import { Card, EmptyState, Modal, PageHeader, StatTile, StatusBadge } from "../components";
 import { navigate } from "../router";
 import type { Customer, Invoice, Payment } from "../types";
@@ -29,9 +38,15 @@ export function CashApplicationPage() {
   };
   useEffect(load, []);
 
-  const outstanding = invoices.reduce((sum, invoice) => sum + invoice.balance, 0);
-  const unappliedCash = payments.reduce((sum, payment) => sum + payment.unapplied, 0);
-  const received = payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const outstanding = sumMoney(
+    invoices.map((invoice) => financialValue(invoice.balanceDecimal, invoice.balance))
+  );
+  const unappliedCash = sumMoney(
+    payments.map((payment) => financialValue(payment.unappliedDecimal, payment.unapplied))
+  );
+  const received = sumMoney(
+    payments.map((payment) => financialValue(payment.amountDecimal, payment.amount))
+  );
 
   const record = async () => {
     setError(null);
@@ -42,7 +57,9 @@ export function CashApplicationPage() {
         amount,
         reference: reference || undefined,
       });
-      setMessage(`Recorded ${money(payment.amount)} from ${payment.customerName}.`);
+      setMessage(
+        `Recorded ${money(financialValue(payment.amountDecimal, payment.amount))} from ${payment.customerName}.`
+      );
       setAmount("");
       setReference("");
       load();
@@ -56,10 +73,14 @@ export function CashApplicationPage() {
   const openPayment = payments.find((payment) => payment.id === openPaymentId) ?? null;
   const openInvoices = openPayment
     ? invoices.filter(
-        (invoice) => invoice.customerId === openPayment.customerId && invoice.balance > 0
+        (invoice) =>
+          invoice.customerId === openPayment.customerId &&
+          isPositiveMoney(financialValue(invoice.balanceDecimal, invoice.balance))
       )
     : [];
-  const applyTotal = Object.values(applyAmounts).reduce((sum, v) => sum + (Number(v) || 0), 0);
+  const applyTotal = sumMoney(
+    Object.values(applyAmounts).filter((value) => /^(?:0|[1-9]\d*)(?:\.\d{1,4})?$/u.test(value))
+  );
 
   const applyPayment = async () => {
     if (!openPayment) return;
@@ -75,7 +96,7 @@ export function CashApplicationPage() {
       setMessage(
         `Applied ${money(applyTotal)} from ${
           updated.customerName
-        } — ${money(updated.unapplied)} remains unapplied.`
+        } — ${money(financialValue(updated.unappliedDecimal, updated.unapplied))} remains unapplied.`
       );
       setApplyAmounts({});
       setOpenPaymentId(null);
@@ -168,9 +189,9 @@ export function CashApplicationPage() {
                   <td>{shortDate(payment.receivedAt)}</td>
                   <td className="strong">{payment.customerName}</td>
                   <td className="muted">{payment.reference ?? "—"}</td>
-                  <td className="num">{money(payment.amount)}</td>
-                  <td className="num">{money(payment.applied)}</td>
-                  <td className="num">{money(payment.unapplied)}</td>
+                  <td className="num">{money(financialValue(payment.amountDecimal, payment.amount))}</td>
+                  <td className="num">{money(financialValue(payment.appliedDecimal, payment.applied))}</td>
+                  <td className="num">{money(financialValue(payment.unappliedDecimal, payment.unapplied))}</td>
                 </tr>
               ))}
             </tbody>
@@ -204,9 +225,9 @@ export function CashApplicationPage() {
                 <td>
                   <StatusBadge status={invoice.status} />
                 </td>
-                <td className="num">{money(invoice.total)}</td>
-                <td className="num">{money(invoice.amountPaid)}</td>
-                <td className="num">{money(invoice.balance)}</td>
+                <td className="num">{money(financialValue(invoice.totalDecimal, invoice.total))}</td>
+                <td className="num">{money(financialValue(invoice.amountPaidDecimal, invoice.amountPaid))}</td>
+                <td className="num">{money(financialValue(invoice.balanceDecimal, invoice.balance))}</td>
               </tr>
             ))}
           </tbody>
@@ -222,8 +243,8 @@ export function CashApplicationPage() {
               <button className="btn" onClick={() => setOpenPaymentId(null)}>
                 Close
               </button>
-              {openPayment.unapplied !== 0 && (
-                <button className="btn primary" disabled={applyTotal <= 0} onClick={applyPayment}>
+              {isPositiveMoney(financialValue(openPayment.unappliedDecimal, openPayment.unapplied)) && (
+                <button className="btn primary" disabled={!isPositiveMoney(applyTotal)} onClick={applyPayment}>
                   Apply {money(applyTotal)}
                 </button>
               )}
@@ -241,11 +262,11 @@ export function CashApplicationPage() {
             </div>
             <div className="mini">
               <div className="stat-label">Amount</div>
-              <div className="stat-value">{money(openPayment.amount)}</div>
+              <div className="stat-value">{money(financialValue(openPayment.amountDecimal, openPayment.amount))}</div>
             </div>
             <div className="mini">
               <div className="stat-label">Unapplied</div>
-              <div className="stat-value">{money(openPayment.unapplied)}</div>
+              <div className="stat-value">{money(financialValue(openPayment.unappliedDecimal, openPayment.unapplied))}</div>
             </div>
           </div>
 
@@ -270,17 +291,17 @@ export function CashApplicationPage() {
                       </a>
                     </td>
                     <td>{shortDate(application.appliedAt)}</td>
-                    <td className="num">{money(application.amount)}</td>
+                    <td className="num">{money(financialValue(application.amountDecimal, application.amount))}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
 
-          {openPayment.unapplied !== 0 && (
+          {isPositiveMoney(financialValue(openPayment.unappliedDecimal, openPayment.unapplied)) && (
             <>
               <div className="modal-section">
-                Apply remaining {money(openPayment.unapplied)} — open invoices
+                Apply remaining {money(financialValue(openPayment.unappliedDecimal, openPayment.unapplied))} — open invoices
               </div>
               {openInvoices.length === 0 ? (
                 <EmptyState>No open invoices for this customer.</EmptyState>
@@ -301,7 +322,7 @@ export function CashApplicationPage() {
                         <td>
                           <StatusBadge status={invoice.status} />
                         </td>
-                        <td className="num">{money(invoice.balance)}</td>
+                        <td className="num">{money(financialValue(invoice.balanceDecimal, invoice.balance))}</td>
                         <td className="num">
                           <input
                             aria-label={`Amount to apply to ${invoice.number}`}

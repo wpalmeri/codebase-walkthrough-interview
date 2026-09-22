@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { apiGet, errorMessage, money, shortDate } from "../api";
+import {
+  apiGet,
+  errorMessage,
+  financialValue,
+  isPositiveMoney,
+  money,
+  shortDate,
+  sumMoney,
+} from "../api";
 import { Card, PageHeader, StatTile, StatusBadge } from "../components";
 import { navigate } from "../router";
 import type { Invoice } from "../types";
@@ -14,10 +22,16 @@ export function InvoicesPage() {
       .catch((error) => setError(errorMessage(error)));
   }, []);
 
-  const outstanding = invoices.reduce((sum, invoice) => sum + invoice.balance, 0);
-  const collected = invoices.reduce((sum, invoice) => sum + invoice.amountPaid, 0);
+  const outstanding = sumMoney(
+    invoices.map((invoice) => financialValue(invoice.balanceDecimal, invoice.balance))
+  );
+  const collected = sumMoney(
+    invoices.map((invoice) => financialValue(invoice.amountPaidDecimal, invoice.amountPaid))
+  );
   const overdue = invoices.filter(
-    (invoice) => invoice.balance > 0 && new Date(invoice.dueDate) < new Date()
+    (invoice) =>
+      isPositiveMoney(financialValue(invoice.balanceDecimal, invoice.balance)) &&
+      new Date(invoice.dueDate) < new Date()
   );
 
   return (
@@ -31,7 +45,11 @@ export function InvoicesPage() {
         <StatTile
           label="Overdue"
           value={String(overdue.length)}
-          hint={`${money(overdue.reduce((sum, invoice) => sum + invoice.balance, 0))} past due`}
+          hint={`${money(
+            sumMoney(
+              overdue.map((invoice) => financialValue(invoice.balanceDecimal, invoice.balance))
+            )
+          )} past due`}
         />
         <StatTile label="Collected" value={money(collected)} />
       </div>
@@ -74,8 +92,8 @@ export function InvoicesPage() {
                     <span className="muted">—</span>
                   )}
                 </td>
-                <td className="num">{money(invoice.total)}</td>
-                <td className="num">{money(invoice.balance)}</td>
+                <td className="num">{money(financialValue(invoice.totalDecimal, invoice.total))}</td>
+                <td className="num">{money(financialValue(invoice.balanceDecimal, invoice.balance))}</td>
               </tr>
             ))}
           </tbody>
