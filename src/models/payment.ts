@@ -1,24 +1,7 @@
 import type { Payment, PaymentApplication } from "@prisma/client";
+import { PaymentSchema, type Payment as ContractPayment } from "@meridian/contracts";
 
-export interface PaymentApplicationModel {
-  id: string;
-  invoiceId: string;
-  invoiceNumber?: string;
-  amount: number;
-  appliedAt: string;
-}
-
-export interface PaymentModel {
-  id: string;
-  customerId: string;
-  customerName?: string;
-  amount: number;
-  receivedAt: string;
-  reference: string | null;
-  applied: number;
-  unapplied: number;
-  applications: PaymentApplicationModel[];
-}
+export type PaymentModel = ContractPayment;
 
 type PaymentRow = Payment & {
   customer?: { name: string };
@@ -34,7 +17,7 @@ export function toPaymentModel(row: PaymentRow): PaymentModel {
     appliedAt: application.appliedAt.toISOString(),
   }));
   const applied = applications.reduce((sum, application) => sum + application.amount, 0);
-  return {
+  return PaymentSchema.parse({
     id: row.id,
     customerId: row.customerId,
     customerName: row.customer?.name,
@@ -44,5 +27,5 @@ export function toPaymentModel(row: PaymentRow): PaymentModel {
     applied,
     unapplied: row.amount - applied,
     applications,
-  };
+  });
 }

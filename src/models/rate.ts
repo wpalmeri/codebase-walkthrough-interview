@@ -1,36 +1,18 @@
 import type { ComboDiscount, Product, Rate } from "@prisma/client";
+import {
+  ComboDiscountSchema,
+  type ComboDiscount as ContractComboDiscount,
+  RateSchema,
+  type Rate as ContractRate,
+} from "@meridian/contracts";
 import { parseRateTiers } from "../domain/rateTier";
-import type { RateTier } from "../domain/rateTier";
 
-export type { RateTier } from "../domain/rateTier";
-
-export interface ComboProductModel {
-  id: string;
-  sku: string;
-  name: string;
-}
-
-export interface RateModel {
-  id: string;
-  customerId: string;
-  productId: string;
-  productSku?: string;
-  productName?: string;
-  unitPrice: number;
-  tiers: RateTier[];
-  effectiveDate: string;
-}
-
-export interface ComboDiscountModel {
-  id: string;
-  customerId: string | null; // null = global
-  name: string;
-  products: ComboProductModel[];
-  percentOff: number;
-}
+export type { RateTier } from "@meridian/contracts";
+export type RateModel = ContractRate;
+export type ComboDiscountModel = ContractComboDiscount;
 
 export function toRateModel(row: Rate & { product?: Product }): RateModel {
-  return {
+  return RateSchema.parse({
     id: row.id,
     customerId: row.customerId,
     productId: row.productId,
@@ -39,13 +21,13 @@ export function toRateModel(row: Rate & { product?: Product }): RateModel {
     unitPrice: row.unitPrice,
     tiers: parseRateTiers(row.tiers),
     effectiveDate: row.effectiveDate.toISOString(),
-  };
+  });
 }
 
 export function toComboDiscountModel(
   row: ComboDiscount & { products?: Product[] }
 ): ComboDiscountModel {
-  return {
+  return ComboDiscountSchema.parse({
     id: row.id,
     customerId: row.customerId,
     name: row.name,
@@ -55,5 +37,5 @@ export function toComboDiscountModel(
       name: product.name,
     })),
     percentOff: row.percentOff,
-  };
+  });
 }

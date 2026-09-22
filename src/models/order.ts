@@ -1,41 +1,7 @@
 import type { Invoice, Order, OrderComment, OrderItem, Product } from "@prisma/client";
+import { OrderSchema, type Order as ContractOrder } from "@meridian/contracts";
 
-export interface OrderItemModel {
-  id: string;
-  productId: string;
-  productSku?: string;
-  productName?: string;
-  rateId: string;
-  quantity: number;
-  unitPrice: number;
-  amount: number;
-}
-
-export interface OrderCommentModel {
-  id: string;
-  author: string;
-  body: string;
-  createdAt: string;
-}
-
-export interface OrderModel {
-  id: string;
-  reference: string | null;
-  customerId: string;
-  customerName?: string;
-  customerEmail?: string;
-  billingAddress?: string | null;
-  orderDate: string;
-  status: string;
-  shipTo: string | null;
-  notes: string | null;
-  items: OrderItemModel[];
-  comments: OrderCommentModel[];
-  total: number;
-  invoiceId: string | null;
-  invoiceNumber: string | null;
-  invoiceStatus: string | null;
-}
+export type OrderModel = ContractOrder;
 
 type OrderRow = Order & {
   customer?: { name: string; email: string; billingAddress: string | null };
@@ -55,7 +21,7 @@ export function toOrderModel(row: OrderRow): OrderModel {
     unitPrice: item.unitPrice,
     amount: item.unitPrice * item.quantity,
   }));
-  return {
+  return OrderSchema.parse({
     id: row.id,
     reference: row.reference,
     customerId: row.customerId,
@@ -77,5 +43,5 @@ export function toOrderModel(row: OrderRow): OrderModel {
     invoiceId: row.invoice?.id ?? null,
     invoiceNumber: row.invoice?.number ?? null,
     invoiceStatus: row.invoice?.status ?? null,
-  };
+  });
 }

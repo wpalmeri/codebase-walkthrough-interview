@@ -4,7 +4,8 @@
   "private": true,
   "packageManager": "bun@1.4.0",
   "workspaces": [
-    "client"
+    "client",
+    "packages/*"
   ],
   "description": "Meridian — billing system for invoices and accounts receivable",
   "scripts": {
@@ -22,6 +23,7 @@
     "setup": "bun install --frozen-lockfile && prisma db push && bun run db:seed"
   },
   "dependencies": {
+    "@meridian/contracts": "workspace:*",
     "@prisma/client": "^6.5.0",
     "express": "^4.21.2"
   },
