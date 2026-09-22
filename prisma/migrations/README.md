@@ -127,3 +127,14 @@ but changing an amount, party, receipt timestamp/reference, application relation
 captured exact value is rejected. Neither payments nor applications can be deleted. Corrections must be modeled as
 an approved reversal/adjustment workflow in a later additive release, never by mutating ledger
 history.
+
+## Read-only financial reconciliation
+
+Run `bun run db:audit:financial` after every bounded financial backfill and before an accounting
+close. It performs no writes and reports stable machine-readable issue codes for missing exact,
+currency, snapshot, or accounting fields; snapshot-backed order arithmetic; invoice/payment
+application totals; cross-party/currency errors; and lifecycle contradictions. The default scan
+is deterministic primary-key pagination; tune `RECONCILIATION_BATCH_SIZE` and
+`RECONCILIATION_MAX_BATCHES_PER_ENTITY` for a bounded production pass. A nonzero exit means
+violations (or exit code 2 when the configured bound stops before all rows are scanned); never
+use this audit to repair data.
