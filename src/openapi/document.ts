@@ -38,7 +38,11 @@ export function createOpenApiV1Document(operations: readonly AnyApiOperation[]) 
       [String(operation.success.status)]: {
         description: operation.success.description,
         headers: operation.responseHeaders,
-        content: { [JSON_MEDIA_TYPE]: { schema: operation.success.schema } },
+        content: {
+          [JSON_MEDIA_TYPE]: {
+            schema: operation.success.openApiSchema ?? operation.success.schema,
+          },
+        },
       },
     };
     for (const status of operation.errors) {

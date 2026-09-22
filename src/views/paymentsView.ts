@@ -3,30 +3,59 @@ import {
   GetPaymentRequestSchema,
   ListPaymentsRequestSchema,
   ListPaymentsV1RequestSchema,
+  PaymentApplicationReversalSchema,
+  PaymentPageSchema,
+  PaymentSchema,
   RecordPaymentRequestSchema,
   ReversePaymentApplicationRequestSchema,
 } from "@meridian/contracts";
 import { Router } from "express";
-import { BILLING_WRITE_ROLES, READ_ROLES, requireRole } from "../auth/authorization";
+import { z } from "zod";
+import { BILLING_WRITE_ROLES, READ_ROLES } from "../auth/authorization";
 import { requestAuditMetadata } from "../audit/requestAudit";
 import * as payments from "../controllers/paymentController";
 import { isV1Request } from "../http/apiVersion";
 import { formatNextPageLink } from "../http/pagination";
-import { h, RequestValidationError, validateRequest } from "./helpers";
+import {
+  IdempotencyRequestHeadersSchema,
+  defineOperation,
+  mountOperation,
+} from "../openapi/operation";
+import { RequestValidationError, validateRequest } from "./helpers";
 
-export const paymentsView = Router();
+// The mounted legacy adapter deliberately remains an array while `/api/v1`
+// returns the additive page envelope. One operation retains runtime validation
+// for both representations; generated OpenAPI is consumed only as the v1 API.
+const PaymentListResponseSchema = z.union([PaymentSchema.array(), PaymentPageSchema]);
 
-paymentsView.get(
-  "/",
-  h(async (req, response) => {
-    const tenantId = requireRole(req, READ_ROLES).tenantId;
-    if (!isV1Request(req)) {
-      validateRequest(ListPaymentsRequestSchema, req);
-      return payments.listPayments(tenantId);
+const listPaymentsOperation = defineOperation({
+  method: "get",
+  path: "/payments",
+  operationId: "listPayments",
+  summary: "List payments",
+  description:
+    "`/api/v1` returns cursor-paginated payments ordered by receivedAt then id; the legacy `/api` adapter remains a first-100 array.",
+  request: ListPaymentsV1RequestSchema,
+  hasJsonBody: false,
+  success: {
+    status: 200,
+    description: "Cursor-paginated payment page",
+    schema: PaymentListResponseSchema,
+    openApiSchema: PaymentPageSchema,
+  },
+  security: "tenantBearer",
+  roles: READ_ROLES,
+  errors: [400, 401, 403, 500],
+  handler: async ({ input, principal, request, response }) => {
+    if (!isV1Request(request)) {
+      // ListPaymentsV1RequestSchema is the v1 public contract. Re-validate
+      // the raw legacy request so query pagination remains an additive v1-only
+      // capability instead of silently changing `/api` behavior.
+      validateRequest(ListPaymentsRequestSchema, request);
+      return payments.listPayments(principal.tenantId);
     }
 
-    const { query } = validateRequest(ListPaymentsV1RequestSchema, req);
-    const page = await payments.listPaymentsPage(tenantId, query);
+    const page = await payments.listPaymentsPage(principal.tenantId, input.query);
     if (!page.ok) {
       throw new RequestValidationError([
         {
@@ -36,62 +65,96 @@ paymentsView.get(
         },
       ]);
     }
-    const link = formatNextPageLink(req.originalUrl, page.page.page.nextCursor);
+    const link = formatNextPageLink(request.originalUrl, page.page.page.nextCursor);
     if (link !== undefined) response.append("Link", link);
     return page.page;
-  })
-);
+  },
+});
 
-paymentsView.get(
-  "/:id",
-  h(async (req) => {
-    const { params } = validateRequest(GetPaymentRequestSchema, req);
-    return payments.getPayment(requireRole(req, READ_ROLES).tenantId, params.id);
-  })
-);
+const getPaymentOperation = defineOperation({
+  method: "get",
+  path: "/payments/:id",
+  operationId: "getPayment",
+  summary: "Get a payment",
+  request: GetPaymentRequestSchema,
+  hasJsonBody: false,
+  success: { status: 200, description: "Payment representation", schema: PaymentSchema },
+  security: "tenantBearer",
+  roles: READ_ROLES,
+  errors: [400, 401, 403, 404, 500],
+  handler: async ({ input, principal }) => payments.getPayment(principal.tenantId, input.params.id),
+});
 
-// Recording a payment and applying it are separate steps.
-paymentsView.post(
-  "/",
-  h(async (req) => {
-    const { body } = validateRequest(RecordPaymentRequestSchema, req);
-    const principal = requireRole(req, BILLING_WRITE_ROLES);
-    return payments.recordPayment(principal.tenantId, body, {
-      metadata: requestAuditMetadata(req, principal),
-    });
-  })
-);
+const recordPaymentOperation = defineOperation({
+  method: "post",
+  path: "/payments",
+  operationId: "recordPayment",
+  summary: "Record a payment receipt",
+  request: RecordPaymentRequestSchema,
+  hasJsonBody: true,
+  success: { status: 200, description: "Recorded payment", schema: PaymentSchema },
+  security: "tenantBearer",
+  roles: BILLING_WRITE_ROLES,
+  errors: [400, 401, 403, 404, 422, 500],
+  requestHeaders: IdempotencyRequestHeadersSchema,
+  handler: async ({ input, principal, request }) =>
+    payments.recordPayment(principal.tenantId, input.body, {
+      metadata: requestAuditMetadata(request, principal),
+    }),
+});
 
-paymentsView.post(
-  "/:id/applications/:applicationId/reversals",
-  h(async (req, res) => {
-    const { params, body } = validateRequest(
-      ReversePaymentApplicationRequestSchema,
-      req
-    );
-    const principal = requireRole(req, BILLING_WRITE_ROLES);
-    const reversal = await payments.reversePaymentApplication(
+const reversePaymentApplicationOperation = defineOperation({
+  method: "post",
+  path: "/payments/:id/applications/:applicationId/reversals",
+  operationId: "reversePaymentApplication",
+  summary: "Reverse an applied payment amount",
+  request: ReversePaymentApplicationRequestSchema,
+  hasJsonBody: true,
+  success: {
+    status: 201,
+    description: "Created payment-application reversal",
+    schema: PaymentApplicationReversalSchema,
+  },
+  security: "tenantBearer",
+  roles: BILLING_WRITE_ROLES,
+  errors: [400, 401, 403, 404, 409, 412, 422, 500],
+  requestHeaders: IdempotencyRequestHeadersSchema,
+  handler: async ({ input, principal, request }) =>
+    payments.reversePaymentApplication(
       principal.tenantId,
-      params.id,
-      params.applicationId,
-      body,
-      { metadata: requestAuditMetadata(req, principal) }
-    );
-    res.status(201);
-    return reversal;
-  })
-);
+      input.params.id,
+      input.params.applicationId,
+      input.body,
+      { metadata: requestAuditMetadata(request, principal) }
+    ),
+});
 
-paymentsView.post(
-  "/:id/apply",
-  h(async (req) => {
-    const { params, body } = validateRequest(ApplyPaymentRequestSchema, req);
-    const principal = requireRole(req, BILLING_WRITE_ROLES);
-    return payments.applyPayment(
-      principal.tenantId,
-      params.id,
-      body.applications,
-      { metadata: requestAuditMetadata(req, principal) }
-    );
-  })
-);
+const applyPaymentOperation = defineOperation({
+  method: "post",
+  path: "/payments/:id/apply",
+  operationId: "applyPayment",
+  summary: "Apply a payment across invoices",
+  request: ApplyPaymentRequestSchema,
+  hasJsonBody: true,
+  success: { status: 200, description: "Payment with current applications", schema: PaymentSchema },
+  security: "tenantBearer",
+  roles: BILLING_WRITE_ROLES,
+  errors: [400, 401, 403, 404, 409, 412, 422, 500],
+  requestHeaders: IdempotencyRequestHeadersSchema,
+  handler: async ({ input, principal, request }) =>
+    payments.applyPayment(principal.tenantId, input.params.id, input.body.applications, {
+      metadata: requestAuditMetadata(request, principal),
+    }),
+});
+
+/** Reused by the OpenAPI inventory; these descriptors are what Express mounts. */
+export const paymentOperations = [
+  listPaymentsOperation,
+  getPaymentOperation,
+  recordPaymentOperation,
+  reversePaymentApplicationOperation,
+  applyPaymentOperation,
+] as const;
+
+export const paymentsView = Router();
+for (const operation of paymentOperations) mountOperation(paymentsView, operation);

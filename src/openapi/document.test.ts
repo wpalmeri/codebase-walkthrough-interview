@@ -3,10 +3,16 @@ import { describe, test } from "node:test";
 import { z } from "zod";
 import { createOpenApiV1Document } from "./document";
 import { customerOperations } from "../views/customersView";
+import { paymentOperations } from "../views/paymentsView";
 import { productOperations } from "../views/productsView";
 import { rateOperations } from "../views/ratesView";
 
-const catalogAndRateOperations = [...customerOperations, ...productOperations, ...rateOperations] as const;
+const documentedOperations = [
+  ...customerOperations,
+  ...productOperations,
+  ...rateOperations,
+  ...paymentOperations,
+] as const;
 
 const OperationSchema = z.object({
   operationId: z.string(),
@@ -24,9 +30,9 @@ function operation(document: unknown, path: string, method: string) {
 }
 
 void describe("generated version-one OpenAPI contract", () => {
-  void test("is deterministic and inventories the exact mounted catalog and rate operations", () => {
-    const first = createOpenApiV1Document(catalogAndRateOperations);
-    const second = createOpenApiV1Document(catalogAndRateOperations);
+  void test("is deterministic and inventories the exact mounted catalog, rate, and payment operations", () => {
+    const first = createOpenApiV1Document(documentedOperations);
+    const second = createOpenApiV1Document(documentedOperations);
     assert.deepEqual(first, second);
 
     const document = z
@@ -43,22 +49,27 @@ void describe("generated version-one OpenAPI contract", () => {
       [
         "get /customers",
         "get /products",
+        "get /payments",
+        "get /payments/{id}",
         "get /rates",
         "get /rates/combos",
         "get /rates/{id}",
         "post /rates/combos",
+        "post /payments",
+        "post /payments/{id}/apply",
+        "post /payments/{id}/applications/{applicationId}/reversals",
         "put /rates/{id}",
       ].toSorted()
     );
-    assert.doesNotThrow(() => createOpenApiV1Document(catalogAndRateOperations));
+    assert.doesNotThrow(() => createOpenApiV1Document(documentedOperations));
     assert.throws(
-      () => createOpenApiV1Document([...catalogAndRateOperations, customerOperations[0]]),
+      () => createOpenApiV1Document([...documentedOperations, customerOperations[0]]),
       /Duplicate OpenAPI operation/u
     );
   });
 
   void test("documents tenant bearer security, correlation, replay, and rate conditional headers", () => {
-    const document = createOpenApiV1Document(catalogAndRateOperations);
+    const document = createOpenApiV1Document(documentedOperations);
     const customers = operation(document, "/customers", "get");
     const products = operation(document, "/products", "get");
     const getRate = operation(document, "/rates/{id}", "get");
@@ -96,5 +107,81 @@ void describe("generated version-one OpenAPI contract", () => {
       .parse(parsed.paths["/rates/{id}"].put.responses["400"]);
     assert.equal("application/json" in badRequest.content, true);
     assert.equal("application/problem+json" in badRequest.content, true);
+  });
+
+  void test("documents payment pagination, bodies, replay headers, statuses, and public error contracts", () => {
+    const document = createOpenApiV1Document(documentedOperations);
+    const list = operation(document, "/payments", "get");
+    const record = operation(document, "/payments", "post");
+    const apply = operation(document, "/payments/{id}/apply", "post");
+    const reverse = operation(document, "/payments/{id}/applications/{applicationId}/reversals", "post");
+
+    for (const paymentOperation of [list, record, apply, reverse]) {
+      assert.deepEqual(paymentOperation.security, [{ tenantBearer: [] }]);
+      assert.equal(
+        paymentOperation.parameters.some((parameter) => parameter.name === "X-Request-ID" && parameter.in === "header"),
+        true
+      );
+    }
+    for (const mutation of [record, apply, reverse]) {
+      assert.equal(mutation.parameters.some((parameter) => parameter.name === "Idempotency-Key"), true);
+      assert.equal(mutation.parameters.some((parameter) => parameter.name === "Idempotency-Client"), true);
+    }
+    assert.equal(list.parameters.some((parameter) => parameter.name === "limit" && parameter.in === "query"), true);
+    assert.equal(list.parameters.some((parameter) => parameter.name === "cursor" && parameter.in === "query"), true);
+    assert.equal(list.parameters.some((parameter) => parameter.name === "customerId" && parameter.in === "query"), true);
+
+    const paths = z
+      .object({
+        paths: z.object({
+          "/payments": z.object({
+            get: z.object({ responses: z.record(z.string(), z.unknown()) }),
+            post: z.object({ requestBody: z.unknown(), responses: z.record(z.string(), z.unknown()) }),
+          }),
+          "/payments/{id}/apply": z.object({
+            post: z.object({ requestBody: z.unknown(), responses: z.record(z.string(), z.unknown()) }),
+          }),
+          "/payments/{id}/applications/{applicationId}/reversals": z.object({
+            post: z.object({ requestBody: z.unknown(), responses: z.record(z.string(), z.unknown()) }),
+          }),
+        }),
+    })
+      .parse(document).paths;
+    const listResponse = JSON.stringify(paths["/payments"].get.responses["200"]);
+    assert.match(listResponse, /nextCursor|PageMetadata/u);
+    assert.match(listResponse, /receivedAt/u);
+    assert.doesNotMatch(
+      listResponse,
+      /oneOf/u,
+      "the v1 document must not advertise the retained legacy array as an alternative top-level shape"
+    );
+    assert.match(JSON.stringify(paths["/payments"].post.requestBody), /customerId/u);
+    assert.match(JSON.stringify(paths["/payments"].post.requestBody), /amount/u);
+    assert.match(JSON.stringify(paths["/payments/{id}/apply"].post.requestBody), /applications/u);
+    assert.match(JSON.stringify(paths["/payments/{id}/applications/{applicationId}/reversals"].post.requestBody), /accountingDate/u);
+    assert.equal("200" in paths["/payments"].post.responses, true);
+    assert.equal("201" in paths["/payments/{id}/applications/{applicationId}/reversals"].post.responses, true);
+    for (const response of [
+      paths["/payments"].get.responses["200"],
+      paths["/payments"].post.responses["200"],
+      paths["/payments/{id}/apply"].post.responses["200"],
+      paths["/payments/{id}/applications/{applicationId}/reversals"].post.responses["201"],
+    ]) {
+      const parsedResponse = z
+        .object({ headers: z.record(z.string(), z.unknown()) })
+        .parse(response);
+      assert.ok(parsedResponse.headers["X-Request-ID"]);
+    }
+    for (const responses of [
+      paths["/payments"].post.responses,
+      paths["/payments/{id}/apply"].post.responses,
+      paths["/payments/{id}/applications/{applicationId}/reversals"].post.responses,
+    ]) {
+      assert.equal("400" in responses, true);
+      assert.equal("401" in responses, true);
+      assert.equal("403" in responses, true);
+      assert.equal("404" in responses, true);
+      assert.equal("application/problem+json" in z.object({ content: z.record(z.string(), z.unknown()) }).parse(responses["404"]).content, true);
+    }
   });
 });

@@ -74,7 +74,10 @@ export interface ApiOperation<RequestSchema extends RequestComposite, SuccessSch
   readonly success: {
     readonly status: number;
     readonly description: string;
+    /** Runtime schema for every mounted adapter, including retained legacy shapes. */
     readonly schema: SuccessSchema;
+    /** Optional versioned-only schema when the legacy adapter has a different response shape. */
+    readonly openApiSchema?: z.ZodType;
   };
   readonly security: ApiSecurity;
   readonly roles: readonly Principal["role"][];
