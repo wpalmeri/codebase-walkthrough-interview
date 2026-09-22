@@ -261,6 +261,21 @@ uses tenant identity derived from authentication; the opaque cursor carries
 only the public customer filter fingerprint and ordering tuple. Legacy
 `/api/payments` remains its existing first-100 array during client migration.
 
+### Catalog cursor pagination
+
+`20260922170000_catalog_cursor_pagination` adds two tenant-first keyset indexes:
+`Customer(tenantId, name, id)` and `Product(tenantId, sku, id)`. It does not alter,
+backfill, or rebuild business rows, but SQLite must scan each existing table while
+building an index and serializes all writers during DDL. Rehearse against a
+production-sized copy, deploy during a controlled low-write window, and monitor
+writer contention; SQLite has no concurrent-index equivalent.
+
+After deploy, `/api/v1/customers` and `/api/v1/products` use additive bounded
+cursor pages ordered by their catalog key then id. Their legacy `/api` routes
+remain bare arrays with their existing behavior. Cursors are bound to a resource
+and a fingerprint including normalized filters plus server-derived tenant
+identity; no plaintext tenant value appears in the cursor payload.
+
 ### Append-only audit events
 
 `20260922130000_audit_events` creates a new empty `AuditEvent` table and two

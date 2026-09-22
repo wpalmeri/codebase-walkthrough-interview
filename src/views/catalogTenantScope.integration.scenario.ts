@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import type { Server } from "node:http";
-import { ValidationErrorResponseSchema } from "@meridian/contracts";
+import {
+  CustomerPageSchema,
+  ProductPageSchema,
+  ValidationErrorResponseSchema,
+} from "@meridian/contracts";
 import { createApp } from "../app";
 import { prisma } from "../db";
 import type { Principal } from "../auth/principal";
@@ -197,10 +201,10 @@ async function main(): Promise<void> {
     const v1Customers = await request(server, "tenant-a-viewer", "/customers", {}, "v1");
     const v1Products = await request(server, "tenant-a-viewer", "/products", {}, "v1");
     assert.equal(v1Customers.status, 200);
-    assert.deepEqual(ids(v1Customers.body), ["catalog-customer-a"]);
+    assert.deepEqual(ids(CustomerPageSchema.parse(v1Customers.body).data), ["catalog-customer-a"]);
     assert.equal(v1Customers.successorLink, null);
     assert.equal(v1Products.status, 200);
-    assert.deepEqual(ids(v1Products.body), ["catalog-product-a"]);
+    assert.deepEqual(ids(ProductPageSchema.parse(v1Products.body).data), ["catalog-product-a"]);
     assert.equal(v1Products.successorLink, null);
 
     const address = server.address();

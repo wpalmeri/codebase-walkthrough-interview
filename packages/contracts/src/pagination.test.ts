@@ -6,6 +6,7 @@ import {
   PageEnvelopeSchema,
   PaginationQuerySchema,
   fingerprintPaginationFilters,
+  fingerprintTenantPaginationBinding,
   formatPaginationCursor,
   parsePaginationCursor,
 } from "./pagination.js";
@@ -78,6 +79,29 @@ void describe("cursor pagination contract", () => {
       fingerprintPaginationFilters({ status: "OPEN", customerId: "cust_1" }),
       fingerprintPaginationFilters({ customerId: "cust_1", status: "OPEN" })
     );
+  });
+
+  void test("adds opaque server-derived tenant binding without weakening public filter normalization", () => {
+    const tenantA = fingerprintTenantPaginationBinding(
+      { status: "OPEN", customerId: "cust_1" },
+      "tenant-a"
+    );
+    const tenantAReordered = fingerprintTenantPaginationBinding(
+      { customerId: "cust_1", status: "OPEN" },
+      "tenant-a"
+    );
+    const tenantB = fingerprintTenantPaginationBinding(
+      { customerId: "cust_1", status: "OPEN" },
+      "tenant-b"
+    );
+    assert.equal(tenantA, tenantAReordered);
+    assert.notEqual(tenantA, tenantB);
+
+    const cursor = formatPaginationCursor({ resource: "orders", filterFingerprint: tenantA, ordering: ["ord_1"] });
+    assert.deepEqual(parsePaginationCursor(cursor, { resource: "orders", filterFingerprint: tenantB }), {
+      ok: false,
+      code: "CURSOR_FILTER_MISMATCH",
+    });
   });
 
   void test("enforces the exact additive page response envelope", () => {

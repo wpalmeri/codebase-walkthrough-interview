@@ -57,6 +57,10 @@ export const CustomerSchema = z.object({
 });
 export type Customer = z.infer<typeof CustomerSchema>;
 
+/** Additive v1 envelope; legacy customer lists remain bare arrays. */
+export const CustomerPageSchema = PageEnvelopeSchema(CustomerSchema);
+export type CustomerPage = z.infer<typeof CustomerPageSchema>;
+
 export const ProductSchema = z.object({
   id,
   sku: z.string(),
@@ -67,6 +71,10 @@ export const ProductSchema = z.object({
   currencyCode: CurrencyCodeSchema.optional(),
 });
 export type Product = z.infer<typeof ProductSchema>;
+
+/** Additive v1 envelope; legacy product lists remain bare arrays. */
+export const ProductPageSchema = PageEnvelopeSchema(ProductSchema);
+export type ProductPage = z.infer<typeof ProductPageSchema>;
 
 export const RateTierSchema = z.object({
   upTo: z.number().positive().nullable(),

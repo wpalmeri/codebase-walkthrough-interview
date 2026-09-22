@@ -203,6 +203,7 @@ model Customer {
   tenant         Tenant?         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([tenantId])
+  @@index([tenantId, name, id])
 }
 
 model Product {
@@ -222,6 +223,7 @@ model Product {
   tenant     Tenant?         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([tenantId])
+  @@index([tenantId, sku, id])
 }
 
 // One rate per customer+product. Edits update this row with the new price.

@@ -169,8 +169,24 @@ function uniqueBy<T>(
 export const ListCustomersRequestSchema = EmptyRequestSchema;
 export type ListCustomersRequest = z.infer<typeof ListCustomersRequestSchema>;
 
+/** Pagination is additive on `/api/v1`; legacy `/api/customers` stays an array. */
+export const ListCustomersV1RequestSchema = requestSchema(
+  EmptyParamsSchema,
+  PaginationQuerySchema,
+  NoBodySchema
+);
+export type ListCustomersV1Request = z.infer<typeof ListCustomersV1RequestSchema>;
+
 export const ListProductsRequestSchema = EmptyRequestSchema;
 export type ListProductsRequest = z.infer<typeof ListProductsRequestSchema>;
+
+/** Pagination is additive on `/api/v1`; legacy `/api/products` stays an array. */
+export const ListProductsV1RequestSchema = requestSchema(
+  EmptyParamsSchema,
+  PaginationQuerySchema,
+  NoBodySchema
+);
+export type ListProductsV1Request = z.infer<typeof ListProductsV1RequestSchema>;
 
 export const ListRatesRequestSchema = requestSchema(
   EmptyParamsSchema,

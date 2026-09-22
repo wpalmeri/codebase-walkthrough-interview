@@ -44,6 +44,7 @@ async function main(): Promise<void> {
       "20260922140000_order_conditional_writes",
       "20260922150000_customer_email_guard",
       "20260922160000_invoice_conditional_writes",
+      "20260922170000_catalog_cursor_pagination",
     ]
   );
 
@@ -125,6 +126,18 @@ async function main(): Promise<void> {
     WHERE type = 'index' AND name = 'Payment_tenantId_receivedAt_id_idx'
   `;
   assert.deepEqual(paymentPaginationIndex, [{ name: "Payment_tenantId_receivedAt_id_idx" }]);
+
+  const catalogPaginationIndexes = await prisma.$queryRaw<NamedRow[]>`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'index'
+      AND name IN ('Customer_tenantId_name_id_idx', 'Product_tenantId_sku_id_idx')
+    ORDER BY name
+  `;
+  assert.deepEqual(catalogPaginationIndexes, [
+    { name: "Customer_tenantId_name_id_idx" },
+    { name: "Product_tenantId_sku_id_idx" },
+  ]);
 
   const auditIndexes = await prisma.$queryRaw<NamedRow[]>`
     SELECT name
